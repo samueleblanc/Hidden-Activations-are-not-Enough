@@ -6,6 +6,7 @@ from torchvision import transforms
 import shutil
 
 from model_zoo.mlp import MLP
+from model_zoo.cnn import CNN_2D
 from constants.constants import ARCHITECTURES
 
 
@@ -21,14 +22,21 @@ def get_device():
         return torch.device("cpu")
 
 
-def get_architecture(input_shape=(1, 28, 28), num_classes=10, architecture_index=0, residual=False, dropout=False):
-    model = MLP(input_shape=input_shape,
-                num_classes=num_classes,
-                hidden_sizes=ARCHITECTURES[architecture_index],
-                residual=residual,
-                bias=True,
-                dropout=dropout,
-                )
+def get_architecture(input_shape=(1, 28, 28), num_classes=10, architecture_index=0, residual=False, dropout=False) -> MLP|CNN_2D:
+    if architecture_index <= 7:
+        model = MLP(input_shape=input_shape,
+                    num_classes=num_classes,
+                    hidden_sizes=ARCHITECTURES[architecture_index],
+                    residual=residual,
+                    bias=True,
+                    dropout=dropout,
+                    )
+    else:
+        model = CNN_2D(input_shape=input_shape,
+                       num_classes=num_classes,
+                       channels=ARCHITECTURES[architecture_index][0],
+                       fc=ARCHITECTURES[architecture_index][1]
+                       )
     return model
 
 
@@ -68,7 +76,16 @@ def get_dataset(data_set, batch_size=32, data_loader=True, data_path=None):
         else:
             return train_set, test_set
     elif data_set == 'cifar10':
-        train_set = torchvision.datasets.CIFAR10(root=data_path, train=True, transform=transform, download=True)
+        # Use data augmentation for CIFAR-10
+        transform_train = transforms.Compose([transforms.Resize((32,32)),
+                                      transforms.RandomHorizontalFlip(),
+                                      transforms.RandomRotation(7),
+                                      transforms.RandomAffine(0, shear=6, scale=(0.9,1.1)),
+                                      transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1),
+                                      transforms.ToTensor(),
+                                      transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+                               ])
+        train_set = torchvision.datasets.CIFAR10(root=data_path, train=True, transform=transform_train, download=True)
         test_set = torchvision.datasets.CIFAR10(root=data_path, train=False, transform=transform, download=True)
         if data_loader:
             train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, shuffle=True)
