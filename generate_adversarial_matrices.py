@@ -6,7 +6,9 @@ import argparse
 from multiprocessing import Pool
 from pathlib import Path
 
-from matrix_construction.representation import MlpRepresentation
+from model_zoo.mlp import MLP
+from model_zoo.cnn import CNN_2D
+from matrix_construction.representation import MlpRepresentation, ConvRepresentation_2D
 from utils.utils import get_model
 from constants.constants import DEFAULT_EXPERIMENTS, ATTACKS
 from utils.utils import zip_and_cleanup
@@ -39,7 +41,12 @@ def parse_args(parser=None):
 
 def save_one_matrix(im, attack, i, default_index, weights_path, architecture_index, residual, input_shape, dropout, temp_dir):
     model = get_model(weights_path, architecture_index, residual, input_shape, dropout)
-    representation = MlpRepresentation(model)
+    if isinstance(model, MLP):
+        representation = MlpRepresentation(model)
+    elif isinstance(model, CNN_2D):
+        representation = ConvRepresentation_2D(model)
+    else:
+        NotImplementedError()
     if temp_dir is not None:
         matrix_save_path = Path(f'{temp_dir}/experiments/{default_index}/adversarial_matrices') / f'{attack}' / f'{i}/matrix.pth'
     else:

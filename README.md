@@ -1,16 +1,18 @@
-# Hidden Activations are not Enough
+# Hidden Activations Are Not Enough:
+## A General Approach to Neural Network Predictions
 
-This repository refers to the paper <a href="https://arxiv.org/abs/2409.13163" target="_blank">Hidden Activations Are Not Enough: A General Approach to Neural Network Predictions</a>.
+This repository refers to the paper <a href="https://arxiv.org/abs/2409.13163" target="_blank">Hidden Activations Are Not Enough: A General Approach to Neural Network Predictions</a> by Samuel Leblanc, Aiky Rasolomanana, and Marco Armenta.
 
 Here is a simplified version of what this code does. Given a neural network and a data sample, we can compute a quiver representation and from it a matrix. We use these induced matrices to detect adversarial examples by converting new data samples fed to the network into matrices and comparing them to statistics taken on a subset of the training set.
 
-You will find code to train MLPs; generate quiver representations on these networks and their corresponding matrices; computation of matrix statistics per class, i.e., mean and standard deviation; generate adversarial examples and the matrices they induce; compute a rejection level based on a subset of the train set (either MNIST or FashionMNIST, although other datasets may be added too) and the detection algorithm explained in the paper through a grid search.
+You will find code to train MLPs or 2D CNNs; generate quiver representations on these networks and their corresponding matrices; computation of matrix statistics per class, i.e., mean and standard deviation; generate adversarial examples and the matrices they induce; compute a rejection level based on a subset of the train set (either MNIST, FashionMNIST, or CIFAR-10, although other datasets may be added too) and the detection algorithm explained in the paper through a grid search.
 
 ## Repository content
 
-* [constants](constants/constants.py): contains the MLP architectures used with the 17 different hyperparameters used to train them, as well as the adversarial attack methods used. 
+* [constants](constants/constants.py): contains the MLP and CNN architectures used with the 20 different hyperparameters used to train them, as well as the adversarial attack methods used. 
 * [matrix_construction](matrix_construction): contains the functions for constructing the matrices induced by a neural network. 
 * [mlp](model_zoo/mlp.py): contains the MLP model that saves activations and pre-activations of neurons on a single forward pass to later construct a quiver representation and the induced matrices. 
+* [cnn](model_zoo/cnn.py): contains the CNN model that saves activations and pre-activations of neurons on a single forward pass to later construct a quiver representation and the induced matrices. 
 * [test_mlp_rep](unit_test/test_mlp_rep.py): contains unit testing for constructing an induced quiver representation for random inputs on random MLP architectures. 
 * [utils](utils/utils.py): contains utils for datasets, models, computation of mean and standard deviation of matrices, etc.
 
@@ -36,7 +38,7 @@ pip install -r requirements-slurm.txt
 
 ## Running experiments
 
-For a fixed index `idx` between 0 and 16 you train the corresponding default experiment specified in `constants/constants.py`.
+For a fixed index `idx` between 0 and 16 you train the corresponding default experiment with a MLP specified in `constants/constants.py`. To train a CNN, use an index `idx` between 17 and 19. 
 By specifying their architecture and training hyperparameters, you can manually add more default experiments to the DEFAULT_EXPERIMENTS dictionary in `constants/constants.py`.
 
 Only the training is done on GPU. Every other script runs on CPUs in parallel according to the variable `--nb_workers`.

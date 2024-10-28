@@ -6,19 +6,20 @@ import torch
 from torch.utils.data import DataLoader, Subset
 
 from model_zoo.mlp import MLP
-from matrix_construction.representation import MlpRepresentation
+from model_zoo.cnn import CNN_2D
+from matrix_construction.representation import MlpRepresentation, ConvRepresentation_2D
 from utils.utils import get_architecture, get_dataset
 
 
 def compute_chunk_of_matrices(data: torch.Tensor,
-                              representation: MLP,
+                              representation: MLP|CNN_2D,
                               clas: int,
                               chunk_size: int = 10,
                               save_path=None,
                               chunk_id: int = 0) -> None:
     """
-    Given a subset of data and an MlpRepresentation, it computes and saves accordingly
-    the induced matrices in the corresponding chunk of samples in data
+    Given a subset of data and an MlpRepresentation or ConvRepresentation_2D, 
+    it computes and saves accordingly the induced matrices in the corresponding chunk of samples in data
     """
     if save_path is not None:
         directory = save_path + '/' + str(clas) + '/'
@@ -61,12 +62,14 @@ class MatrixConstruction:
         self.num_classes = 10
         self.data = get_dataset(self.dataname, data_loader=False)[0]
 
-    def compute_matrices_on_dataset(self, model: MLP, chunk_id: int) -> None:
+    def compute_matrices_on_dataset(self, model: MLP|CNN_2D, chunk_id: int) -> None:
         if isinstance(model, MLP):
             representation = MlpRepresentation(model=model)
+        elif isinstance(model, CNN_2D):
+            representation = ConvRepresentation_2D(model=model)
         else:
             raise ValueError(f"Architecture not supported: {model}."
-                             f"Expects MLP")
+                             f"Expects MLP or CNN")
 
         for i in range(self.num_classes):
             train_indices = [idx for idx, target in enumerate(self.data.targets) if target in [i]]

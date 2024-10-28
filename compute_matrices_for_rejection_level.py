@@ -1,6 +1,8 @@
 from utils.utils import get_model, subset, get_dataset, zip_and_cleanup
 from constants.constants import DEFAULT_EXPERIMENTS
-from matrix_construction.representation import MlpRepresentation
+from model_zoo.mlp import MLP
+from model_zoo.cnn import CNN_2D
+from matrix_construction.representation import MlpRepresentation, ConvRepresentation_2D
 from pathlib import Path
 import argparse
 import torch
@@ -42,7 +44,12 @@ def compute_one_matrix(args):
     im, label, weights_path, architecture_index, residual, input_shape, default_index, dropout, i, temp_dir = args
 
     model = get_model(weights_path, architecture_index, residual, input_shape, dropout)
-    representation = MlpRepresentation(model)
+    if isinstance(model, MLP):
+        representation = MlpRepresentation(model)
+    elif isinstance(model, CNN_2D):
+        representation = ConvRepresentation_2D(model)
+    else:
+        NotImplementedError()
     pred = torch.argmax(model.forward(im))
     if temp_dir is not None:
         path_experiment_matrix = Path(f'{temp_dir}/experiments/{default_index}/rejection_levels/matrices/{i}/matrix.pth')

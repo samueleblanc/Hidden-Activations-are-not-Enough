@@ -17,10 +17,13 @@ echo "Weights copied to temp directory..."
 
 mkdir -p $SLURM_TMPDIR/data/MNIST/
 mkdir -p $SLURM_TMPDIR/data/FashionMNIST/
+mkdir -p $SLURM_TMPDIR/data/CIFAR10/
 echo "Copying datasets..."
 cp -r data/MNIST/* $SLURM_TMPDIR/data/MNIST/
 echo "MNIST ready"
 cp -r data/FashionMNIST/* $SLURM_TMPDIR/data/FashionMNIST/
 echo "Fashion ready"
+cp -r data/CIFAR10/* $SLURM_TMPDIR/data/CIFAR10/
+echo "CIFAR10 ready"
 
 python generate_adversarial_examples.py --default_index $SLURM_ARRAY_TASK_ID --nb_workers $SLURM_CPUS_PER_TASK --temp_dir=$SLURM_TMPDIR

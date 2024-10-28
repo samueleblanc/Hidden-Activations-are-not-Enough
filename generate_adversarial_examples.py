@@ -58,22 +58,27 @@ def apply_attack(attack_name, data, labels, weights_path, architecture_index, pa
                                 torchattacks.PGD(model),
                                 torchattacks.EOTPGD(model),
                                 torchattacks.FFGSM(model),
-                                torchattacks.TPGD(model),
+                                torchattacks.TPGD(model),     # Delete ?
                                 torchattacks.MIFGSM(model),
                                 torchattacks.UPGD(model),
                                 torchattacks.DIFGSM(model),
                                 torchattacks.Jitter(model),
-                                torchattacks.NIFGSM(model),
+                                torchattacks.NIFGSM(model),   # Delete ?
                                 torchattacks.PGDRS(model),
-                                torchattacks.VMIFGSM(model),
-                                torchattacks.VNIFGSM(model),
+                                torchattacks.VMIFGSM(model),  # Delete ?
+                                torchattacks.VNIFGSM(model),  # Delete ?
                                 torchattacks.CW(model),
-                                torchattacks.PGDL2(model),
-                                torchattacks.PGDRSL2(model),
+                                torchattacks.PGDL2(model),    # Delete ?
+                                torchattacks.PGDRSL2(model),  # Delete ?
                                 torchattacks.DeepFool(model),
                                 torchattacks.SparseFool(model),
                                 torchattacks.OnePixel(model),
                                 torchattacks.Pixle(model),
+                                torchattacks.FAB(model),
+                                torchattacks.SPSA(model),
+                                torchattacks.JSMA(model),
+                                torchattacks.EADL1(model),
+                                torchattacks.EADEN(model)
                                 ]))
     try:
         attacked_data = attacks_classes[attack_name](data, labels)

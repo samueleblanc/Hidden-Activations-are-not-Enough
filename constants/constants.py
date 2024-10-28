@@ -14,11 +14,39 @@ ARCHITECTURES = [# 0 -> 0, 1, 2, 3
                  # 6 -> 15, 16
                  (2500000, ),
                  # 7 -> 8
-                 (814, 351, 118, 467, 823, 191, 756, 628, 935, 270)
+                 (814, 351, 118, 467, 823, 191, 756, 628, 935, 270),
+                 # CNNs
+                 ((10,10,10,10), (300,)),
+                 ((12,10,10,10), (300,))
                  ]
 
-ATTACKS = ["GN", "FGSM", "RFGSM", "PGD", "EOTPGD", "FFGSM", "TPGD", "MIFGSM", "UPGD", "DIFGSM", "NIFGSM",
-           "PGDRS", "VMIFGSM", "VNIFGSM", "CW", "PGDL2", "PGDRSL2", "DeepFool", "SparseFool", "OnePixel", "Pixle"]
+ATTACKS = ["GN", 
+           "FGSM", 
+           "RFGSM", 
+           "PGD", 
+           "EOTPGD", 
+           "FFGSM", 
+           "TPGD",       # Delete ?
+           "MIFGSM", 
+           "UPGD", 
+           "DIFGSM", 
+           "NIFGSM",     # Delete ?
+           "PGDRS", 
+           "VMIFGSM",    # Delete ?
+           "VNIFGSM",    # Delete ?
+           "CW", 
+           "PGDL2",      # Delete ?
+           "PGDRSL2",    # Delete ?
+           "DeepFool", 
+           "SparseFool", 
+           "OnePixel", 
+           "Pixle",
+           "FAB",
+           "SPSA",
+           "JSMA",
+           "EADL1",
+           "EADEN"
+           ]
 
 DEFAULT_EXPERIMENTS = {
     'experiment_0': {
@@ -238,6 +266,45 @@ DEFAULT_EXPERIMENTS = {
         'epoch': 11,
         'reduce_lr_each': 5,
         'save_every_epochs': 1,
+        'residual': False,
+        'weight_decay': 0,
+        'dropout': 0,
+    },
+    'experiment_17': {
+        'architecture_index': 8,
+        'optimizer': 'sgd',
+        'dataset': 'mnist',
+        'lr': 0.01,
+        'batch_size': 32,
+        'epoch': 11,
+        'reduce_lr_each': 40,
+        'save_every_epochs': 1,
+        'residual': False,
+        'weight_decay': 0,
+        'dropout': 0,
+    },
+    'experiment_18': {
+        'architecture_index': 8,
+        'optimizer': 'momentum',
+        'dataset': 'cifar10',
+        'lr': 0.01,
+        'batch_size': 32,
+        'epoch': 61,
+        'reduce_lr_each': 55,
+        'save_every_epochs': 5,
+        'residual': False,
+        'weight_decay': 0,
+        'dropout': 0,
+    },
+    'experiment_19': {
+        'architecture_index': 9,
+        'optimizer': 'adam',
+        'dataset': 'cifar10',
+        'lr': 0.001,
+        'batch_size': 64,
+        'epoch': 61,
+        'reduce_lr_each': 55,
+        'save_every_epochs': 5,
         'residual': False,
         'weight_decay': 0,
         'dropout': 0,
