@@ -75,6 +75,7 @@ def apply_attack(attack_name, data, labels, weights_path, architecture_index, pa
                                 torchattacks.OnePixel(model),
                                 torchattacks.Pixle(model),
                                 torchattacks.FAB(model),
+                                torchattacks.Square(model),
                                 torchattacks.SPSA(model),
                                 torchattacks.JSMA(model),
                                 torchattacks.EADL1(model),
