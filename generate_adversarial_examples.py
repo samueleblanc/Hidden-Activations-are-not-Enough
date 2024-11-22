@@ -58,22 +58,24 @@ def apply_attack(attack_name, data, labels, weights_path, architecture_index, pa
                                 torchattacks.PGD(model),
                                 torchattacks.EOTPGD(model),
                                 torchattacks.FFGSM(model),
-                                torchattacks.TPGD(model),     # Delete ?
+                                # torchattacks.TPGD(model),
                                 torchattacks.MIFGSM(model),
                                 torchattacks.UPGD(model),
                                 torchattacks.DIFGSM(model),
                                 torchattacks.Jitter(model),
-                                torchattacks.NIFGSM(model),   # Delete ?
+                                # torchattacks.NIFGSM(model),
                                 torchattacks.PGDRS(model),
-                                torchattacks.VMIFGSM(model),  # Delete ?
-                                torchattacks.VNIFGSM(model),  # Delete ?
+                                # torchattacks.VMIFGSM(model),
+                                # torchattacks.VNIFGSM(model),
                                 torchattacks.CW(model),
-                                torchattacks.PGDL2(model),    # Delete ?
-                                torchattacks.PGDRSL2(model),  # Delete ?
+                                # torchattacks.PGDL2(model),
+                                # torchattacks.PGDRSL2(model),
                                 torchattacks.DeepFool(model),
                                 torchattacks.SparseFool(model),
                                 torchattacks.OnePixel(model),
                                 torchattacks.Pixle(model),
+                                torchattacks.APGD(model),
+                                torchattacks.APGDT(model),
                                 torchattacks.FAB(model),
                                 torchattacks.Square(model),
                                 torchattacks.SPSA(model),

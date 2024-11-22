@@ -26,21 +26,23 @@ ATTACKS = ["GN",
            "PGD", 
            "EOTPGD", 
            "FFGSM", 
-           "TPGD",       # Delete ?
+           # "TPGD",
            "MIFGSM", 
            "UPGD", 
            "DIFGSM", 
-           "NIFGSM",     # Delete ?
+           # "NIFGSM",
            "PGDRS", 
-           "VMIFGSM",    # Delete ?
-           "VNIFGSM",    # Delete ?
+           # "VMIFGSM",  
+           #"VNIFGSM",
            "CW", 
-           "PGDL2",      # Delete ?
-           "PGDRSL2",    # Delete ?
+           # "PGDL2",
+           # "PGDRSL2",
            "DeepFool", 
            "SparseFool", 
            "OnePixel", 
            "Pixle",
+           "APGD",
+           "APGDT",
            "FAB",
            "Square",
            "SPSA",
