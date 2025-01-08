@@ -9,7 +9,7 @@ import torch.nn as nn
 class CNN_2D(nn.Module):
     def __init__(
         self, input_shape: tuple[int,int,int], num_classes: int, channels:tuple[int]=(8, 16), fc:tuple[int]=(500), kernel_size:tuple[int,int]=(3, 3), 
-        bias:bool=False, residual:bool=False, batch_norm:bool=False, dropout:bool=False, num_skipped_layers:bool=3,save:bool=False) -> None:
+        bias:bool=False, residual:bool=False, batch_norm:bool=False, dropout:bool=False, num_skipped_layers:bool=3, activation:str="relu", save:bool=False) -> None:
         super().__init__()
         self.input_shape = input_shape
         c, h, w = input_shape
@@ -22,8 +22,9 @@ class CNN_2D(nn.Module):
         self.residual = residual
         self.bias = bias
         self.batch_norm = batch_norm
-        self.dropout = True #dropout
+        self.dropout = True
         self.matrix_input_dim = c*w*h + 1 if bias or batch_norm else c*w*h
+        self.activation = activation
 
         # Conv2d layers are hardcoded for padding=(1, 1) which keeps the shape (channels[0],w,w) after it is applied
         self.conv_layers.append(nn.Conv2d(in_channels=input_shape[0],
@@ -36,7 +37,7 @@ class CNN_2D(nn.Module):
 
         if isinstance(channels, tuple):
             for i in range(1, len(channels)):
-                self.conv_layers.append(nn.ReLU())
+                self.conv_layers.append(self.get_activation_fn())
                 self.conv_layers.append(nn.Conv2d(in_channels=channels[i-1],
                                                 out_channels=channels[i],
                                                 kernel_size=kernel_size,
@@ -45,7 +46,7 @@ class CNN_2D(nn.Module):
                 if batch_norm: self.conv_layers.append(nn.BatchNorm2d(channels[i]))
 
         if self.dropout: self.conv_layers.append(nn.Dropout(0.25))
-        self.conv_layers.append(nn.ReLU())
+        self.conv_layers.append(self.get_activation_fn())
         # Average pooling is hardcoded for kernel_size=4 and padding=0
         self.conv_layers.append(nn.AvgPool2d(kernel_size=4, padding=0))
         self.fc_layers.append(nn.Linear(in_features=(channels[-1] if isinstance(channels, tuple) else channels) * (input_shape[1]//4) * (input_shape[2]//4),
@@ -56,19 +57,21 @@ class CNN_2D(nn.Module):
 
         if isinstance(fc, tuple):
             for i in range(1, len(fc)):
-                self.fc_layers.append(nn.ReLU())
+                self.fc_layers.append(self.get_activation_fn())
                 if dropout: self.fc_layers.append(nn.Dropout(0.5))
                 self.fc_layers.append(nn.Linear(in_features=fc[i-1],
                                                 out_features=fc[i],
                                                 bias=bias))
-        self.fc_layers.append(nn.ReLU())
+        self.fc_layers.append(self.get_activation_fn())
         # if dropout: self.fc_layers.append(nn.Dropout(0.5))
         self.fc_layers.append(nn.Linear(in_features=fc[-1] if isinstance(fc, tuple) else fc,
                                         out_features=num_classes,
                                         bias=bias))
 
     def forward(self, x: torch.Tensor, rep=False) -> torch.Tensor:
+        # TODO: Implement residual connections
         if not rep:
+            if self.batch_norm and (len(x.shape) == 3): x = x.unsqueeze(0)
             for layer in self.conv_layers:
                 x = layer(x)
             if len(x.shape) == 4:
@@ -82,11 +85,7 @@ class CNN_2D(nn.Module):
         self.pre_acts: list[torch.Tensor] = []
         self.acts: list[torch.Tensor] = []
 
-        if rep:  # This is when computing representations
-            x = x.unsqueeze(0)
-        else:  # This is for validation and test
-            x = x.squeeze()
-
+        x = x.unsqueeze(0)
         x = self.conv_layers[0](x)  # Conv
 
         if self.save:
@@ -97,11 +96,11 @@ class CNN_2D(nn.Module):
             x = self.conv_layers[1](x)  # BN
             if self.save:
                 self.pre_acts.append(x.detach().clone())
-            x = self.conv_layers[2](x)  # RELU
+            x = self.conv_layers[2](x)  # Activation
             if self.save:
                 self.acts.append(x.detach().clone())
         else:
-            x = self.conv_layers[1](x)  # RELU
+            x = self.conv_layers[1](x)  # Activation
             if self.save:
                 self.acts.append(x.detach().clone())
 
@@ -149,7 +148,7 @@ class CNN_2D(nn.Module):
                 x = layer(x)
                 if self.save and layer != self.fc_layers[-1]:
                     self.pre_acts.append(x.detach().clone())
-            elif isinstance(layer, nn.ReLU):
+            elif isinstance(layer, (nn.ReLU, nn.Tanh, nn.ELU, nn.LeakyReLU, nn.PReLU, nn.Sigmoid)):
                 x = layer(x)
                 if self.save:
                     self.acts.append(x.detach().clone())
@@ -161,6 +160,20 @@ class CNN_2D(nn.Module):
             if isinstance(m, nn.Linear):
                 b.append(m.bias.data)
         return b
+    
+    def get_activation_fn(self):
+        act_name = self.activation.lower()
+        activation_fn_map = {
+            "relu": nn.ReLU(),
+            "elu": nn.ELU(),
+            "tanh": nn.Tanh(),
+            "leakyrelu": nn.LeakyReLU(),
+            "prelu": nn.PReLU(),
+            "sigmoid": nn.Sigmoid(),
+        }
+        if act_name not in activation_fn_map.keys():
+            raise ValueError(f"Unknown activation function name : {act_name}")
+        return activation_fn_map[act_name]
 
     def init(self) -> None:
         def init_func(m) -> None:

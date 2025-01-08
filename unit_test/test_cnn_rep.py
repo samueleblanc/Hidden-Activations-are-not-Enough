@@ -37,6 +37,8 @@ class TestConvRepresentation_2D(unittest.TestCase):
                     fc=fc,
                     bias=False,
                     residual=False,
+                    batch_norm=False,
+                    activation="relu"
                     ).to(DEVICE)
         model.init()
         model.eval()

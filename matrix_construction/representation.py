@@ -12,6 +12,7 @@ from model_zoo.cnn import CNN_2D
 
 class MlpRepresentation:
     def __init__(self, model: MLP, device="cpu") -> None:
+        # TODO: Optimize this algorithm like for the one with convolutions
         self.device = device
         self.act_fn = model.get_activation_fn()()
         self.mlp_weights = []
@@ -78,7 +79,7 @@ class ConvRepresentation_2D:
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.model = model
         self.channels = model.channels
-        self.act_fn = nn.ReLU()
+        self.act_fn = model.get_activation_fn()
         self.in_c, self.in_h, self.in_w = model.input_shape
         self.input_size: int = self.in_c*self.in_h*self.in_w
 
@@ -86,7 +87,6 @@ class ConvRepresentation_2D:
 
         self.conv_layers: list[nn.Module] = []
         self.fc_layers: list[nn.Module] = []
-        # TODO: Add support for bias
 
         for layer in model.modules():
             if isinstance(layer, nn.Conv2d):
@@ -104,6 +104,7 @@ class ConvRepresentation_2D:
             self.model.save = True
             self.current_output = self.model(x, rep=True)  # Saves activations and preactivations
 
+            m = len(self.conv_layers)-1
             A = torch.Tensor()  # Will become M(W,f)(x)
             zeros = torch.zeros((1,self.in_c,self.in_h,self.in_w)).to(self.device)  # Input used to compute the columns of M(W,f)(x)
             for c in range(self.in_c):
@@ -115,15 +116,13 @@ class ConvRepresentation_2D:
                         zeros[0][c][h][w] = 0.0
                         
                         # Conv layers
-                        for i in range(1, len(self.conv_layers)-1):
+                        for i in range(1, m):
                             pre_act = self.model.pre_acts[i-1]
                             post_act = self.model.acts[i-1]
                             vertices = post_act / pre_act
                             vertices[torch.isnan(vertices) | torch.isinf(vertices)] = 0.0
                             B = B * vertices
                             B = self.conv_layers[i](B)
-
-                        m = len(self.conv_layers)-1
 
                         # Average pooling layer
                         pre_act = self.model.pre_acts[m-1]
@@ -152,4 +151,18 @@ class ConvRepresentation_2D:
 
                         A = torch.cat((A,B),dim=-1)  # Cat the vector produced to the matrix M(W,f)(x)
 
-            return A
+            if self.model.bias:
+                a = self.fc_layers[0].bias.data
+
+                for i in range(1, len(self.fc_layers)):  # FC layers
+                    pre_act = self.model.pre_acts[m+i]
+                    post_act = self.model.acts[m+i]
+                    vertices = post_act / pre_act
+                    vertices[torch.isnan(vertices) | torch.isinf(vertices)] = 0.0
+                    B = self.fc_layers[i].weight.data * vertices.unsqueeze(0)
+                    a = torch.matmul(B, a) + self.fc_layers[i].bias.data
+
+                return torch.cat((A, a.unsqueeze(-1)), dim=1)
+
+            else:
+                return A
