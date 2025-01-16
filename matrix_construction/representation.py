@@ -86,16 +86,10 @@ class ConvRepresentation_2D:
 
         self.current_output: CNN_2D|None = None  #Saves the output of the neural network on the current sample in the forward method
 
-        self.fc_layers: list[nn.Module] = []
-
         for i,layer in enumerate(self.layers):
             if isinstance(layer, nn.Linear):
                 self.first_fc_layer = i
                 break
-        if self.model.bias:
-            for layer in self.layers:
-                if isinstance(layer, nn.Linear):
-                    self.fc_layers.append(layer)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # TODO: Parallelize the forward passes
@@ -125,8 +119,6 @@ class ConvRepresentation_2D:
                                 i += 1
                             elif isinstance(layer, nn.Linear):
                                 if j == self.first_fc_layer:
-                                    if self.model.bias:
-                                        m = i
                                     B = B * vertices
                                     B = torch.matmul(layer.weight.data, B.view(-1).unsqueeze(-1))
                                 else:
@@ -134,24 +126,43 @@ class ConvRepresentation_2D:
                                     B = torch.matmul(layer.weight.data, B)
                                 i += 1
                             elif isinstance(layer, nn.BatchNorm2d):
+                                B = B * vertices
+                                B = B * (layer.weight.data/torch.sqrt(layer.running_var+layer.eps)).unsqueeze(0).unsqueeze(-1).unsqueeze(-1)
                                 i += 1
-                                NotImplementedError()
 
                         A = torch.cat((A,B),dim=-1)  # Cat the vector produced to the matrix M(W,f)(x)
                         zeros[0][c][h][w] = 0.0
 
-            if self.model.bias:
-                a = self.fc_layers[0].bias.data
-
-                for i in range(1, len(self.fc_layers)):  # FC layers
-                    pre_act = self.model.pre_acts[m+i-1]
-                    post_act = self.model.acts[m+i-1]
+            if self.model.bias or self.model.batch_norm:
+                i = 0
+                for j,layer in enumerate(self.layers):
+                    pre_act = self.model.pre_acts[i-1]
+                    post_act = self.model.acts[i-1]
                     vertices = post_act / pre_act
                     vertices[torch.isnan(vertices) | torch.isinf(vertices)] = 0.0
-                    B = self.fc_layers[i].weight.data * vertices.unsqueeze(0)
-                    a = torch.matmul(B, a) + self.fc_layers[i].bias.data
+                    if isinstance(layer, (nn.Conv2d, nn.AvgPool2d)):
+                        if i == 0:
+                            a = torch.zeros(x.shape).to(self.device)
+                        else:
+                            a = a * vertices
+                        a = layer(a)
+                        i += 1
+                    elif isinstance(layer, nn.Linear):
+                        if j == self.first_fc_layer:
+                            a = a * vertices
+                            a = torch.matmul(layer.weight.data, a.view(-1).unsqueeze(-1))
+                        else:
+                            a = a * vertices.unsqueeze(-1)
+                            a = torch.matmul(layer.weight.data, a)
+                        if self.model.bias: a = a + layer.bias.data.unsqueeze(-1)
+                        i += 1
+                    elif isinstance(layer, nn.BatchNorm2d):
+                        factor = torch.sqrt(layer.running_var+layer.eps)
+                        a = a * vertices
+                        a = a * (layer.weight.data/factor).unsqueeze(0).unsqueeze(-1).unsqueeze(-1) + (layer.bias.data - (layer.running_mean*layer.weight.data)/factor).unsqueeze(0).unsqueeze(-1).unsqueeze(-1)
+                        i += 1
 
-                return torch.cat((A, a.unsqueeze(-1)), dim=1)
+                return torch.cat((A, a), dim=1)
 
             else:
                 return A
