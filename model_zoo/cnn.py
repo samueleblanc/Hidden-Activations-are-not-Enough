@@ -115,6 +115,8 @@ class CNN_2D(nn.Module):
                 cont += 1
                 if self.save:
                     self.pre_acts.append(x.detach().clone())
+                    if self.batch_norm:
+                        self.acts.append(x.detach().clone())
 
             elif isinstance(layer, (nn.ReLU, nn.Tanh, nn.ELU, nn.LeakyReLU, nn.PReLU, nn.Sigmoid)):
                 if self.residual:
@@ -138,7 +140,6 @@ class CNN_2D(nn.Module):
             elif isinstance(layer, nn.BatchNorm2d):
                 x = layer(x)
                 if self.save:
-                    self.acts.append(x.detach().clone())
                     self.pre_acts.append(x.detach().clone())
 
         x = torch.flatten(x)

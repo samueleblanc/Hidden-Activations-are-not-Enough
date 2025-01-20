@@ -157,9 +157,8 @@ class ConvRepresentation_2D:
                         if self.model.bias: a = a + layer.bias.data.unsqueeze(-1)
                         i += 1
                     elif isinstance(layer, nn.BatchNorm2d):
-                        factor = torch.sqrt(layer.running_var+layer.eps)
                         a = a * vertices
-                        a = a * (layer.weight.data/factor).unsqueeze(0).unsqueeze(-1).unsqueeze(-1) + (layer.bias.data - (layer.running_mean*layer.weight.data)/factor).unsqueeze(0).unsqueeze(-1).unsqueeze(-1)
+                        a = layer(a)
                         i += 1
 
                 return torch.cat((A, a), dim=1)
