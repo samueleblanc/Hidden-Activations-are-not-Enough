@@ -9,17 +9,17 @@ import torch.nn as nn
 class CNN_2D(nn.Module):
     def __init__(
         self, input_shape: tuple[int,int,int], num_classes: int, channels:tuple[int]=(8, 16), fc:tuple[int]=(500), kernel_size:tuple[int,int]=(3, 3), 
-        bias:bool=False, residual:bool=False, batch_norm:bool=False, dropout:bool=False, num_skipped_layers:bool=3, activation:str="relu", save:bool=False) -> None:
+        bias:bool=False, residual:list[(int,int)]=[], batch_norm:bool=False, dropout:bool=False, activation:str="relu", save:bool=False) -> None:
         super().__init__()
         self.input_shape = input_shape
         c, h, w = input_shape
         self.channels = channels
-        self.num_skipped_layers = num_skipped_layers
         self.save = save
         self.conv_layers = nn.ModuleList()
         self.fc_layers = nn.ModuleList()
         self.kernel = kernel_size[0]
-        self.residual = residual
+        # TODO: Automatically test if the residual pairs are ok (e.g. the shapes/dimensions coincide).
+        self.residual = {a : b for a,b in list(set(residual)) if a+1 < b}
         self.bias = bias
         self.batch_norm = batch_norm
         self.dropout = True
@@ -69,24 +69,52 @@ class CNN_2D(nn.Module):
                                         bias=bias))
 
     def forward(self, x: torch.Tensor, rep=False) -> torch.Tensor:
-        # TODO: Implement residual connections
         if not rep:
             if self.batch_norm and (len(x.shape) == 3): x = x.unsqueeze(0)
+            cnt = 0
+            x_res = {}
+            if cnt in self.residual: x_res[self.residual[cnt]] = x
             for layer in self.conv_layers:
+                if isinstance(layer, nn.Conv2d): 
+                    cnt += 1
+                elif isinstance(layer, (nn.ReLU, nn.Tanh, nn.ELU, nn.LeakyReLU, nn.PReLU, nn.Sigmoid)):
+                    if cnt in self.residual:
+                        if self.residual[cnt] not in x_res:
+                            x_res[self.residual[cnt]] = x
+                        else:
+                            x_res[self.residual[cnt]] += x
+                    if cnt in x_res:
+                        x = x + x_res[cnt]
+                        del x_res[cnt]
                 x = layer(x)
             if len(x.shape) == 4:
                 x = x.view(x.size(0), -1)
             else:
                 x = torch.flatten(x)
             for layer in self.fc_layers:
+                if isinstance(layer, nn.Linear): 
+                    cnt += 1
+                elif isinstance(layer, (nn.ReLU, nn.Tanh, nn.ELU, nn.LeakyReLU, nn.PReLU, nn.Sigmoid)):
+                    if cnt in x_res:
+                        x = x + x_res[cnt]
+                        del x_res[cnt]
+                    if cnt in self.residual:
+                        if self.residual[cnt] not in x_res:
+                            x_res[self.residual[cnt]] = x
+                        else:
+                            x_res[self.residual[cnt]] += x
                 x = layer(x)
             return x
 
         self.pre_acts: list[torch.Tensor] = []
         self.acts: list[torch.Tensor] = []
+        cnt = 0
+        x_res = {}
 
         x = x.unsqueeze(0)
+        if cnt in self.residual: x_res[self.residual[cnt]] = x
         x = self.conv_layers[0](x)  # Conv
+        cnt += 1
 
         if self.save:
             self.pre_acts.append(x.detach().clone())
@@ -96,38 +124,36 @@ class CNN_2D(nn.Module):
             x = self.conv_layers[1](x)  # BN
             if self.save:
                 self.pre_acts.append(x.detach().clone())
+            if cnt in self.residual: x_res[self.residual[cnt]] = x
             x = self.conv_layers[2](x)  # Activation
             if self.save:
                 self.acts.append(x.detach().clone())
         else:
+            if cnt in self.residual: x_res[self.residual[cnt]] = x
             x = self.conv_layers[1](x)  # Activation
             if self.save:
                 self.acts.append(x.detach().clone())
 
-        x_res = x
-        cont = 0
-        initial = 3 if self.batch_norm else 2
-
-        for i in range(initial, len(self.conv_layers)):
+        for i in range(3 if self.batch_norm else 2, len(self.conv_layers)):
             layer = self.conv_layers[i]
             if isinstance(layer, nn.Conv2d):
+                cnt += 1
                 x = layer(x)
-                cont += 1
                 if self.save:
                     self.pre_acts.append(x.detach().clone())
                     if self.batch_norm:
                         self.acts.append(x.detach().clone())
 
             elif isinstance(layer, (nn.ReLU, nn.Tanh, nn.ELU, nn.LeakyReLU, nn.PReLU, nn.Sigmoid)):
-                if self.residual:
-                    if cont % self.num_skipped_layers == 0:  # Add the saved input after a residual pair
-                        x = x + x_res
-                        x = layer(x)
-                        x_res = x
+                if cnt in x_res:
+                    x = x + x_res[cnt]
+                    del x_res[cnt]
+                if cnt in self.residual:
+                    if self.residual[cnt] not in x_res:
+                        x_res[self.residual[cnt]] = x
                     else:
-                        x = layer(x)
-                else:
-                    x = layer(x)
+                        x_res[self.residual[cnt]] += x
+                x = layer(x)
                 if self.save:
                     self.acts.append(x.detach().clone())
 
@@ -146,10 +172,19 @@ class CNN_2D(nn.Module):
 
         for layer in self.fc_layers:
             if isinstance(layer, nn.Linear):
+                cnt += 1
                 x = layer(x)
                 if self.save and layer != self.fc_layers[-1]:
                     self.pre_acts.append(x.detach().clone())
             elif isinstance(layer, (nn.ReLU, nn.Tanh, nn.ELU, nn.LeakyReLU, nn.PReLU, nn.Sigmoid)):
+                if cnt in x_res:
+                    x = x + x_res[cnt]
+                    del x_res[cnt]
+                if cnt in self.residual:
+                    if self.residual[cnt] not in x_res:
+                        x_res[self.residual[cnt]] = x
+                    else:
+                        x_res[self.residual[cnt]] += x
                 x = layer(x)
                 if self.save:
                     self.acts.append(x.detach().clone())

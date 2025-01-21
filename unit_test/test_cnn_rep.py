@@ -36,7 +36,7 @@ class TestConvRepresentation_2D(unittest.TestCase):
                     channels=channels,
                     fc=fc,
                     bias=False,
-                    residual=False,
+                    residual=[],  # List of pairs (a,b), where a is the start of the residual connection and b is the end. Make sure the shapes/dimensions coincide.
                     batch_norm=False,
                     activation="relu"
                     ).to(DEVICE)
