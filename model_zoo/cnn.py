@@ -19,7 +19,7 @@ class CNN_2D(nn.Module):
         self.fc_layers = nn.ModuleList()
         self.kernel = kernel_size[0]
         # TODO: Automatically test if the residual pairs are ok (e.g. the shapes/dimensions coincide).
-        self.residual = {a : b for a,b in list(set(residual)) if a+1 < b}
+        self.residual = {a : b for a,b in list(set(residual)) if a < b}
         self.bias = bias
         self.batch_norm = batch_norm
         self.dropout = True
@@ -78,14 +78,14 @@ class CNN_2D(nn.Module):
                 if isinstance(layer, nn.Conv2d): 
                     cnt += 1
                 elif isinstance(layer, (nn.ReLU, nn.Tanh, nn.ELU, nn.LeakyReLU, nn.PReLU, nn.Sigmoid)):
+                    if cnt in x_res:
+                        x = x + x_res[cnt]
+                        del x_res[cnt]
                     if cnt in self.residual:
                         if self.residual[cnt] not in x_res:
                             x_res[self.residual[cnt]] = x
                         else:
                             x_res[self.residual[cnt]] += x
-                    if cnt in x_res:
-                        x = x + x_res[cnt]
-                        del x_res[cnt]
                 x = layer(x)
             if len(x.shape) == 4:
                 x = x.view(x.size(0), -1)
@@ -124,12 +124,26 @@ class CNN_2D(nn.Module):
             x = self.conv_layers[1](x)  # BN
             if self.save:
                 self.pre_acts.append(x.detach().clone())
-            if cnt in self.residual: x_res[self.residual[cnt]] = x
+            if cnt in x_res:
+                x = x + x_res[cnt]
+                del x_res[cnt]
+            if cnt in self.residual:
+                if self.residual[cnt] not in x_res:
+                    x_res[self.residual[cnt]] = x
+                else:
+                    x_res[self.residual[cnt]] += x
             x = self.conv_layers[2](x)  # Activation
             if self.save:
                 self.acts.append(x.detach().clone())
         else:
-            if cnt in self.residual: x_res[self.residual[cnt]] = x
+            if cnt in x_res:
+                x = x + x_res[cnt]
+                del x_res[cnt]
+            if cnt in self.residual:
+                if self.residual[cnt] not in x_res:
+                    x_res[self.residual[cnt]] = x
+                else:
+                    x_res[self.residual[cnt]] += x
             x = self.conv_layers[1](x)  # Activation
             if self.save:
                 self.acts.append(x.detach().clone())
