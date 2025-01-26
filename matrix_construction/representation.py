@@ -57,7 +57,7 @@ class MlpRepresentation:
             post_act = self.model.acts[i-1]
 
             vertices = post_act / pre_act
-            vertices[torch.isnan(vertices) | torch.isinf(vertices)] = 0.0
+            vertices = torch.where(torch.isnan(vertices) | torch.isinf(vertices), torch.tensor(0.0).to(self.device), vertices)
 
             B = layeri * vertices
             A = torch.matmul(B, A)
@@ -109,7 +109,7 @@ class ConvRepresentation_2D:
                             pre_act = self.model.pre_acts[i-1]
                             post_act = self.model.acts[i-1]
                             vertices = post_act / pre_act
-                            vertices[torch.isnan(vertices) | torch.isinf(vertices)] = 0.0
+                            vertices = torch.where(torch.isnan(vertices) | torch.isinf(vertices), torch.tensor(0.0).to(self.device), vertices)
                             if isinstance(layer, (nn.Conv2d, nn.AvgPool2d)):
                                 if i == 0:
                                     B = layer(zeros).to(self.device)
@@ -139,7 +139,7 @@ class ConvRepresentation_2D:
                     pre_act = self.model.pre_acts[i-1]
                     post_act = self.model.acts[i-1]
                     vertices = post_act / pre_act
-                    vertices[torch.isnan(vertices) | torch.isinf(vertices)] = 0.0
+                    vertices = torch.where(torch.isnan(vertices) | torch.isinf(vertices), torch.tensor(0.0).to(self.device), vertices)
                     if isinstance(layer, (nn.Conv2d, nn.AvgPool2d)):
                         if i == 0:
                             a = torch.zeros(x.shape).to(self.device)
@@ -168,6 +168,7 @@ class ConvRepresentation_2D:
 
 
 if __name__ == "__main__":
+    torch.manual_seed(41)
     if torch.backends.mps.is_available():
         device = torch.device("mps")
     else:
