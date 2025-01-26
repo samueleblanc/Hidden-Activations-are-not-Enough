@@ -74,9 +74,9 @@ class MlpRepresentation:
 
 
 class ConvRepresentation_2D:
-    def __init__(self, model: CNN_2D) -> None:
+    def __init__(self, model: CNN_2D, device = None) -> None:
         super().__init__()
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = 'cpu' if device is None else device
         self.model = model
         self.channels = model.channels
         self.act_fn = model.get_activation_fn()
@@ -98,7 +98,7 @@ class ConvRepresentation_2D:
             self.current_output = self.model(x, rep=True)  # Saves activations and preactivations
             # TODO: We should be able to save activations and preacts for a NN that we get online
 
-            A = torch.Tensor()  # Will become M(W,f)(x)
+            A = torch.Tensor().to(self.device)  # Will become M(W,f)(x)
             zeros = torch.zeros((1,self.in_c,self.in_h,self.in_w)).to(self.device)  # Input used to compute the columns of M(W,f)(x)
             for c in range(self.in_c):
                 for h in range(self.in_h):
@@ -165,3 +165,28 @@ class ConvRepresentation_2D:
 
             else:
                 return A
+
+
+if __name__ == "__main__":
+    if torch.backends.mps.is_available():
+        device = torch.device("mps")
+    else:
+        device = torch.device("cpu")
+    #device = 'cpu'
+    print(f"Using device: {device}")
+
+    x = torch.rand((3,12,12)).to(device)
+    cnn = CNN_2D(input_shape=(3,12,12), num_classes=10, channels=(8, 16), fc=(100), kernel_size=(3, 3),
+        bias=False, batch_norm=False, dropout=False, activation="relu").to(device)
+    forward_pass = cnn(x)
+    rep = ConvRepresentation_2D(cnn, device=device)
+    rep = rep.forward(x)
+    one = torch.flatten(torch.ones(cnn.matrix_input_dim)).to(device)
+    rep_forward = torch.matmul(rep, one)
+    print(forward_pass)
+    print(rep_forward)
+    diff = torch.norm(rep_forward - forward_pass).item()
+    # 0.00749 on cpu float precision
+    print(diff)
+
+
