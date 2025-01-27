@@ -60,21 +60,11 @@ def get_dataset(data_set, batch_size=32, data_loader=True, data_path=None):
     if data_set == 'mnist':
         train_set = torchvision.datasets.MNIST(root=data_path, train=True, transform=transform, download=True)
         test_set = torchvision.datasets.MNIST(root=data_path, train=False, transform=transform, download=True)
-        if data_loader:
-            train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, shuffle=True)
-            test_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuffle=False)
-            return train_loader, test_loader
-        else:
-            return train_set, test_set
+
     elif data_set == 'fashion':
         train_set = torchvision.datasets.FashionMNIST(root=data_path, train=True, transform=transform, download=True)
         test_set = torchvision.datasets.FashionMNIST(root=data_path, train=False, transform=transform, download=True)
-        if data_loader:
-            train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, shuffle=True)
-            test_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuffle=False)
-            return train_loader, test_loader
-        else:
-            return train_set, test_set
+
     elif data_set == 'cifar10':
         # Use data augmentation for CIFAR-10
         transform_train = transforms.Compose([transforms.Resize((32,32)),
@@ -87,15 +77,27 @@ def get_dataset(data_set, batch_size=32, data_loader=True, data_path=None):
                                ])
         train_set = torchvision.datasets.CIFAR10(root=data_path, train=True, transform=transform_train, download=True)
         test_set = torchvision.datasets.CIFAR10(root=data_path, train=False, transform=transform, download=True)
-        if data_loader:
-            train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, shuffle=True)
-            test_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuffle=False)
-            return train_loader, test_loader
-        else:
-            return train_set, test_set
+
+    elif data_set == 'imagenette':  # For ResNet
+        preprocess = transforms.Compose([
+                                    transforms.Resize(256),
+                                    transforms.CenterCrop(224),
+                                    transforms.ToTensor(),
+                                    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+                                ])
+        train_set = torchvision.datasets.Imagenette(root=data_path, train=True, transform=preprocess, download=True)
+        test_set = torchvision.datasets.Imagenette(root=data_path, train=False, transform=preprocess, download=True)
+
     else:
         print(f"Dataset {data_set} not supported...")
         exit(1)
+
+    if data_loader:
+        train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, shuffle=True)
+        test_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuffle=False)
+        return train_loader, test_loader
+    else:
+        return train_set, test_set
 
 
 # Function to accurately locate matrix.pt files for training data
