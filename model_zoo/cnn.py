@@ -4,33 +4,39 @@
 
 import torch
 import torch.nn as nn
+import math
 
 
 class CNN_2D(nn.Module):
     def __init__(
-        self, input_shape: tuple[int,int,int], num_classes: int, channels:tuple[int]=(8, 16), fc:tuple[int]=(500), kernel_size:tuple[int,int]=(3, 3), 
-        bias:bool=False, residual:list[(int,int)]=[], batch_norm:bool=False, dropout:bool=False, activation:str="relu", save:bool=False) -> None:
+        self, input_shape: tuple[int,int,int], num_classes: int, channels:tuple[int]=(8, 16), padding:tuple[(int,int)]=((1,1),(1,1)), fc:tuple[int]=(500), kernel_size:tuple[(int,int)]=((3, 3), (3, 3)), 
+        bias:bool=False, residual:list[(int,int)]=[], batch_norm:bool=False, dropout:bool=False, activation:str="relu", pooling:str="avg", save:bool=False) -> None:
         super().__init__()
-        self.input_shape = input_shape
         c, h, w = input_shape
-        self.channels = channels
+        shape_per_layer = []
+        h1 = h
+        w1 = w
+        for i,ch in enumerate(channels):  # Suppose dilation = stride = 1
+            shape_per_layer.append((ch, h1, w1))
+            h1 = (h1 + 2*padding[i][0] - 1*(kernel_size[i][0] - 1) - 1)//1 + 1
+            w1 = (w1 + 2*padding[i][1] - 1*(kernel_size[i][1] - 1) - 1)//1 + 1
+
+        self.input_shape = input_shape
         self.save = save
         self.conv_layers = nn.ModuleList()
         self.fc_layers = nn.ModuleList()
-        self.kernel = kernel_size[0]
-        # TODO: Automatically test if the residual pairs are ok (e.g. the shapes/dimensions coincide).
-        self.residual = {a : b for a,b in list(set(residual)) if a < b}
+        self.residual = {a : b for a,b in list(set(residual)) if a < b and shape_per_layer[a] == shape_per_layer[b]}
         self.bias = bias
         self.batch_norm = batch_norm
         self.dropout = True
         self.matrix_input_dim = c*w*h + 1 if bias or batch_norm else c*w*h
         self.activation = activation
+        self.pooling = pooling
 
-        # Conv2d layers are hardcoded for padding=(1, 1) which keeps the shape (channels[0],w,w) after it is applied
-        self.conv_layers.append(nn.Conv2d(in_channels=input_shape[0],
+        self.conv_layers.append(nn.Conv2d(in_channels=c,
                                           out_channels=channels[0] if isinstance(channels, tuple) else channels,
-                                          kernel_size=kernel_size,
-                                          padding=(1, 1),
+                                          kernel_size=kernel_size[0],
+                                          padding=padding[0],
                                           bias=False))
         
         if batch_norm: self.conv_layers.append(nn.BatchNorm2d(channels[0] if isinstance(channels, tuple) else channels))
@@ -40,20 +46,31 @@ class CNN_2D(nn.Module):
                 self.conv_layers.append(self.get_activation_fn())
                 self.conv_layers.append(nn.Conv2d(in_channels=channels[i-1],
                                                 out_channels=channels[i],
-                                                kernel_size=kernel_size,
-                                                padding=(1, 1),
+                                                kernel_size=kernel_size[i],
+                                                padding=padding[i],
                                                 bias=False))
                 if batch_norm: self.conv_layers.append(nn.BatchNorm2d(channels[i]))
 
         if self.dropout: self.conv_layers.append(nn.Dropout(0.25))
         self.conv_layers.append(self.get_activation_fn())
-        # Average pooling is hardcoded for kernel_size=4 and padding=0
-        self.conv_layers.append(nn.AvgPool2d(kernel_size=4, padding=0))
-        self.fc_layers.append(nn.Linear(in_features=(channels[-1] if isinstance(channels, tuple) else channels) * (input_shape[1]//4) * (input_shape[2]//4),
-                                        # This is for no average pooling after the last convolution
-                                        #in_features=channels[-1] * input_shape[1] * input_shape[2],
-                                        out_features=fc[0] if isinstance(fc, tuple) else fc,
-                                        bias=bias))
+
+        ker_size = 4
+        stride = ker_size
+        pad = 0
+        if pooling == "avg":
+            self.conv_layers.append(nn.AvgPool2d(kernel_size=ker_size, padding=pad, ceil_mode=False))
+            self.fc_layers.append(nn.Linear(in_features=shape_per_layer[-1][0] * self.round_up((shape_per_layer[-1][1]+2*pad-ker_size)/stride + 1) * self.round_up((shape_per_layer[-1][2]+2*pad-ker_size)/stride + 1),
+                                            # This is for no average pooling after the last convolution
+                                            #in_features=channels[-1] * h * w,
+                                            out_features=fc[0] if isinstance(fc, tuple) else fc,
+                                            bias=bias))
+        elif pooling == "max":
+            self.conv_layers.append(nn.MaxPool2d(kernel_size=ker_size, padding=pad, stride=stride, return_indices=True))
+            self.fc_layers.append(nn.Linear(in_features=shape_per_layer[-1][0] * self.round_up((shape_per_layer[-1][1]+2*pad-ker_size)/stride + 1) * self.round_up((shape_per_layer[-1][2]+2*pad-ker_size)/stride + 1),
+                                                # This is for no average pooling after the last convolution
+                                                #in_features=channels[-1] * h * w,
+                                                out_features=fc[0] if isinstance(fc, tuple) else fc,
+                                                bias=bias))
 
         if isinstance(fc, tuple):
             for i in range(1, len(fc)):
@@ -86,7 +103,10 @@ class CNN_2D(nn.Module):
                             x_res[self.residual[cnt]] = x
                         else:
                             x_res[self.residual[cnt]] += x
-                x = layer(x)
+                if isinstance(layer, nn.MaxPool2d):
+                    x, _ = layer(x)
+                else:
+                    x = layer(x)
             if len(x.shape) == 4:
                 x = x.view(x.size(0), -1)
             else:
@@ -103,7 +123,10 @@ class CNN_2D(nn.Module):
                             x_res[self.residual[cnt]] = x
                         else:
                             x_res[self.residual[cnt]] += x
-                x = layer(x)
+                if isinstance(layer, nn.MaxPool2d):
+                    x, _ = layer(x)
+                else:
+                    x = layer(x)
             return x
 
         self.pre_acts: list[torch.Tensor] = []
@@ -177,6 +200,12 @@ class CNN_2D(nn.Module):
                     self.acts.append(x.detach().clone())
                     self.pre_acts.append(x.detach().clone())
 
+            elif isinstance(layer, nn.MaxPool2d):
+                x, indices = layer(x)
+                if self.save:
+                    self.acts.append(indices)
+                    self.pre_acts.append(indices)
+
             elif isinstance(layer, nn.BatchNorm2d):
                 x = layer(x)
                 if self.save:
@@ -234,3 +263,12 @@ class CNN_2D(nn.Module):
                 m.running_var = torch.rand(m.num_features)
             #    m.reset_parameters()
         self.apply(init_func)
+
+    @staticmethod
+    def round_up(n: float) -> int:
+        # TODO: There are inconsistencies in the output shape of AvgPool2d.
+        # Will need to look into it in the future
+        return math.floor(n)
+        if n - math.floor(n) < 0.5:
+            return math.floor(n)
+        return math.ceil(n)

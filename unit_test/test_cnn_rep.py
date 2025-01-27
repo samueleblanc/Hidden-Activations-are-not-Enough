@@ -28,17 +28,22 @@ class TestConvRepresentation_2D(unittest.TestCase):
 
     def create_random_model(self):
         w, channels, fc, num_classes = self.generate_random_params()
+        padding = tuple((1,1) for _ in channels)  # Should be fixed for now.
+        kernel = tuple((3,3) for _ in channels)
         input_shape = (random.randint(1,4), w, w)
         x = torch.rand(input_shape)
 
         model = CNN_2D(input_shape=input_shape,
                     num_classes=num_classes,
                     channels=channels,
+                    padding=padding,
+                    kernel_size=kernel,
                     fc=fc,
                     bias=False,
-                    residual=[],  # List of pairs (a,b), where a is the start of the residual connection and b is the end. Make sure the shapes/dimensions coincide.
+                    residual=[],  # List of pairs (a,b), where a is the start of the residual connection and b is the end.
                     batch_norm=False,
-                    activation="relu"
+                    activation="relu",
+                    pooling="avg"
                     ).to(DEVICE)
         model.init()
         model.eval()

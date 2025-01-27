@@ -78,7 +78,6 @@ class ConvRepresentation_2D:
         super().__init__()
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.model = model
-        self.channels = model.channels
         self.act_fn = model.get_activation_fn()
         self.layers = list(model.modules())
         self.in_c, self.in_h, self.in_w = model.input_shape
@@ -105,6 +104,7 @@ class ConvRepresentation_2D:
                     for w in range(self.in_w):
                         zeros[0][c][h][w] = x[c][h][w].item()
                         i = 0
+                        max_pool = -9
                         for j,layer in enumerate(self.layers):
                             pre_act = self.model.pre_acts[i-1]
                             post_act = self.model.acts[i-1]
@@ -119,7 +119,7 @@ class ConvRepresentation_2D:
                                 i += 1
                             elif isinstance(layer, nn.Linear):
                                 if j == self.first_fc_layer:
-                                    B = B * vertices
+                                    if max_pool != i-1: B = B * vertices
                                     B = torch.matmul(layer.weight.data, B.view(-1).unsqueeze(-1))
                                 else:
                                     B = B * vertices.unsqueeze(-1)
@@ -129,12 +129,23 @@ class ConvRepresentation_2D:
                                 B = B * vertices
                                 B = B * (layer.weight.data/torch.sqrt(layer.running_var+layer.eps)).unsqueeze(0).unsqueeze(-1).unsqueeze(-1)
                                 i += 1
+                            elif isinstance(layer, nn.MaxPool2d):
+                                max_pool = i
+                                B = B * vertices
+                                pool = self.model.acts[i]
+                                batch_indices = torch.arange(pool.shape[0]).view(-1,1,1,1)
+                                channel_indices = torch.arange(pool.shape[1]).view(1,-1,1,1)
+                                row_indices = pool // B.shape[2]
+                                col_indices = pool % B.shape[3]
+                                B = B[batch_indices, channel_indices, row_indices, col_indices]
+                                i += 1
 
                         A = torch.cat((A,B),dim=-1)  # Cat the vector produced to the matrix M(W,f)(x)
                         zeros[0][c][h][w] = 0.0
 
             if self.model.bias or self.model.batch_norm:
                 i = 0
+                max_pool = -9
                 for j,layer in enumerate(self.layers):
                     pre_act = self.model.pre_acts[i-1]
                     post_act = self.model.acts[i-1]
@@ -149,7 +160,7 @@ class ConvRepresentation_2D:
                         i += 1
                     elif isinstance(layer, nn.Linear):
                         if j == self.first_fc_layer:
-                            a = a * vertices
+                            if max_pool != i-1: a = a * vertices
                             a = torch.matmul(layer.weight.data, a.view(-1).unsqueeze(-1))
                         else:
                             a = a * vertices.unsqueeze(-1)
@@ -159,6 +170,16 @@ class ConvRepresentation_2D:
                     elif isinstance(layer, nn.BatchNorm2d):
                         a = a * vertices
                         a = layer(a)
+                        i += 1
+                    elif isinstance(layer, nn.MaxPool2d):
+                        max_pool = i
+                        a = a * vertices
+                        pool = self.model.acts[i]
+                        batch_indices = torch.arange(pool.shape[0]).view(-1,1,1,1)
+                        channel_indices = torch.arange(pool.shape[1]).view(1,-1,1,1)
+                        row_indices = pool // a.shape[2]
+                        col_indices = pool % a.shape[3]
+                        a = a[batch_indices, channel_indices, row_indices, col_indices]
                         i += 1
 
                 return torch.cat((A, a), dim=1)
