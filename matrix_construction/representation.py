@@ -74,95 +74,150 @@ class MlpRepresentation:
 
 
 class ConvRepresentation_2D:
-    def __init__(self, model: CNN_2D, device = None) -> None:
+    def __init__(self, model: CNN_2D, batchsize=32, device=None) -> None:
         super().__init__()
         self.device = 'cpu' if device is None else device
         self.model = model
+        self.batchsize = batchsize
         self.channels = model.channels
         self.act_fn = model.get_activation_fn()
-        self.layers = list(model.modules())
+        # Collect layers in processing order
+        self.layers = []
+        self.layers.extend(model.conv_layers)
+        self.layers.extend(model.fc_layers)
         self.in_c, self.in_h, self.in_w = model.input_shape
-        self.input_size: int = self.in_c*self.in_h*self.in_w
+        self.input_size: int = self.in_c * self.in_h * self.in_w
+        self.current_output: CNN_2D | None = None
 
-        self.current_output: CNN_2D|None = None  #Saves the output of the neural network on the current sample in the forward method
-
-        for i,layer in enumerate(self.layers):
+        # Find first FC layer index
+        self.first_fc_layer = None
+        for i, layer in enumerate(self.layers):
             if isinstance(layer, nn.Linear):
                 self.first_fc_layer = i
                 break
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # TODO: Parallelize the forward passes
         with torch.no_grad():
             self.model.save = True
-            self.current_output = self.model(x, rep=True)  # Saves activations and preactivations
-            # TODO: We should be able to save activations and preacts for a NN that we get online
+            print(x.shape)
+            print(x.unsqueeze(0).shape)
+            self.model.train(False)
+            print(self.model.training)
+            self.current_output = self.model(x, rep=True)
 
-            A = torch.Tensor().to(self.device)  # Will become M(W,f)(x)
-            zeros = torch.zeros((1,self.in_c,self.in_h,self.in_w)).to(self.device)  # Input used to compute the columns of M(W,f)(x)
-            for c in range(self.in_c):
-                for h in range(self.in_h):
-                    for w in range(self.in_w):
-                        zeros[0][c][h][w] = x[c][h][w].item()
-                        i = 0
-                        for j,layer in enumerate(self.layers):
-                            pre_act = self.model.pre_acts[i-1]
-                            post_act = self.model.acts[i-1]
-                            vertices = post_act / pre_act
-                            vertices = torch.where(torch.isnan(vertices) | torch.isinf(vertices), torch.tensor(0.0).to(self.device), vertices)
-                            if isinstance(layer, (nn.Conv2d, nn.AvgPool2d)):
-                                if i == 0:
-                                    B = layer(zeros).to(self.device)
-                                else:
-                                    B = B * vertices
-                                    B = layer(B)
-                                i += 1
-                            elif isinstance(layer, nn.Linear):
-                                if j == self.first_fc_layer:
-                                    B = B * vertices
-                                    B = torch.matmul(layer.weight.data, B.view(-1).unsqueeze(-1))
-                                else:
-                                    B = B * vertices.unsqueeze(-1)
-                                    B = torch.matmul(layer.weight.data, B)
-                                i += 1
-                            elif isinstance(layer, nn.BatchNorm2d):
-                                B = B * vertices
-                                B = B * (layer.weight.data/torch.sqrt(layer.running_var+layer.eps)).unsqueeze(0).unsqueeze(-1).unsqueeze(-1)
-                                i += 1
+            # Total number of positions and batches needed
+            C, H, W = self.in_c, self.in_h, self.in_w
+            total_positions = C * H * W
+            num_batches = (total_positions + self.batchsize - 1) // self.batchsize
 
-                        A = torch.cat((A,B),dim=-1)  # Cat the vector produced to the matrix M(W,f)(x)
-                        zeros[0][c][h][w] = 0.0
+            A = torch.Tensor().to(self.device)
 
-            if self.model.bias or self.model.batch_norm:
-                i = 0
-                for j,layer in enumerate(self.layers):
-                    pre_act = self.model.pre_acts[i-1]
-                    post_act = self.model.acts[i-1]
+            for batch_idx in range(num_batches):
+                # Calculate batch indices
+                start = batch_idx * self.batchsize
+                end = min((batch_idx + 1) * self.batchsize, total_positions)
+                current_batch_size = end - start
+
+                # Create indices for this batch
+                indices = torch.arange(start, end, device=self.device)
+                c = indices // (H * W)
+                remaining = indices % (H * W)
+                h = remaining // W
+                w = remaining % W
+
+                # Create batched input for this chunk
+                batched_input = torch.zeros((current_batch_size, C, H, W), device=self.device)
+                batched_input[torch.arange(current_batch_size), c, h, w] = x.flatten()[start:end]
+
+                B = batched_input
+                layer_idx = 0
+
+                for i, layer in enumerate(self.layers):
+                    if not isinstance(layer, (nn.Conv2d, nn.AvgPool2d, nn.Linear, nn.BatchNorm2d)):
+                        continue
+
+                    if layer_idx >= len(self.model.pre_acts):
+                        break
+
+                    # Get activation ratios
+                    pre_act = self.model.pre_acts[layer_idx]
+                    post_act = self.model.acts[layer_idx]
                     vertices = post_act / pre_act
-                    vertices = torch.where(torch.isnan(vertices) | torch.isinf(vertices), torch.tensor(0.0).to(self.device), vertices)
-                    if isinstance(layer, (nn.Conv2d, nn.AvgPool2d)):
-                        if i == 0:
-                            a = torch.zeros(x.shape).to(self.device)
-                        else:
-                            a = a * vertices
-                        a = layer(a)
-                        i += 1
-                    elif isinstance(layer, nn.Linear):
-                        if j == self.first_fc_layer:
-                            a = a * vertices
-                            a = torch.matmul(layer.weight.data, a.view(-1).unsqueeze(-1))
-                        else:
-                            a = a * vertices.unsqueeze(-1)
-                            a = torch.matmul(layer.weight.data, a)
-                        if self.model.bias: a = a + layer.bias.data.unsqueeze(-1)
-                        i += 1
+                    vertices = torch.where(
+                        torch.isnan(vertices) | torch.isinf(vertices),
+                        torch.tensor(0.0, device=self.device),
+                        vertices
+                    ).squeeze(0)  # Remove original batch dim
+
+                    if isinstance(layer, nn.Conv2d):
+                        B = layer(B)
+                        # Expand vertices to match current batch size
+                        B = B * vertices.repeat(current_batch_size, 1, 1, 1)
+                        layer_idx += 1
+                    elif isinstance(layer, nn.AvgPool2d):
+                        B = layer(B)
+                        layer_idx += 1
                     elif isinstance(layer, nn.BatchNorm2d):
-                        a = a * vertices
+                        B = layer(B)
+                        scale = (layer.weight.data / torch.sqrt(layer.running_var + layer.eps))
+                        B = B * scale.view(1, -1, 1, 1)
+                        layer_idx += 1
+                    elif isinstance(layer, nn.Linear):
+                        if i == self.first_fc_layer:
+                            B = B.view(B.size(0), -1)
+                            B = torch.matmul(layer.weight.data, B.T).T
+                            B = B * vertices.view(1, -1).repeat(current_batch_size, 1)
+                        else:
+                            # SPECIAL HANDLING FOR LAST LAYER, which is not working yet...
+                            if layer == self.layers[-1]:  # Final classification layer
+                                B = torch.matmul(layer.weight.data, B.T).T
+                                if self.model.bias:
+                                    B += layer.bias.data
+                            else:
+                                B = torch.matmul(layer.weight.data, B.T).T
+                                B = B * vertices.view(1, -1).repeat(current_batch_size, 1)
+                        layer_idx += 1
+
+                # Accumulate results
+                A = torch.cat((A, B.T), dim=1) if A.numel() else B.T
+
+            # Compute bias term
+            if self.model.bias or self.model.batch_norm:
+                a = torch.zeros_like(x).unsqueeze(0).to(self.device)
+                layer_idx = 0
+                for i, layer in enumerate(self.layers):
+                    if not isinstance(layer, (nn.Conv2d, nn.AvgPool2d, nn.Linear, nn.BatchNorm2d)):
+                        continue
+
+                    if layer_idx >= len(self.model.pre_acts):
+                        break
+
+                    pre_act = self.model.pre_acts[layer_idx]
+                    post_act = self.model.acts[layer_idx]
+                    vertices = post_act / pre_act
+                    vertices = torch.where(
+                        torch.isnan(vertices) | torch.isinf(vertices),
+                        torch.tensor(0.0, device=self.device),
+                    ).squeeze(0)
+
+                    if isinstance(layer, nn.Conv2d):
                         a = layer(a)
-                        i += 1
+                        a = a * vertices
+                        layer_idx += 1
+                    elif isinstance(layer, nn.BatchNorm2d):
+                        a = layer(a)
+                        scale = (layer.weight.data / torch.sqrt(layer.running_var + layer.eps))
+                        a = a * scale.view(1, -1, 1, 1)
+                        layer_idx += 1
+                    elif isinstance(layer, nn.Linear):
+                        a = a.view(1, -1)
+                        a = a * vertices.view(1, -1)
+                        a = torch.matmul(layer.weight.data, a.T).T
+                        if self.model.bias:
+                            a += layer.bias.data
+                        layer_idx += 1
 
-                return torch.cat((A, a), dim=1)
-
+                return torch.cat((A, a.squeeze(0).unsqueeze(-1)), dim=1)
             else:
                 return A
 
