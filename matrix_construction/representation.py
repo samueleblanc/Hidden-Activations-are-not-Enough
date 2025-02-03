@@ -99,15 +99,13 @@ class ConvRepresentation_2D:
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         with torch.no_grad():
             self.model.save = True
-            print(x.shape)
-            print(x.unsqueeze(0).shape)
             self.model.train(False)
-            print(self.model.training)
             self.current_output = self.model(x, rep=True)
 
             # Total number of positions and batches needed
             C, H, W = self.in_c, self.in_h, self.in_w
             total_positions = C * H * W
+
             num_batches = (total_positions + self.batchsize - 1) // self.batchsize
 
             A = torch.Tensor().to(self.device)
@@ -131,13 +129,15 @@ class ConvRepresentation_2D:
 
                 B = batched_input
                 layer_idx = 0
-
+                #print(f'B start: {B.shape}')
                 for i, layer in enumerate(self.layers):
+                    #print("Layer list index:", i)
+                    #print(layer)
                     if not isinstance(layer, (nn.Conv2d, nn.AvgPool2d, nn.Linear, nn.BatchNorm2d)):
                         continue
 
-                    if layer_idx >= len(self.model.pre_acts):
-                        break
+                    #if layer_idx >= len(self.model.pre_acts):
+                    #    break
 
                     # Get activation ratios
                     pre_act = self.model.pre_acts[layer_idx]
@@ -150,12 +150,20 @@ class ConvRepresentation_2D:
                     ).squeeze(0)  # Remove original batch dim
 
                     if isinstance(layer, nn.Conv2d):
-                        B = layer(B)
-                        # Expand vertices to match current batch size
+                        #if layer_idx == 0:
+                        #    print(f'B: {B.shape}')
+                        #    B = layer(B)
+                        #    print(f'B: {B.shape}')
+                        #else:
+                            # Expand vertices to match current batch size
                         B = B * vertices.repeat(current_batch_size, 1, 1, 1)
+                        B = layer(B)
+
+                        #print(f'B: {B.shape}')
                         layer_idx += 1
                     elif isinstance(layer, nn.AvgPool2d):
                         B = layer(B)
+                        #print(f'B: {B.shape}')
                         layer_idx += 1
                     elif isinstance(layer, nn.BatchNorm2d):
                         B = layer(B)
@@ -164,20 +172,16 @@ class ConvRepresentation_2D:
                         layer_idx += 1
                     elif isinstance(layer, nn.Linear):
                         if i == self.first_fc_layer:
+                            #print(f'First FC B: {B.shape}')
                             B = B.view(B.size(0), -1)
-                            B = torch.matmul(layer.weight.data, B.T).T
-                            B = B * vertices.view(1, -1).repeat(current_batch_size, 1)
-                        else:
-                            # SPECIAL HANDLING FOR LAST LAYER, which is not working yet...
-                            if layer == self.layers[-1]:  # Final classification layer
-                                B = torch.matmul(layer.weight.data, B.T).T
-                                if self.model.bias:
-                                    B += layer.bias.data
-                            else:
-                                B = torch.matmul(layer.weight.data, B.T).T
-                                B = B * vertices.view(1, -1).repeat(current_batch_size, 1)
-                        layer_idx += 1
 
+                        #print(f'B: {B.shape}')
+                        B = B * vertices.view(1, -1).repeat(current_batch_size, 1)
+                        B = torch.matmul(layer.weight.data, B.T).T
+                        #print(f'B: {B.shape}')
+
+                        layer_idx += 1
+                #input("First batch finished...")
                 # Accumulate results
                 A = torch.cat((A, B.T), dim=1) if A.numel() else B.T
 
@@ -226,23 +230,27 @@ if __name__ == "__main__":
     torch.manual_seed(41)
     if torch.backends.mps.is_available():
         device = torch.device("mps")
+    elif torch.cuda.is_available():
+        device = torch.device("cuda")
     else:
         device = torch.device("cpu")
-    #device = 'cpu'
-    print(f"Using device: {device}")
+    #device = torch.device("cpu")
+    print(f"Using device: {device}", flush=True)
+    input_shape = (3,32,32)
+    for _ in range(50):
+        x = torch.rand(input_shape).to(device)
+        cnn = CNN_2D(input_shape=input_shape, num_classes=10, channels=(8, 16, 32, 64, 128), fc=(1000, 100), kernel_size=(3, 3),
+            bias=False, batch_norm=False, dropout=False, activation="relu").to(device)
+        forward_pass = cnn(x)
+        rep = ConvRepresentation_2D(cnn, batchsize=64, device=device)
+        rep = rep.forward(x)
+        one = torch.flatten(torch.ones(cnn.matrix_input_dim)).to(device)
+        rep_forward = torch.matmul(rep, one)
+        diff = torch.norm(rep_forward - forward_pass).item()
 
-    x = torch.rand((3,12,12)).to(device)
-    cnn = CNN_2D(input_shape=(3,12,12), num_classes=10, channels=(8, 16), fc=(100), kernel_size=(3, 3),
-        bias=False, batch_norm=False, dropout=False, activation="relu").to(device)
-    forward_pass = cnn(x)
-    rep = ConvRepresentation_2D(cnn, device=device)
-    rep = rep.forward(x)
-    one = torch.flatten(torch.ones(cnn.matrix_input_dim)).to(device)
-    rep_forward = torch.matmul(rep, one)
-    print(forward_pass)
-    print(rep_forward)
-    diff = torch.norm(rep_forward - forward_pass).item()
-    # 0.00749 on cpu float precision
-    print(diff)
+        # 0.00749 on cpu float precision un-batched
+        # 0.03301 on cpu batched
+        # 0.03301 on gpu batched
+        print(diff)
 
 

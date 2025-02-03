@@ -22,7 +22,7 @@ class CNN_2D(nn.Module):
         self.residual = {a : b for a,b in list(set(residual)) if a < b}
         self.bias = bias
         self.batch_norm = batch_norm
-        self.dropout = True
+        self.dropout = False
         self.matrix_input_dim = c*w*h + 1 if bias or batch_norm else c*w*h
         self.activation = activation
 
@@ -92,7 +92,7 @@ class CNN_2D(nn.Module):
             else:
                 x = torch.flatten(x)
             for layer in self.fc_layers:
-                if isinstance(layer, nn.Linear): 
+                if isinstance(layer, nn.Linear):
                     cnt += 1
                 elif isinstance(layer, (nn.ReLU, nn.Tanh, nn.ELU, nn.LeakyReLU, nn.PReLU, nn.Sigmoid)):
                     if cnt in x_res:
@@ -113,6 +113,10 @@ class CNN_2D(nn.Module):
 
         x = x.unsqueeze(0)
         if cnt in self.residual: x_res[self.residual[cnt]] = x
+
+        if self.save:
+            self.pre_acts.append(torch.ones_like(x))
+            self.acts.append(x.detach().clone())
         x = self.conv_layers[0](x)  # Conv
         cnt += 1
 
