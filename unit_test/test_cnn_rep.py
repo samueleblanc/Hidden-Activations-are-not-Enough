@@ -50,12 +50,12 @@ class TestConvRepresentation_2D(unittest.TestCase):
         model.save = True
         forward_pass = model(x)
 
-        return model, x, forward_pass, w, channels, fc, num_classes
+        return model, x, forward_pass, channels, fc, num_classes
 
     def test_ConvRepBuild(self):
         for _ in range(10):
             start = time()
-            model, x, forward_pass, w, channels, fc, num_classes = self.create_random_model()
+            model, x, forward_pass, channels, fc, num_classes = self.create_random_model()
             # Build representation and compute output
             rep = ConvRepresentation_2D(model)
             rep = rep.forward(x)
@@ -65,7 +65,7 @@ class TestConvRepresentation_2D(unittest.TestCase):
 
             self.assertAlmostEqual(diff, 0, places=None, msg=f"rep and forward_pass differ by {diff}.", delta=0.1)
             end = time()
-            print(f"Test passed for input_shape=3x{w}x{w}, channels={channels}, fc={fc}, num_classes={num_classes}")
+            print(f"Test passed for input_shape={x.shape[0]}x{x.shape[1]}x{x.shape[2]}, channels={channels}, fc={fc}, num_classes={num_classes}")
             print(f"Difference: {diff}. Time: {round(end-start,7)}sec.")
 
 
