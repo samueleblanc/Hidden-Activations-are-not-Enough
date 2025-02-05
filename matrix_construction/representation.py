@@ -8,10 +8,11 @@ import torch.nn as nn
 
 from model_zoo.mlp import MLP
 from model_zoo.cnn import CNN_2D
+from model_zoo.res_net import ResNet
 
 
 class MlpRepresentation:
-    def __init__(self, model: MLP, device="cpu") -> None:
+    def __init__(self, model: MLP, build_rep:bool=False, device:bool="cpu") -> None:
         # TODO: Optimize this algorithm like for the one with convolutions
         self.device = device
         self.act_fn = model.get_activation_fn()()
@@ -19,6 +20,7 @@ class MlpRepresentation:
         self.mlp_biases = []
         self.input_size = model.input_size
         self.model = model
+        self.build_rep = build_rep  # TODO: Currently doesn't work if the model has biases
 
         for layer in model.modules():
             if isinstance(layer, nn.Linear):
@@ -47,8 +49,8 @@ class MlpRepresentation:
         _ = self.model(flat_x)
 
         A = self.mlp_weights[0].to(self.device) * flat_x
-
         a = self.mlp_biases[0]
+        if self.build_rep: self.rep = [A + a.unsqueeze(-1)]
 
         for i in range(1, len(self.mlp_weights)):
             layeri = self.mlp_weights[i].to(self.device)
@@ -60,26 +62,27 @@ class MlpRepresentation:
             vertices[torch.isnan(vertices) | torch.isinf(vertices)] = 0.0
 
             B = layeri * vertices
+            if self.build_rep: self.rep.append(B)
             A = torch.matmul(B, A)
 
             if self.model.bias or self.model.batch_norm:
                 b = self.mlp_biases[i]
                 a = torch.matmul(B, a) + b
+                if self.build_rep: self.rep[-1] = torch.cat((self.rep[-1], b.unsqueeze(-1)), dim=1)
 
         if self.model.bias or self.model.batch_norm:
             return torch.cat([A, a.unsqueeze(1)], dim=1)
-
         else:
             return A
 
 
 class ConvRepresentation_2D:
-    def __init__(self, model: CNN_2D) -> None:
+    def __init__(self, model: CNN_2D|ResNet) -> None:
         super().__init__()
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.model = model
         self.act_fn = model.get_activation_fn()
-        self.layers = list(model.modules())
+        self.layers = list(model.conv_layers + model.fc_layers)
         self.in_c, self.in_h, self.in_w = model.input_shape
         self.input_size: int = self.in_c*self.in_h*self.in_w
 
@@ -95,7 +98,6 @@ class ConvRepresentation_2D:
         with torch.no_grad():
             self.model.save = True
             self.current_output = self.model(x, rep=True)  # Saves activations and preactivations
-            # TODO: We should be able to save activations and preacts for a NN that we get online
 
             A = torch.Tensor()  # Will become M(W,f)(x)
             zeros = torch.zeros((1,self.in_c,self.in_h,self.in_w)).to(self.device)  # Input used to compute the columns of M(W,f)(x)
@@ -110,11 +112,11 @@ class ConvRepresentation_2D:
                             post_act = self.model.acts[i-1]
                             vertices = post_act / pre_act
                             vertices[torch.isnan(vertices) | torch.isinf(vertices)] = 0.0
-                            if isinstance(layer, (nn.Conv2d, nn.AvgPool2d)):
+                            if isinstance(layer, (nn.Conv2d, nn.AvgPool2d, nn.AdaptiveAvgPool2d)):
                                 if i == 0:
                                     B = layer(zeros).to(self.device)
                                 else:
-                                    B = B * vertices
+                                    if max_pool != i-1: B = B * vertices
                                     B = layer(B)
                                 i += 1
                             elif isinstance(layer, nn.Linear):
@@ -126,7 +128,7 @@ class ConvRepresentation_2D:
                                     B = torch.matmul(layer.weight.data, B)
                                 i += 1
                             elif isinstance(layer, nn.BatchNorm2d):
-                                B = B * vertices
+                                if max_pool != i-1: B = B * vertices
                                 B = B * (layer.weight.data/torch.sqrt(layer.running_var+layer.eps)).unsqueeze(0).unsqueeze(-1).unsqueeze(-1)
                                 i += 1
                             elif isinstance(layer, nn.MaxPool2d):
@@ -151,7 +153,7 @@ class ConvRepresentation_2D:
                     post_act = self.model.acts[i-1]
                     vertices = post_act / pre_act
                     vertices[torch.isnan(vertices) | torch.isinf(vertices)] = 0.0
-                    if isinstance(layer, (nn.Conv2d, nn.AvgPool2d)):
+                    if isinstance(layer, (nn.Conv2d, nn.AvgPool2d, nn.AdaptiveAvgPool2d)):
                         if i == 0:
                             a = torch.zeros(x.shape).to(self.device)
                         else:
