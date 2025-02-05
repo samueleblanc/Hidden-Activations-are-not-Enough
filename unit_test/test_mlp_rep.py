@@ -7,6 +7,7 @@ import os
 import unittest
 import torch
 import random
+from time import time
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -34,28 +35,31 @@ class TestMLPRepresentation(unittest.TestCase):
                     num_classes=num_classes,
                     hidden_sizes=tuple(c for _ in range(l)),
                     bias=True,
-                    residual=False,
+                    residual=False
                     ).to(DEVICE)
         model.init()
         model.eval()
         model.save = True
         forward_pass = model(x)
 
-        return model, x, forward_pass, w, l, c, num_classes
+        return model, x, forward_pass, l, c, num_classes
 
     def test_MLPRepBuild(self):
         for _ in range(50):
-            model, x, forward_pass, w, l, c, num_classes = self.create_random_model()
+            start = time()
+            model, x, forward_pass, l, c, num_classes = self.create_random_model()
 
             # Build representation and compute output
-            rep = MlpRepresentation(model, DEVICE)
-            rep = rep.forward(x)
+            rep = MlpRepresentation(model, build_rep=True, device=DEVICE)
+            matrix = rep.forward(x)
             one = torch.flatten(torch.ones(model.matrix_input_dim))
-            rep_forward = torch.matmul(rep, one)
+            rep_forward = torch.matmul(matrix, one)
             diff = torch.norm(rep_forward - forward_pass).detach().numpy()
 
             self.assertAlmostEqual(diff, 0, places=None, msg=f"rep and forward_pass differ by {diff}.", delta=0.1)
-            print(f"Test passed for input_shape=3x{w}x{w}, number_of_layers={l}, neurons_per_layer={c}, num_classes={num_classes}")
+            end = time()
+            print(f"Test passed for input_shape={x.shape[0]}x{x.shape[1]}x{x.shape[2]}, number_of_layers={l}, neurons_per_layer={c}, num_classes={num_classes}")
+            print(f"Difference: {diff}. Time: {round(end-start,7)}sec.")
 
 
 if __name__ == "__main__":
