@@ -32,6 +32,7 @@ class TestResNetRepresentation(unittest.TestCase):
         model = ResNet(
                     input_shape=input_shape,
                     num_classes=num_classes,
+                    pretrained=True,
                     max_pool=False  # TODO: Currently doesn't work with max pooling
                 ).to(DEVICE)
         model.eval()

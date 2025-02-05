@@ -10,7 +10,7 @@ from torchvision.models import resnet18, ResNet18_Weights
 
 class ResNet(nn.Module):
 
-    def __init__(self, input_shape: tuple[int,int,int], num_classes: int, max_pool:bool=True, save:bool=False) -> None:
+    def __init__(self, input_shape: tuple[int,int,int], num_classes: int, pretrained:bool=True, max_pool:bool=True, save:bool=False) -> None:
         super().__init__()
         self.input_shape = input_shape
         c,h,w = input_shape
@@ -19,7 +19,7 @@ class ResNet(nn.Module):
         self.bias = True
         self.save = save
 
-        self.weights = ResNet18_Weights.DEFAULT
+        self.weights = ResNet18_Weights.DEFAULT if pretrained else None
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.model = resnet18(weights=self.weights, progress=False)
         self.model.eval()
