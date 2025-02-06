@@ -7,6 +7,7 @@ import shutil
 
 from model_zoo.mlp import MLP
 from model_zoo.cnn import CNN_2D
+from model_zoo.res_net import ResNet
 from constants.constants import ARCHITECTURES
 
 
@@ -22,8 +23,8 @@ def get_device():
         return torch.device("cpu")
 
 
-def get_architecture(input_shape=(1, 28, 28), num_classes=10, architecture_index=0, residual=False, dropout=False) -> MLP|CNN_2D:
-    if architecture_index <= 7:
+def get_architecture(input_shape=(1, 28, 28), num_classes=10, architecture_index=0, residual=False, dropout=False) -> MLP|CNN_2D|ResNet:
+    if architecture_index <= 7 and architecture_index >= 0:
         model = MLP(input_shape=input_shape,
                     num_classes=num_classes,
                     hidden_sizes=ARCHITECTURES[architecture_index],
@@ -31,6 +32,10 @@ def get_architecture(input_shape=(1, 28, 28), num_classes=10, architecture_index
                     bias=True,
                     dropout=dropout,
                     )
+    elif architecture_index < 0:
+        model = ResNet(input_shape=input_shape,
+                       num_classes=num_classes
+                       )
     else:
         model = CNN_2D(input_shape=input_shape,
                        num_classes=num_classes,
@@ -40,11 +45,12 @@ def get_architecture(input_shape=(1, 28, 28), num_classes=10, architecture_index
     return model
 
 
-def get_model(path, architecture_index, residual, input_shape, dropout):
+def get_model(path, architecture_index, residual, input_shape, num_classes, dropout):
     weight_path = torch.load(str(path), map_location=torch.device('cpu'))
     model = get_architecture(architecture_index=architecture_index,
                              residual=residual,
                              input_shape=input_shape,
+                             num_classes=num_classes,
                              dropout=dropout)
     model.load_state_dict(weight_path)
     return model
@@ -78,7 +84,7 @@ def get_dataset(data_set, batch_size=32, data_loader=True, data_path=None):
         train_set = torchvision.datasets.CIFAR10(root=data_path, train=True, transform=transform_train, download=True)
         test_set = torchvision.datasets.CIFAR10(root=data_path, train=False, transform=transform, download=True)
 
-    elif data_set == 'imagenette':  # For ResNet
+    elif data_set == 'imagenette':
         preprocess = transforms.Compose([
                                     transforms.Resize(256),
                                     transforms.CenterCrop(224),

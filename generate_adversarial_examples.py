@@ -39,7 +39,7 @@ def parse_args(parser=None):
     return parser.parse_args()
 
 
-def apply_attack(attack_name, data, labels, weights_path, architecture_index, path_adv_examples, residual, input_shape, dropout):
+def apply_attack(attack_name, data, labels, weights_path, architecture_index, path_adv_examples, residual, input_shape, num_classes, dropout):
     attack_save_path = path_adv_examples / f'{attack_name}/adversarial_examples.pth'
 
     if attack_save_path.exists():
@@ -48,7 +48,7 @@ def apply_attack(attack_name, data, labels, weights_path, architecture_index, pa
         return attack_name, misclassified_images
 
     print(f"Attacking with {attack_name}", flush=True)
-    model = get_model(weights_path, architecture_index, residual, input_shape, dropout)
+    model = get_model(weights_path, architecture_index, residual, input_shape, num_classes, dropout)
 
     attacks_classes = dict(zip(["test"] + ATTACKS,
                                [torchattacks.VANILA(model),

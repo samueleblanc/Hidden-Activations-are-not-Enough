@@ -311,5 +311,18 @@ DEFAULT_EXPERIMENTS = {
         'residual': False,
         'weight_decay': 0,
         'dropout': 0,
+    },
+    'experiment_20': {
+        'architecture_index': -99,  # ResNet
+        'optimizer': 'sgd',
+        'dataset': 'cifar10',
+        'lr': 0.01,
+        'batch_size': 16,
+        'epoch': 5,
+        'reduce_lr_each': 3,
+        'save_every_epochs': 1,
+        'residual': True,
+        'weight_decay': 0,
+        'dropout': 0,
     }
 }

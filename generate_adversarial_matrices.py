@@ -39,8 +39,8 @@ def parse_args(parser=None):
     return parser.parse_args()
 
 
-def save_one_matrix(im, attack, i, default_index, weights_path, architecture_index, residual, input_shape, dropout, temp_dir):
-    model = get_model(weights_path, architecture_index, residual, input_shape, dropout)
+def save_one_matrix(im, attack, i, default_index, weights_path, architecture_index, residual, input_shape, num_classes, dropout, temp_dir):
+    model = get_model(weights_path, architecture_index, residual, input_shape, num_classes, dropout)
     if isinstance(model, MLP):
         representation = MlpRepresentation(model)
     elif isinstance(model, CNN_2D):

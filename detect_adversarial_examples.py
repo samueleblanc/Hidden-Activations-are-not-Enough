@@ -50,6 +50,7 @@ def reject_predicted_attacks(default_index,
                              architecture_index,
                              residual,
                              input_shape,
+                             num_classes,
                              dropout,
                              ellipsoids: dict,
                              std: float = 2,
@@ -65,7 +66,7 @@ def reject_predicted_attacks(default_index,
         reject_path = f'experiments/{default_index}/rejection_levels/reject_at_{std}_{d1}.json'
         Path(f'experiments/{default_index}/rejection_levels/').mkdir(parents=True, exist_ok=True)
 
-    model = get_model(weights_path, architecture_index, residual, input_shape, dropout)
+    model = get_model(weights_path, architecture_index, residual, input_shape, num_classes, dropout)
 
     if os.path.exists(reject_path):
         print("Loading rejection level...", flush=True)
@@ -213,6 +214,7 @@ def main():
     print("Detecting adversarial examples for Experiment: ", args.default_index, flush=True)
 
     input_shape = (3, 32, 32) if dataset == 'cifar10' else (1, 28, 28)
+    num_classes = 10  # TODO: This should be easily changed
 
     if args.temp_dir is not None:
         weights_path = Path(f'{args.temp_dir}/experiments/{args.default_index}/weights') / f'epoch_{epoch}.pth'
@@ -236,6 +238,7 @@ def main():
                              architecture_index,
                              residual,
                              input_shape,
+                             num_classes,
                              dropout,
                              ellipsoids,
                              args.std,
