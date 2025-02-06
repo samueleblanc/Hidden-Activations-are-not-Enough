@@ -213,7 +213,7 @@ def main():
 
     print("Detecting adversarial examples for Experiment: ", args.default_index, flush=True)
 
-    input_shape = (3, 32, 32) if dataset == 'cifar10' else (1, 28, 28)
+    input_shape = (3, 32, 32) if dataset == 'cifar10' or dataset == 'cifar100' else (1, 28, 28)
     num_classes = 10  # TODO: This should be easily changed
 
     if args.temp_dir is not None:

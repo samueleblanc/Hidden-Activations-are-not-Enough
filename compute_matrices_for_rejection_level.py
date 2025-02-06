@@ -132,7 +132,7 @@ def main():
     if not weights_path.exists():
         raise ValueError(f"Experiment needs to be trained")
 
-    input_shape = (3, 32, 32) if dataset == 'cifar10' else (1, 28, 28)
+    input_shape = (3, 32, 32) if dataset == 'cifar10' or dataset == 'cifar100' else (1, 28, 28)
     train_set, test_set = get_dataset(dataset, data_loader=False)
     exp_dataset_train, exp_dataset_labels = subset(train_set, args.num_samples_rejection_level, input_shape=input_shape)
 

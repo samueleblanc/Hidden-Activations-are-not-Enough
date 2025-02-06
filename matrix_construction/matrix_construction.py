@@ -94,7 +94,7 @@ class MatrixConstruction:
         model_path = os.path.join(new_path, model_file)
         state_dict = torch.load(model_path, map_location=torch.device('cpu'))
 
-        input_shape = (3, 32, 32) if self.dataname == 'cifar10' else (1, 28, 28)
+        input_shape = (3, 32, 32) if self.dataname == 'cifar10' or self.dataname == 'cifar100' else (1, 28, 28)
         model = get_architecture(architecture_index=self.architecture_index,
                                  residual=self.residual,
                                  input_shape=input_shape,

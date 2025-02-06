@@ -84,6 +84,19 @@ def get_dataset(data_set, batch_size=32, data_loader=True, data_path=None):
         train_set = torchvision.datasets.CIFAR10(root=data_path, train=True, transform=transform_train, download=True)
         test_set = torchvision.datasets.CIFAR10(root=data_path, train=False, transform=transform, download=True)
 
+    elif data_set == 'cifar100':
+        # Use data augmentation for CIFAR-100
+        transform_train = transforms.Compose([transforms.Resize((32,32)),
+                                      transforms.RandomHorizontalFlip(),
+                                      transforms.RandomRotation(7),
+                                      transforms.RandomAffine(0, shear=6, scale=(0.9,1.1)),
+                                      transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1),
+                                      transforms.ToTensor(),
+                                      transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+                               ])
+        train_set = torchvision.datasets.CIFAR100(root=data_path, train=True, transform=transform_train, download=True)
+        test_set = torchvision.datasets.CIFAR100(root=data_path, train=False, transform=transform, download=True)
+
     elif data_set == 'imagenette':
         preprocess = transforms.Compose([
                                     transforms.Resize(256),

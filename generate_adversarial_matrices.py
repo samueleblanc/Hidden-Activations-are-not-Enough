@@ -124,7 +124,7 @@ def main():
     if not weights_path.exists():
         raise ValueError(f"Experiment needs to be trained")
 
-    input_shape = (3, 32, 32) if dataset == 'cifar10' else (1, 28, 28)
+    input_shape = (3, 32, 32) if dataset == 'cifar10' or 'cifar100' else (1, 28, 28)
 
     generate_matrices_for_attacks(args.default_index,
                                   args.temp_dir,

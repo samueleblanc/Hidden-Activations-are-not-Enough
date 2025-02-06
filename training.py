@@ -83,7 +83,7 @@ def main():
 
     device = get_device()
     train_loader, test_loader = get_dataset(dataset, batch_size, data_loader=True, data_path=args.temp_dir)
-    input_shape = (3, 32, 32) if dataset == 'cifar10' else (1, 28, 28)
+    input_shape = (3, 32, 32) if dataset == 'cifar10' or 'cifar100' else (1, 28, 28)
     model = get_architecture(architecture_index=architecture_index,
                              residual=residual,
                              input_shape=input_shape,
