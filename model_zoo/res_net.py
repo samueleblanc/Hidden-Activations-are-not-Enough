@@ -40,6 +40,10 @@ class ResNet(nn.Module):
                 transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
             ])
 
+        if pretrained:
+            for param in self.model.parameters():
+                param.requires_grad = False
+
         self.conv_layers = []
         self.fc_layers = []
         
