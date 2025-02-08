@@ -56,8 +56,9 @@ class TestConvRepresentation_2D(unittest.TestCase):
         for _ in range(10):
             start = time()
             model, x, forward_pass, channels, fc, num_classes = self.create_random_model()
+            batch_size = random.randint(1,16)
             # Build representation and compute output
-            rep = ConvRepresentation_2D(model)
+            rep = ConvRepresentation_2D(model, batch_size=batch_size)
             rep = rep.forward(x)
             one = torch.flatten(torch.ones(model.matrix_input_dim))
             rep_forward = torch.matmul(rep, one)
@@ -65,7 +66,7 @@ class TestConvRepresentation_2D(unittest.TestCase):
 
             self.assertAlmostEqual(diff, 0, places=None, msg=f"rep and forward_pass differ by {diff}.", delta=0.1)
             end = time()
-            print(f"Test passed for input_shape={x.shape[0]}x{x.shape[1]}x{x.shape[2]}, channels={channels}, fc={fc}, num_classes={num_classes}")
+            print(f"Test passed for input_shape={x.shape[0]}x{x.shape[1]}x{x.shape[2]}, channels={channels}, fc={fc}, num_classes={num_classes}, and batch_size={batch_size}.")
             print(f"Difference: {diff}. Time: {round(end-start,7)}sec.")
 
 
