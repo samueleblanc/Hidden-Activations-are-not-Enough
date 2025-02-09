@@ -1,5 +1,5 @@
 """
-    Implementation of ResNet
+    Implementation of ResNet18
 """
 
 import torch
@@ -26,7 +26,7 @@ class ResNet(nn.Module):
         self.model.to(self.device)
         self.matrix_input_dim = c*w*h + 1
 
-        regular_input = h >= 224 and num_classes == 1000
+        regular_input = h >= 224
         if regular_input:
             self.transform = transforms.Compose([
                 transforms.Resize(256),
@@ -51,7 +51,7 @@ class ResNet(nn.Module):
         first_conv = True
         for module in self.model.children():
             if isinstance(module, nn.MaxPool2d):
-                if max_pool:  # TODO: Currently doesn't work with max pooling
+                if max_pool:  # TODO: Currently doesn't work with max pooling (if pretrained is True)
                     if regular_input:
                         self.conv_layers.append(nn.MaxPool2d(kernel_size=module.kernel_size, padding=module.padding, stride=module.stride, return_indices=True))
                         cnt += 1
@@ -76,17 +76,17 @@ class ResNet(nn.Module):
                     self.conv_layers.append(nn.ReLU())
                     cnt += 1
             elif isinstance(module, nn.Linear):
-                if regular_input:
-                    self.fc_layers.append(module)
-                else:
+                if num_classes != 1000:  # Can't use original module if that's the case
                     self.fc_layers.append(nn.Linear(module.in_features, num_classes, bias=True))
+                else:
+                    self.fc_layers.append(module)
                 cnt += 1
             elif isinstance(module, nn.Conv2d):
                 if first_conv:
-                    if regular_input:
+                    if c == 3:  # Must have 3 channels to use module
                         self.conv_layers.append(module)
                     else:
-                        self.conv_layers.append(nn.Conv2d(input_shape[0], 64, kernel_size=3, stride=1, padding=1, bias=False))
+                        self.conv_layers.append(nn.Conv2d(c, 64, kernel_size=3, stride=1, padding=1, bias=False))
                     first_conv = False
                     cnt += 1
             else:
@@ -194,7 +194,4 @@ class ResNet(nn.Module):
     
     def get_activation_fn(self):
         return nn.ReLU()
-
-
-resnet = ResNet((1,64,64), 1000)
 
