@@ -2,21 +2,23 @@
     Creates matrices of existing adversarial examples
 """
 import torch
-import argparse
+from argparse import ArgumentParser, Namespace
 from multiprocessing import Pool
 from pathlib import Path
 
 from model_zoo.mlp import MLP
 from model_zoo.cnn import CNN_2D
-from matrix_construction.representation import MlpRepresentation, ConvRepresentation_2D
+from matrix_construction.matrix_computation import MlpRepresentation, ConvRepresentation_2D
 from utils.utils import get_model
 from constants.constants import DEFAULT_EXPERIMENTS, ATTACKS
 from utils.utils import zip_and_cleanup
 
 
-def parse_args(parser=None):
+def parse_args(
+        parser:ArgumentParser|None = None
+    ) -> Namespace:
     if parser is None:
-        parser = argparse.ArgumentParser()
+        parser = ArgumentParser()
     parser.add_argument(
         "--default_index",
         type=int,
@@ -39,8 +41,27 @@ def parse_args(parser=None):
     return parser.parse_args()
 
 
-def save_one_matrix(im, attack, i, default_index, weights_path, architecture_index, residual, input_shape, num_classes, dropout, temp_dir):
-    model = get_model(weights_path, architecture_index, residual, input_shape, num_classes, dropout)
+def save_one_matrix(
+        im: torch.Tensor, 
+        attack: str, 
+        i: int, 
+        default_index: int, 
+        weights_path: str, 
+        architecture_index: int, 
+        residual: bool, 
+        input_shape: tuple[int,int,int], 
+        num_classes: int, 
+        dropout: bool, 
+        temp_dir: str
+    ) -> None:
+    model = get_model(
+        path = weights_path, 
+        architecture_index = architecture_index, 
+        residual = residual, 
+        input_shape = input_shape, 
+        num_classes = num_classes, 
+        dropout = dropout
+    )
     if isinstance(model, MLP):
         representation = MlpRepresentation(model)
     elif isinstance(model, CNN_2D):
@@ -58,14 +79,16 @@ def save_one_matrix(im, attack, i, default_index, weights_path, architecture_ind
         torch.save(mat, matrix_save_path)
 
 
-def generate_matrices_for_attacks(default_index,
-                                  temp_dir,
-                                  weights_path,
-                                  architecture_index,
-                                  residual,
-                                  input_shape,
-                                  dropout,
-                                  nb_workers):
+def generate_matrices_for_attacks(
+        default_index: int,
+        temp_dir: str,
+        weights_path: str,
+        architecture_index: int,
+        residual: bool,
+        input_shape: tuple[int,int,int],
+        dropout: bool,
+        nb_workers: int
+    ) -> None:
     for attack in ['test'] + ATTACKS:
         if temp_dir is not None:
             path_adv_examples = Path(temp_dir) / f'experiments/{default_index}/adversarial_examples' / f"{attack}/adversarial_examples.pth"
@@ -93,7 +116,7 @@ def generate_matrices_for_attacks(default_index,
             pool.starmap(save_one_matrix, arguments)
 
 
-def main():
+def main() -> None:
     args = parse_args()
     if args.default_index is not None:
         try:
@@ -124,16 +147,19 @@ def main():
     if not weights_path.exists():
         raise ValueError(f"Experiment needs to be trained")
 
+    # TODO: Should take input as argument
     input_shape = (3, 32, 32) if dataset == 'cifar10' or 'cifar100' else (1, 28, 28)
 
-    generate_matrices_for_attacks(args.default_index,
-                                  args.temp_dir,
-                                  weights_path,
-                                  architecture_index,
-                                  residual,
-                                  input_shape,
-                                  dropout,
-                                  args.nb_workers)
+    generate_matrices_for_attacks(
+        default_index = args.default_index,
+        temp_dir = args.temp_dir,
+        weights_path = weights_path,
+        architecture_index = architecture_index,
+        residual = residual,
+        input_shape = input_shape,
+        dropout = dropout,
+        nb_workers = args.nb_workers
+    )
 
     if args.temp_dir is not None:
         zip_and_cleanup(f'{args.temp_dir}/experiments/{args.default_index}/adversarial_matrices/',

@@ -1,13 +1,15 @@
-import argparse
-import pandas as pd
 import sys
-from pathlib import Path
 import subprocess
+import pandas as pd
+from pathlib import Path
+from argparse import ArgumentParser, Namespace
 
 
-def parse_args(parser=None):
+def parse_args(
+        parser:ArgumentParser|None = None
+    ) -> Namespace:
     if parser is None:
-        parser = argparse.ArgumentParser()
+        parser = ArgumentParser()
     parser.add_argument(
         "--output_file",
         type=str,
@@ -25,11 +27,17 @@ def parse_args(parser=None):
     return parser.parse_args()
 
 
-def check_default_index_exists(df, default_index):
+def check_default_index_exists(
+        df: pd.DataFrame, 
+        default_index: int
+    ) -> bool:
     return f'default {default_index}' in df['default_index'].values
 
 
-def get_top_10_abs_difference(df, default_index):
+def get_top_10_abs_difference(
+        df: pd.DataFrame, 
+        default_index: int
+    ) -> pd.DataFrame:
     filtered_df = df[df['default_index'] == f'default {default_index}'].copy()
 
     # Convert columns to float, coercing errors to NaN
@@ -44,7 +52,14 @@ def get_top_10_abs_difference(df, default_index):
     return top_10[['std', 'd1', 'd2', 'good_defence', 'wrong_rejection']]
 
 
-def run_detect_adversarial_examples(std, d1, d2, default_index, top, temp_dir=None):
+def run_detect_adversarial_examples(
+        std: float, 
+        d1: float, 
+        d2: float, 
+        default_index: int, 
+        top: int, 
+        temp_dir:str|None = None
+    ) -> None:
     if temp_dir is not None:
         cmd = f"source ENV/bin/activate &&" \
               f" python detect_adversarial_examples.py --std {std} --d1 {d1} --d2 {d2} " \
@@ -68,7 +83,7 @@ def run_detect_adversarial_examples(std, d1, d2, default_index, top, temp_dir=No
             f.write(result.stdout)
 
 
-if __name__ == "__main__":
+def main() -> None:
     args = parse_args()
 
     if args.temp_dir is None:
@@ -98,3 +113,6 @@ if __name__ == "__main__":
         count += 1
         if count >= 3:
             break
+
+if __name__ == "__main__":
+    main()

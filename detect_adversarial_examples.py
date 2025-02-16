@@ -1,15 +1,18 @@
+import os
+import json
+import torch
+from argparse import ArgumentParser, Namespace
+from pathlib import Path
+
 from utils.utils import get_ellipsoid_data, zero_std, get_model
 from constants.constants import DEFAULT_EXPERIMENTS, ATTACKS
-from pathlib import Path
-import argparse
-import torch
-import json
-import os
 
 
-def parse_args(parser=None):
+def parse_args(
+        parser:ArgumentParser|None = None
+    ) -> Namespace:
     if parser is None:
-        parser = argparse.ArgumentParser()
+        parser = ArgumentParser()
     parser.add_argument(
         "--default_index",
         type=int,
@@ -45,19 +48,21 @@ def parse_args(parser=None):
     return parser.parse_args()
 
 
-def reject_predicted_attacks(default_index,
-                             weights_path,
-                             architecture_index,
-                             residual,
-                             input_shape,
-                             num_classes,
-                             dropout,
-                             ellipsoids: dict,
-                             std: float = 2,
-                             d1: float = 0.1,
-                             d2: float = 0.1,
-                             verbose: bool = True,
-                             temp_dir=None) -> None:
+def reject_predicted_attacks(
+        default_index: int,
+        weights_path: str,
+        architecture_index: int,
+        residual: bool,
+        input_shape: tuple[int,int,int],
+        num_classes: int,
+        dropout: bool,
+        ellipsoids: dict,
+        std:float = 2,
+        d1:float = 0.1,
+        d2:float = 0.1,
+        verbose:bool = True,
+        temp_dir:str|None = None
+    ) -> None:
 
     if temp_dir is not None:
         reject_path = f'{temp_dir}/experiments/{default_index}/rejection_levels/reject_at_{std}_{d1}.json'
@@ -192,7 +197,7 @@ def reject_predicted_attacks(default_index,
     print(f"Percentage of wrong rejections: {wrongly_rejected/(len(results)-num_att)}", flush=True)
 
 
-def main():
+def main() -> None:
     args = parse_args()
     if args.default_index is not None:
         try:
@@ -233,19 +238,21 @@ def main():
 
     ellipsoids = json.load(ellipsoids_file)
 
-    reject_predicted_attacks(args.default_index,
-                             weights_path,
-                             architecture_index,
-                             residual,
-                             input_shape,
-                             num_classes,
-                             dropout,
-                             ellipsoids,
-                             args.std,
-                             args.d1,
-                             args.d2,
-                             verbose=True,
-                             temp_dir=args.temp_dir)
+    reject_predicted_attacks(
+        default_index = args.default_index,
+        weights_path = weights_path,
+        architecture_index = architecture_index,
+        residual = residual,
+        input_shape = input_shape,
+        num_classes = num_classes,
+        dropout = dropout,
+        ellipsoids = ellipsoids,
+        std = args.std,
+        d1 = args.d1,
+        d2 = args.d2,
+        verbose = True,
+        temp_dir = args.temp_dir
+    )
 
 
 if __name__ == '__main__':

@@ -1,6 +1,7 @@
 """
-    Simple MLP model that allows bias, residual connections and batch norm layers.
-    It allows to save activations and pre-activations in order for computation of quiver representations.
+    Implementation for (almost) arbitrary MLP.
+    This class has a forward method that can be used for training or to 
+    save activations and preactivations to later compute the matrix.
 """
 import torch
 import torch.nn as nn
@@ -11,13 +12,13 @@ class MLP(nn.Module):
             self,
             input_shape,
             num_classes,
-            hidden_sizes=(10, 10),
-            activation="relu",
-            bias=False,
-            dropout=-1,
-            residual=False,
-            save=False,
-            batch_norm=False
+            hidden_sizes:tuple[int] = (10,10),
+            activation:str = "relu",
+            bias:bool = False,
+            dropout:float = -1,
+            residual:bool = False,
+            save:bool = False,
+            batch_norm:bool = False
     ) -> None:
         super(MLP, self).__init__()
         self.num_classes = num_classes
@@ -91,15 +92,15 @@ class MLP(nn.Module):
                     self.acts.append(x.detach().clone())
         return x
 
-    def get_weights(self):
-        w= []
+    def get_weights(self) -> list[torch.Tensor]:
+        w: list[torch.Tensor] = []
         for m in self.modules():
             if isinstance(m, nn.Linear):
                 w.append(m.weight.data)
         return w
 
-    def get_biases(self):
-        b = []
+    def get_biases(self) -> list[torch.Tensor]:
+        b: list[torch.Tensor] = []
         for m in self.modules():
             if isinstance(m, nn.Linear):
                 b.append(m.bias.data)

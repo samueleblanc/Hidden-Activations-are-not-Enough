@@ -1,17 +1,23 @@
-import argparse
-import json
 import os
+import json
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from constants.constants import DEFAULT_EXPERIMENTS
-from utils.utils import get_architecture, get_dataset, get_device
 from torch.optim.lr_scheduler import StepLR
 from pathlib import Path
+from argparse import ArgumentParser, Namespace
+
+from model_zoo.alex_net import AlexNet
+from model_zoo.cnn import CNN_2D
+from model_zoo.mlp import MLP
+from model_zoo.res_net import ResNet
+from model_zoo.vgg import VGG
+from constants.constants import DEFAULT_EXPERIMENTS
+from utils.utils import get_architecture, get_dataset, get_device
 
 
-def parse_args():
-    parser = argparse.ArgumentParser()
+def parse_args() -> Namespace:
+    parser = ArgumentParser()
     parser.add_argument("--default_index", type=int, default=0, help="The index for default experiment")
     parser.add_argument("--architecture_index", type=int, help="The index of the architecture to train.")
     parser.add_argument("--residual", type=int, help="Residual connections in the architecture every 4 layers.")
@@ -27,7 +33,13 @@ def parse_args():
     return parser.parse_args()
 
 
-def train_one_epoch(model, train_loader, criterion, optimizer, device):
+def train_one_epoch(
+        model: AlexNet|CNN_2D|MLP|ResNet|VGG, 
+        train_loader, 
+        criterion: nn.CrossEntropyLoss, 
+        optimizer: optim.SGD|optim.Adam, 
+        device: torch.device
+    ) -> None:
     model.train()
     running_loss = 0.0
     for inputs, labels in train_loader:
@@ -40,7 +52,12 @@ def train_one_epoch(model, train_loader, criterion, optimizer, device):
         running_loss += loss.item() * inputs.size(0)
 
 
-def evaluate_model(model, data_loader, criterion, device):
+def evaluate_model(
+        model: AlexNet|CNN_2D|MLP|ResNet|VGG, 
+        data_loader, 
+        criterion: nn.CrossEntropyLoss, 
+        device: torch.device
+    ) -> tuple[float, float]:
     model.eval()
     running_loss = 0.0
     correct = 0
@@ -57,7 +74,7 @@ def evaluate_model(model, data_loader, criterion, device):
     return running_loss / len(data_loader), correct / total
 
 
-def main():
+def main() -> None:
     print("Start main")
     args = parse_args()
     if args.default_index is not None:
@@ -84,10 +101,12 @@ def main():
     device = get_device()
     train_loader, test_loader = get_dataset(dataset, batch_size, data_loader=True, data_path=args.temp_dir)
     input_shape = (3, 32, 32) if dataset == 'cifar10' or 'cifar100' else (1, 28, 28)
-    model = get_architecture(architecture_index=architecture_index,
-                             residual=residual,
-                             input_shape=input_shape,
-                             dropout=dropout).to(device)
+    model = get_architecture(
+        architecture_index = architecture_index,
+        residual = residual,
+        input_shape = input_shape,
+        dropout = dropout
+    ).to(device)
     criterion = nn.CrossEntropyLoss()
     if optimizer_name == "sgd":
         optimizer = optim.SGD(model.parameters(), lr=lr, weight_decay=weight_decay)

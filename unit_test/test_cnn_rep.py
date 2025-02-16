@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-    Test if building the representation keeps the network function unchanged
+    Test if building the matrix keeps the network function unchanged
 """
 import sys
 import os
@@ -11,7 +11,7 @@ from time import time
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from matrix_construction.representation import ConvRepresentation_2D
+from matrix_construction.matrix_computation import ConvRepresentation_2D
 from model_zoo.cnn import CNN_2D
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"

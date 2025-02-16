@@ -2,15 +2,15 @@
     This script computes matrices for a subset of a dataset for a neural network trained with specific hyper parameters.
 """
 import os
-import argparse
+from argparse import ArgumentParser, Namespace
 from multiprocessing import Pool
 
-from matrix_construction.matrix_construction import MatrixConstruction
+from matrix_construction.parallel import ParallelMatrixConstruction
 from constants.constants import DEFAULT_EXPERIMENTS
 
 
-def parse_args():
-    parser = argparse.ArgumentParser()
+def parse_args() -> Namespace:
+    parser = ArgumentParser()
     parser.add_argument("--default_index", type=int, default=0, help="The index for default experiment")
     parser.add_argument("--num_samples_per_class", type=int, default=1000,
                         help="Number of data samples per class to compute matrices.")
@@ -19,11 +19,14 @@ def parse_args():
     return parser.parse_args()
 
 
-def compute_matrices(exp, chunk_id):
-    exp.values_on_epoch(chunk_id=chunk_id)
+def compute_matrices(
+        mat_constructer: ParallelMatrixConstruction, 
+        chunk_id: int
+    ) -> None:
+    mat_constructer.values_on_epoch(chunk_id=chunk_id)
 
 
-def main():
+def main() -> None:
     args = parse_args()
     if args.default_index is not None:
         try:
@@ -67,9 +70,9 @@ def main():
                 'dropout': dropout,
                 }
 
-    exp = MatrixConstruction(dict_exp)
+    mat_constructer = ParallelMatrixConstruction(dict_exp)
     chunks = list(range(num_samples // chunk_size))
-    arguments = list(zip([exp for _ in range(len(chunks))], chunks))
+    arguments = list(zip([mat_constructer for _ in range(len(chunks))], chunks))
 
     print(f"Computing matrices...", flush=True)
     with Pool(processes=args.nb_workers) as pool:

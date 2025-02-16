@@ -1,16 +1,19 @@
+import os
+import json
 import itertools
 import subprocess
-import argparse
-from multiprocessing import Pool, Manager
-import os
 import pandas as pd
 from pathlib import Path
-import json
+from numpy import geomspace
+from multiprocessing import Pool, Manager
+from argparse import ArgumentParser, Namespace
 
 
-def parse_args(parser=None):
+def parse_args(
+        parser:ArgumentParser|None = None
+    ) -> Namespace:
     if parser is None:
-        parser = argparse.ArgumentParser()
+        parser = ArgumentParser()
     parser.add_argument(
         "--std_values",
         type=float,
@@ -68,8 +71,11 @@ def parse_args(parser=None):
     return parser.parse_args()
 
 
-# Function to check if the default index exists in the output file
-def check_index_exists(output_file, default_index):
+def check_index_exists(
+        output_file: str, 
+        default_index: int
+    ) -> bool:
+    # Check if the default index exists in the output file
     if not os.path.exists(output_file):
         return False
 
@@ -77,8 +83,14 @@ def check_index_exists(output_file, default_index):
     return f'default {default_index}' in df['default_index'].values
 
 
-# Function to check if a parameter combination exists in the output file
-def check_param_combination_exists(output_file, std, d1, d2, index):
+def check_param_combination_exists(
+        output_file: str, 
+        std: float, 
+        d1: float, 
+        d2: float, 
+        index: int
+    ) -> bool:
+    # Check if a parameter combination exists in the output file
     if not os.path.exists(output_file):
         return False
 
@@ -86,8 +98,8 @@ def check_param_combination_exists(output_file, std, d1, d2, index):
     return not df[(df['std'] == std) & (df['d1'] == d1) & (df['d2'] == d2) & (df['default_index'] == f'default {index}')].empty
 
 
-# Function to run the generate_adversarial_examples.py script with given parameters
-def run_adv_examples_script(params):
+def run_adv_examples_script(params: tuple) -> None:
+    # Run the generate_adversarial_examples.py script with given parameters
     std, d1, d2, index, lock, output_file, temp_dir, rej_lev_flag = params
     print(f'Running parameters: {params}', flush=True)
     reject_path = f'experiments/{index}/rejection_levels/reject_at_{std}_{d1}.json'
@@ -166,8 +178,7 @@ def run_adv_examples_script(params):
             f.write(result_line)
 
 
-def main():
-    import numpy as np
+def main() -> None:
     print("Grid search starting...", flush=True)
     args = parse_args()
 
@@ -177,7 +188,11 @@ def main():
 
     # Define the parameter grid
     if args.extensive_search == 1:
-        vals = np.geomspace(0.00001, 1, num=10)
+        vals = geomspace(
+                    start = 0.00001,
+                    stop = 1, 
+                    num = 10
+                )
         std_values = vals
         d1_values = vals
         d2_values = vals
@@ -208,7 +223,13 @@ def main():
                         # If true, add the file to the list
                         files_to_keep.append(filename)
 
-    param_grid = list(itertools.product(std_values, d1_values, d2_values, indexes, [args.rej_lev]))
+    param_grid = list(itertools.product(
+                        std_values, 
+                        d1_values, 
+                        d2_values, 
+                        indexes, 
+                        [args.rej_lev]
+                    ))
 
     # Use Manager to create a Lock
     with Manager() as manager:

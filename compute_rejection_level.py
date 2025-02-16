@@ -1,14 +1,17 @@
-from utils.utils import get_ellipsoid_data, zero_std
-from pathlib import Path
-import argparse
-import torch
-import json
 import os
+import json
+import torch
+from argparse import ArgumentParser, Namespace
+from pathlib import Path
+
+from utils.utils import get_ellipsoid_data, zero_std
 
 
-def parse_args(parser=None):
+def parse_args(
+        parser:ArgumentParser|None = None
+    ) -> Namespace:
     if parser is None:
-        parser = argparse.ArgumentParser()
+        parser = ArgumentParser()
     parser.add_argument(
         "--default_index",
         type=int,
@@ -37,7 +40,13 @@ def parse_args(parser=None):
     return parser.parse_args()
 
 
-def process_sample(ellipsoids, d1, default_index, i, temp_dir):
+def process_sample(
+        ellipsoids: dict, 
+        d1: float, 
+        default_index: int, 
+        i: int, 
+        temp_dir:str|None
+    ) -> torch.Tensor|None:
     if temp_dir is not None:
         path_experiment_matrix = Path(f'{temp_dir}/experiments/{default_index}/rejection_levels/matrices/{i}/matrix.pth')
         path_prediction = Path(f'{temp_dir}/experiments/{default_index}/rejection_levels/matrices/{i}/prediction.pth')
@@ -56,12 +65,14 @@ def process_sample(ellipsoids, d1, default_index, i, temp_dir):
         return None
 
 
-def compute_rejection_level(exp_dataset_train: torch.Tensor,
-                             default_index,
-                             ellipsoids: dict,
-                             std: float = 2,
-                             d1: float = 0.1,
-                            temp_dir=None) -> None:
+def compute_rejection_level(
+        exp_dataset_train: torch.Tensor,
+        default_index: int,
+        ellipsoids: dict,
+        std:float = 2,
+        d1:float = 0.1,
+        temp_dir:str|None = None
+    ) -> None:
 
     # Compute mean and std of number of (almost) zero dims
     reject_path = f'experiments/{default_index}/rejection_levels/reject_at_{std}_{d1}.json'
@@ -82,7 +93,7 @@ def compute_rejection_level(exp_dataset_train: torch.Tensor,
         json.dump([reject_at], json_file, indent=4)
 
 
-def main():
+def main() -> None:
     args = parse_args()
 
     print("Experiment: ", args.default_index, flush=True)
@@ -101,12 +112,14 @@ def main():
 
     ellipsoids = json.load(ellipsoids_file)
 
-    compute_rejection_level(exp_dataset_train,
-                            args.default_index,
-                            ellipsoids,
-                            args.std,
-                            args.d1,
-                            args.temp_dir)
+    compute_rejection_level(
+        exp_dataset_train = exp_dataset_train,
+        default_index = args.default_index,
+        ellipsoids = ellipsoids,
+        std = args.std,
+        d1 = args.d1,
+        temp_dir = args.temp_dir
+    )
 
 
 if __name__ == '__main__':

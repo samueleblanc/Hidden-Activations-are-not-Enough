@@ -1,7 +1,8 @@
 """
-    Implementation of ResNet18
+    Implementation of ResNet18.
+    This class has a forward method that can be used for training or to 
+    save activations and preactivations to later compute the matrix.
 """
-
 import torch
 import torch.nn as nn
 from torchvision import transforms
@@ -9,8 +10,14 @@ from torchvision.models import resnet18, ResNet18_Weights
 
 
 class ResNet(nn.Module):
-
-    def __init__(self, input_shape: tuple[int,int,int], num_classes: int, pretrained:bool=True, max_pool:bool=True, save:bool=False) -> None:
+    def __init__(
+            self, 
+            input_shape:tuple[int,int,int], 
+            num_classes:int, 
+            pretrained:bool = True, 
+            max_pool:bool = True, 
+            save:bool = False
+    ) -> None:
         super().__init__()
         self.input_shape = input_shape
         c,h,w = input_shape
@@ -53,10 +60,20 @@ class ResNet(nn.Module):
             if isinstance(module, nn.MaxPool2d):
                 if max_pool:  # TODO: Currently doesn't work with max pooling (if pretrained is True)
                     if regular_input:
-                        self.conv_layers.append(nn.MaxPool2d(kernel_size=module.kernel_size, padding=module.padding, stride=module.stride, return_indices=True))
+                        self.conv_layers.append(nn.MaxPool2d(
+                                                    kernel_size = module.kernel_size, 
+                                                    padding = module.padding, 
+                                                    stride = module.stride, 
+                                                    return_indices = True
+                                                ))
                         cnt += 1
                     else:
-                        self.conv_layers.append(nn.MaxPool2d(kernel_size=2, padding=0, stride=2, return_indices=True))
+                        self.conv_layers.append(nn.MaxPool2d(
+                                                    kernel_size = 2, 
+                                                    padding = 0, 
+                                                    stride = 2, 
+                                                    return_indices = True
+                                                ))
                         cnt += 1
             elif isinstance(module, nn.Sequential):
                 for basic_block in module:
@@ -77,7 +94,11 @@ class ResNet(nn.Module):
                     cnt += 1
             elif isinstance(module, nn.Linear):
                 if num_classes != 1000:  # Can't use original module if that's the case
-                    self.fc_layers.append(nn.Linear(module.in_features, num_classes, bias=True))
+                    self.fc_layers.append(nn.Linear(
+                                            in_features = module.in_features, 
+                                            out_features = num_classes, 
+                                            bias=True
+                                            ))
                 else:
                     self.fc_layers.append(module)
                 cnt += 1
@@ -86,7 +107,14 @@ class ResNet(nn.Module):
                     if c == 3:  # Must have 3 channels to use module
                         self.conv_layers.append(module)
                     else:
-                        self.conv_layers.append(nn.Conv2d(c, 64, kernel_size=3, stride=1, padding=1, bias=False))
+                        self.conv_layers.append(nn.Conv2d(
+                                                    in_channels = c, 
+                                                    out_channels = 64, 
+                                                    kernel_size = 3, 
+                                                    stride = 1, 
+                                                    padding = 1,
+                                                    bias = False
+                                                ))
                     first_conv = False
                     cnt += 1
             else:
@@ -194,4 +222,3 @@ class ResNet(nn.Module):
     
     def get_activation_fn(self):
         return nn.ReLU()
-

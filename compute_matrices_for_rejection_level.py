@@ -1,18 +1,24 @@
-from utils.utils import get_model, subset, get_dataset, zip_and_cleanup
-from constants.constants import DEFAULT_EXPERIMENTS
-from model_zoo.mlp import MLP
-from model_zoo.cnn import CNN_2D
-from matrix_construction.representation import MlpRepresentation, ConvRepresentation_2D
-from pathlib import Path
-import argparse
-import torch
 import os
+import torch
+from argparse import ArgumentParser, Namespace
+from pathlib import Path
 from multiprocessing import Pool
 
+from model_zoo.mlp import MLP
+from model_zoo.cnn import CNN_2D
+from model_zoo.alex_net import AlexNet
+from model_zoo.res_net import ResNet
+from model_zoo.vgg import VGG
+from constants.constants import DEFAULT_EXPERIMENTS
+from utils.utils import get_model, subset, get_dataset, zip_and_cleanup
+from matrix_construction.matrix_computation import MlpRepresentation, ConvRepresentation_2D
 
-def parse_args(parser=None):
+
+def parse_args(
+        parser:ArgumentParser|None = None
+    ) -> Namespace:
     if parser is None:
-        parser = argparse.ArgumentParser()
+        parser = ArgumentParser()
     parser.add_argument(
         "--default_index",
         type=int,
@@ -40,7 +46,7 @@ def parse_args(parser=None):
     return parser.parse_args()
 
 
-def compute_one_matrix(args):
+def compute_one_matrix(args: tuple) -> None:
     im, label, weights_path, architecture_index, residual, input_shape, default_index, dropout, i, temp_dir = args
 
     model = get_model(weights_path, architecture_index, residual, input_shape, dropout)
@@ -73,19 +79,20 @@ def compute_one_matrix(args):
     torch.save(mat, path_experiment_matrix)
 
 
-def compute_matrices_for_rejection_level(exp_dataset_train: torch.Tensor,
-                                         exp_dataset_labels: torch.Tensor,
-                                         default_index,
-                                         weights_path,
-                                         architecture_index,
-                                         residual,
-                                         input_shape,
-                                         dropout,
-                                         nb_workers: int = 8,
-                                         temp_dir=None) -> None:
+def compute_matrices_for_rejection_level(
+        exp_dataset_train: torch.Tensor,
+        exp_dataset_labels: torch.Tensor,
+        default_index: int,
+        weights_path: str,
+        architecture_index: int,
+        residual: bool,
+        input_shape: tuple[int,int,int],
+        dropout: bool,
+        nb_workers: int = 8,
+        temp_dir:str|None = None
+    ) -> None:
 
     Path(f'experiments/{default_index}/rejection_levels/').mkdir(parents=True, exist_ok=True)
-
     print("Computing matrices for rejection level...", flush=True)
 
     with Pool(processes=nb_workers) as pool:
@@ -103,7 +110,7 @@ def compute_matrices_for_rejection_level(exp_dataset_train: torch.Tensor,
         pool.map(compute_one_matrix, args)
 
 
-def main():
+def main() -> None:
     args = parse_args()
     if args.default_index is not None:
         try:
@@ -139,21 +146,25 @@ def main():
     Path(f'experiments/{args.default_index}/rejection_levels/').mkdir(parents=True, exist_ok=True)
     torch.save(exp_dataset_train, f'experiments/{args.default_index}/rejection_levels/exp_dataset_train.pth')
 
-    compute_matrices_for_rejection_level(exp_dataset_train,
-                                         exp_dataset_labels,
-                                         args.default_index,
-                                         weights_path,
-                                         architecture_index,
-                                         residual,
-                                         input_shape,
-                                         dropout,
-                                         args.nb_workers,
-                                         args.temp_dir)
+    compute_matrices_for_rejection_level(
+        exp_dataset_train = exp_dataset_train,
+        exp_dataset_labels = exp_dataset_labels,
+        default_index = args.default_index,
+        weights_path = weights_path,
+        architecture_index = architecture_index,
+        residual = residual,
+        input_shape = input_shape,
+        dropout = dropout,
+        nb_workers = args.nb_workers,
+        temp_dir = args.temp_dir
+    )
 
     if args.temp_dir is not None:
-        zip_and_cleanup(f'{args.temp_dir}/experiments/{args.default_index}/rejection_levels/matrices/',
-                        f'experiments/{args.default_index}/rejection_levels/matrices/matrices',
-                        clean=False)
+        zip_and_cleanup(
+            f'{args.temp_dir}/experiments/{args.default_index}/rejection_levels/matrices/',
+            f'experiments/{args.default_index}/rejection_levels/matrices/matrices',
+            clean=False
+        )
 
 
 if __name__ == '__main__':

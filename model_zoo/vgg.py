@@ -1,7 +1,8 @@
 """
-    Implementation of VGG11
+    Implementation of VGG11.
+    This class has a forward method that can be used for training or to 
+    save activations and preactivations to later compute the matrix.
 """
-
 import torch
 import torch.nn as nn
 from torchvision import transforms
@@ -9,9 +10,15 @@ from torchvision.models import vgg11, vgg11_bn, VGG11_Weights, VGG11_BN_Weights
 
 
 class VGG(nn.Module):
-
-    def __init__(self, input_shape: tuple[int,int,int], num_classes: int, pretrained:bool=True, 
-                 max_pool:bool=True, batch_norm:bool=False, save:bool=False) -> None:
+    def __init__(
+            self, 
+            input_shape:tuple[int,int,int], 
+            num_classes:int, 
+            pretrained:bool = True, 
+            max_pool:bool = True, 
+            batch_norm:bool = False, 
+            save:bool = False
+    ) -> None:
         super().__init__()
         self.input_shape = input_shape
         c,h,w = input_shape
@@ -63,13 +70,27 @@ class VGG(nn.Module):
                     if isinstance(layer, nn.MaxPool2d):
                         if max_pool:
                             if regular_input:
-                                self.conv_layers.append(nn.MaxPool2d(kernel_size=layer.kernel_size, padding=layer.padding, stride=layer.stride, return_indices=True))
+                                self.conv_layers.append(nn.MaxPool2d(
+                                                            kernel_size = layer.kernel_size, 
+                                                            padding = layer.padding, 
+                                                            stride = layer.stride, 
+                                                            return_indices=True
+                                                        ))
                             else:
-                                self.conv_layers.append(nn.MaxPool2d(kernel_size=3, padding=0, stride=1, return_indices=True))
+                                self.conv_layers.append(nn.MaxPool2d(
+                                                            kernel_size = 3, 
+                                                            padding = 0, 
+                                                            stride = 1, 
+                                                            return_indices = True
+                                                        ))
 
                     elif isinstance(layer, nn.Linear):
                         if fc == 2 and num_classes != 1000:
-                            self.fc_layers.append(nn.Linear(layer.in_features, num_classes, bias=True))
+                            self.fc_layers.append(nn.Linear(
+                                                    in_features = layer.in_features, 
+                                                    out_features = num_classes, 
+                                                    bias=True
+                                                  ))
                         else:
                             self.fc_layers.append(layer)
                         fc += 1
@@ -79,7 +100,14 @@ class VGG(nn.Module):
                             if c == 3:
                                 self.conv_layers.append(layer)
                             else:
-                                self.conv_layers.append(nn.Conv2d(input_shape[0], 64, kernel_size=3, stride=1, padding=1, bias=False))
+                                self.conv_layers.append(nn.Conv2d(
+                                                            in_channels = input_shape[0], 
+                                                            out_channels = 64, 
+                                                            kernel_size = 3, 
+                                                            stride = 1, 
+                                                            padding = 1, 
+                                                            bias = False
+                                                        ))
                             first_conv = False
                         else:
                             self.conv_layers.append(layer)

@@ -1,18 +1,25 @@
 """
-    Given an MLP or a CNN it constructs a quiver representation with the bias and weights, and computes with the forward method
-    a matrix obtained by multiplying all matrices in the induced quiver representation \phi(W,f)(x)
+    The forward method in MlpRepresentation computes, given an input and a neural network (an MLP), 
+    the matrix associated to this data sample. The same goes for ConvRepresentation_2D.
 """
 
 import torch
 import torch.nn as nn
 
-from model_zoo.mlp import MLP
+from model_zoo.alex_net import AlexNet
 from model_zoo.cnn import CNN_2D
+from model_zoo.mlp import MLP
 from model_zoo.res_net import ResNet
+from model_zoo.vgg import VGG
 
 
 class MlpRepresentation:
-    def __init__(self, model: MLP, build_rep:bool=False, device:bool="cpu") -> None:
+    def __init__(
+            self, 
+            model: MLP, 
+            build_rep:bool = False, 
+            device:bool = "cpu"
+        ) -> None:
         # TODO: Optimize this algorithm like for the one with convolutions
         self.device = device
         self.act_fn = model.get_activation_fn()()
@@ -77,8 +84,11 @@ class MlpRepresentation:
 
 
 class ConvRepresentation_2D:
-    def __init__(self, model: CNN_2D|ResNet, batch_size:int=1) -> None:
-        super().__init__()
+    def __init__(
+            self,
+            model: CNN_2D|ResNet|AlexNet|VGG,
+            batch_size:int = 1
+        ) -> None:
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.model = model
         self.batch_size = batch_size
@@ -87,7 +97,8 @@ class ConvRepresentation_2D:
         self.in_c, self.in_h, self.in_w = model.input_shape
         self.input_size: int = self.in_c*self.in_h*self.in_w
 
-        self.current_output: CNN_2D|ResNet|None = None  # Saves the output of the NN on the current sample in the forward method
+        # Saves the output of the NN on the current sample in the forward method
+        self.current_output: CNN_2D|ResNet|AlexNet|VGG|None = None
 
         # Find index of first FC layer (used for flatten layer)
         for i,layer in enumerate(self.layers):
@@ -97,8 +108,9 @@ class ConvRepresentation_2D:
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         with torch.no_grad():
+            # Saves activations and preactivations
             self.model.save = True
-            self.current_output = self.model(x, rep=True)  # Saves activations and preactivations
+            self.current_output = self.model(x, rep=True)
 
             # Total number of positions and batches needed
             C, H, W = self.in_c, self.in_h, self.in_w

@@ -3,7 +3,7 @@
 """
 import torch
 import torchattacks
-import argparse
+from argparse import ArgumentParser, Namespace
 from multiprocessing import Pool
 from pathlib import Path
 
@@ -11,9 +11,11 @@ from utils.utils import get_model, get_dataset, subset
 from constants.constants import DEFAULT_EXPERIMENTS, ATTACKS
 
 
-def parse_args(parser=None):
+def parse_args(
+        parser:ArgumentParser|None = None
+    ) -> Namespace:
     if parser is None:
-        parser = argparse.ArgumentParser()
+        parser = ArgumentParser()
     parser.add_argument(
         "--default_index",
         type=int,
@@ -39,7 +41,18 @@ def parse_args(parser=None):
     return parser.parse_args()
 
 
-def apply_attack(attack_name, data, labels, weights_path, architecture_index, path_adv_examples, residual, input_shape, num_classes, dropout):
+def apply_attack(
+        attack_name: str, 
+        data: torch.Tensor, 
+        labels: torch.Tensor, 
+        weights_path: str, 
+        architecture_index: int, 
+        path_adv_examples: str, 
+        residual: bool, 
+        input_shape: tuple[int,int,int], 
+        num_classes: int, 
+        dropout: bool
+    ) -> tuple[str, torch.Tensor]:
     attack_save_path = path_adv_examples / f'{attack_name}/adversarial_examples.pth'
 
     if attack_save_path.exists():
@@ -110,16 +123,17 @@ def apply_attack(attack_name, data, labels, weights_path, architecture_index, pa
     return attack_name, misclassified_images
 
 
-def generate_adversarial_examples(exp_dataset_test: torch.Tensor,
-                                  exp_labels_test: torch.Tensor,
-                                  weights_path,
-                                  architecture_index,
-                                  default_index,
-                                  nb_workers,
-                                  residual,
-                                  input_shape,
-                                  dropout
-                                  ):
+def generate_adversarial_examples(
+        exp_dataset_test: torch.Tensor,
+        exp_labels_test: torch.Tensor,
+        weights_path: str,
+        architecture_index: int,
+        default_index: int,
+        nb_workers: int,
+        residual: bool,
+        input_shape: tuple[int,int,int],
+        dropout: bool
+    ) -> None:
 
     experiment_dir = Path(f'experiments/{default_index}/adversarial_examples')
     experiment_dir.mkdir(parents=True, exist_ok=True)
@@ -144,7 +158,7 @@ def generate_adversarial_examples(exp_dataset_test: torch.Tensor,
         pool.starmap(apply_attack, arguments)
 
 
-def main():
+def main() -> None:
     args = parse_args()
     if args.default_index is not None:
         try:
@@ -175,20 +189,23 @@ def main():
     if not weights_path.exists():
         raise ValueError(f"Experiment needs to be trained")
 
+    # TODO: Should take input_shape as argument
     input_shape = (3, 32, 32) if dataset == 'cifar10' or dataset == 'cifar100' else (1, 28, 28)
     _, test_set = get_dataset(dataset, data_loader=False, data_path=args.temp_dir)
     test_size = len(test_set) if args.test_size == -1 else args.test_size
     exp_dataset_test, exp_labels_test = subset(test_set, test_size, input_shape=input_shape)
 
-    generate_adversarial_examples(exp_dataset_test,
-                                  exp_labels_test,
-                                  weights_path,
-                                  architecture_index,
-                                  default_index=args.default_index,
-                                  nb_workers=args.nb_workers,
-                                  residual=residual,
-                                  input_shape=input_shape,
-                                  dropout=dropout)
+    generate_adversarial_examples(
+        exp_dataset_test = exp_dataset_test,
+        exp_labels_test = exp_labels_test,
+        weights_path = weights_path,
+        architecture_index = architecture_index,
+        default_index = args.default_index,
+        nb_workers = args.nb_workers,
+        residual = residual,
+        input_shape = input_shape,
+        dropout = dropout
+    )
 
 
 if __name__ == "__main__":
