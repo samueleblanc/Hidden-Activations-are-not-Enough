@@ -1,6 +1,7 @@
 """
     This script contains functions for computing several matrices from neural networks in parallel.
 """
+
 import os
 import torch
 from torch.utils.data import DataLoader, Subset
@@ -15,6 +16,23 @@ from utils.utils import get_architecture, get_dataset
 
 
 class ParallelMatrixConstruction:
+    """
+    A class for computing neural network matrices in parallel across multiple samples.
+    Takes a dictionary of experiment parameters and handles parallel matrix computation
+    for different model architectures (MLP, CNN, etc) and datasets.
+
+    Args:
+        dict_exp (dict): Dictionary containing experiment parameters including:
+            - epochs: Number of training epochs
+            - num_samples: Number of samples to process
+            - data_name: Name of dataset
+            - weights_path: Path to model weights
+            - chunk_size: Size of parallel processing chunks
+            - save_path: Where to save computed matrices
+            - architecture_index: Index of model architecture
+            - residual: Whether to use residual connections
+            - dropout: Whether to have dropout layers
+    """
     def __init__(self, dict_exp: dict) -> None:
         self.epoch: int = dict_exp["epochs"]
         self.num_samples: int = dict_exp["num_samples"]
@@ -34,6 +52,9 @@ class ParallelMatrixConstruction:
             model: MLP|CNN_2D|AlexNet|ResNet|VGG,
             chunk_id: int
     ) -> None:
+        """
+        Computes matrices for all classes in the dataset in parallel.
+        """
         if isinstance(model, MLP):
             matrix_computer = MlpRepresentation(model=model)
         elif isinstance(model, (CNN_2D, AlexNet, ResNet, VGG)):
@@ -61,6 +82,9 @@ class ParallelMatrixConstruction:
             )
 
     def values_on_epoch(self, chunk_id: int) -> None:
+        """
+        Loads the model state dictionary and computes matrices for all classes in the dataset.
+        """
         path = os.getcwd()
         directory = f"{self.weights_path}"
         new_path = os.path.join(path, directory)
@@ -88,8 +112,17 @@ class ParallelMatrixConstruction:
             chunk_id: int = 0
     ) -> None:
         """
-        Given a subset of data of a class out_class and an MlpRepresentation or ConvRepresentation_2D (matrix_computer), 
-        the function computes and saves accordingly the induced matrices in the corresponding chunk of samples in data.
+        Computes and saves matrices induced by a neural network for a chunk of data samples from a given class.
+
+        Args:
+            data (torch.Tensor): Input data tensor containing samples from a single class
+            matrix_computer (MlpRepresentation|ConvRepresentation_2D): Object that computes the matrix representation
+                of the neural network at each input point
+            out_class (int): The class label for this chunk of data
+            chunk_id (int, optional): Index of the chunk being processed. Defaults to 0.
+
+        The matrices are saved to disk in the following structure:
+        save_path/class_label/sample_index/matrix.pt
         """
         directory = f"{self.save_path if self.save_path is not None else ''}/{out_class}/"
         os.makedirs(directory, exist_ok=True)

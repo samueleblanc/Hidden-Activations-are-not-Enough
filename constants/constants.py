@@ -1,5 +1,16 @@
 """
-    Some constants used in the experiments.
+This module defines constants used throughout the experiments:
+
+ARCHITECTURES: A list of tuples defining different neural network architectures.
+              Each tuple contains layer sizes for MLPs or (conv_layers, fc_layers) for CNNs.
+              The architectures vary in depth and width. 
+              Note that it's possible to use ResNet, AlexNet, and VGG architectures.
+
+ATTACKS: A list of adversarial attack methods used in the experiments.
+
+DEFAULT_EXPERIMENTS: A dictionary of default experiment configurations.
+                     Each key represents an experiment name, and the value is a dictionary
+                     containing parameters for the experiment.
 """
 
 ARCHITECTURES = [

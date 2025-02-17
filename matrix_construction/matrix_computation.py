@@ -1,6 +1,5 @@
 """
-    The forward method in MlpRepresentation computes, given an input and a neural network (an MLP), 
-    the matrix associated to this data sample. The same goes for ConvRepresentation_2D.
+    This module provides classes for computing matrix representations of neural networks.
 """
 
 import torch
@@ -14,11 +13,19 @@ from model_zoo.vgg import VGG
 
 
 class MlpRepresentation:
+    """
+    Computes the matrix of an MLP neural network at a given input point.
+
+    Args:
+        model (MLP): The MLP model to compute the matrix of
+        build_rep (bool): If True, stores the representation (currently only works without bias)
+        device (str): The device to perform computations on ('cpu' or 'cuda')
+    """
     def __init__(
             self, 
             model: MLP, 
             build_rep:bool = False, 
-            device:bool = "cpu"
+            device:str = "cpu"
         ) -> None:
         # TODO: Optimize this algorithm like for the one with convolutions
         self.device = device
@@ -51,32 +58,47 @@ class MlpRepresentation:
                 self.mlp_biases.append(beta - mu*gamma/factor)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+            Computes the matrix of an MLP neural network at a given input point.
+            Args:
+                x (torch.Tensor): The input to the MLP
+            Returns:
+                torch.Tensor: The matrix of the MLP at the input point  
+        """
+        # Flatten input and move to correct device
         flat_x = torch.flatten(x).to(device=self.device)
+        
+        # Enable saving of activations and run forward pass
         self.model.save = True
         _ = self.model(flat_x)
 
+        # Initialize matrix A with first layer weights * input
         A = self.mlp_weights[0].to(self.device) * flat_x
         a = self.mlp_biases[0]
         if self.build_rep: self.rep = [A + a.unsqueeze(-1)]
 
+        # Iterate through remaining layers
         for i in range(1, len(self.mlp_weights)):
             layeri = self.mlp_weights[i].to(self.device)
 
+            # Calculate activations over pre-activations
             pre_act = self.model.pre_acts[i-1]
             post_act = self.model.acts[i-1]
-
             vertices = post_act / pre_act
             vertices[torch.isnan(vertices) | torch.isinf(vertices)] = 0.0
 
+            # Calculate matrix for current layer and update A
             B = layeri * vertices
             if self.build_rep: self.rep.append(B)
             A = torch.matmul(B, A)
 
+            # Handle bias terms if model has bias or batch norm
             if self.model.bias or self.model.batch_norm:
                 b = self.mlp_biases[i]
                 a = torch.matmul(B, a) + b
                 if self.build_rep: self.rep[-1] = torch.cat((self.rep[-1], b.unsqueeze(-1)), dim=1)
 
+        # Return final matrix with or without bias term
         if self.model.bias or self.model.batch_norm:
             return torch.cat([A, a.unsqueeze(1)], dim=1)
         else:
@@ -84,6 +106,14 @@ class MlpRepresentation:
 
 
 class ConvRepresentation_2D:
+    """
+    A class to compute the matrix of a 2D convolutional neural network.
+    This handles CNN_2D, ResNet, AlexNet and VGG architectures.
+
+    Args:
+        model (CNN_2D|ResNet|AlexNet|VGG): The neural network model to compute the matrix of
+        batch_size (int, optional): Batch size for processing. Defaults to 1.
+    """
     def __init__(
             self,
             model: CNN_2D|ResNet|AlexNet|VGG,
@@ -107,8 +137,15 @@ class ConvRepresentation_2D:
                 break
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+            Computes the matrix of a 2D convolutional neural network at a given input point.
+            Args:
+                x (torch.Tensor): The input to the CNN
+            Returns:
+                torch.Tensor: The matrix of the CNN at the input point
+        """
         with torch.no_grad():
-            # Saves activations and preactivations
+            # Saves activations and pre-activations
             self.model.save = True
             self.current_output = self.model(x, rep=True)
 
@@ -150,6 +187,8 @@ class ConvRepresentation_2D:
                         vertices
                     ).squeeze(0)  # Remove original batch dim
 
+                    # Process each layer type (Conv2d, AvgPool2d, Linear, BatchNorm2d, MaxPool2d)
+                    # applying the appropriate transformations and handling activation ratios
                     if isinstance(layer, nn.Conv2d):
                         if i != 0 and max_pool != i-1: B = B * vertices.repeat(current_batch_size,1,1,1)
                         B = layer(B)
@@ -182,6 +221,8 @@ class ConvRepresentation_2D:
                 # Cat the vector produced to the matrix M(W,f)(x)
                 A = torch.cat((A,B.T),dim=-1) if A.numel() else B.T
 
+            # Process bias and batch norm terms by iterating through layers again
+            # Computing activation ratios and applying appropriate transformations
             if self.model.bias or self.model.batch_norm:
                 i = 0
                 max_pool = -9
@@ -226,6 +267,5 @@ class ConvRepresentation_2D:
                         i += 1
 
                 return torch.cat((A, a), dim=1)
-
-            else:
-                return A
+            
+            return A

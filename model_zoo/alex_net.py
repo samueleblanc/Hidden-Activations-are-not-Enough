@@ -1,9 +1,3 @@
-"""
-    Implementation of AlexNet.
-    This class has a forward method that can be used for training or to 
-    save activations and preactivations to later compute the matrix.
-"""
-
 import torch
 import torch.nn as nn
 from torchvision import transforms
@@ -11,6 +5,17 @@ from torchvision.models import alexnet, AlexNet_Weights
 
 
 class AlexNet(nn.Module):
+    """
+    Implementation of AlexNet architecture with configurable input shape and number of classes.
+    Can be initialized with pretrained weights and supports saving activations for matrix computation.
+
+    Args:
+        input_shape (tuple[int,int,int]): Input shape as (channels, height, width)
+        num_classes (int): Number of output classes
+        pretrained (bool, optional): Whether to use pretrained weights. Defaults to True.
+        max_pool (bool, optional): Whether to use max pooling layers. Defaults to True.
+        save (bool, optional): Whether to save activations during forward pass. Defaults to False.
+    """
     def __init__(
             self, 
             input_shape: tuple[int,int,int], 
@@ -55,6 +60,9 @@ class AlexNet(nn.Module):
         self.conv_layers = []
         self.fc_layers = []
         
+        # Iterate through model layers and build conv_layers and fc_layers lists
+        # Handles MaxPool2d, Linear, Dropout, Conv2d and other layer types
+        # Adapts first conv layer and final linear layer based on input shape and num_classes
         first_conv = True
         fc = 0
         for module in self.model.children():
@@ -63,27 +71,33 @@ class AlexNet(nn.Module):
                     if isinstance(layer, nn.MaxPool2d):
                         if max_pool:
                             if regular_input:
-                                self.conv_layers.append(nn.MaxPool2d(
-                                                            kernel_size = layer.kernel_size, 
-                                                            padding = layer.padding, 
-                                                            stride = layer.stride, 
-                                                            return_indices = True
-                                                        ))
+                                self.conv_layers.append(
+                                    nn.MaxPool2d(
+                                        kernel_size = layer.kernel_size,
+                                        padding = layer.padding,
+                                        stride = layer.stride,
+                                        return_indices = True
+                                    )
+                                )
                             else:
-                                self.conv_layers.append(nn.MaxPool2d(
-                                                            kernel_size = 2, 
-                                                            padding = 0, 
-                                                            stride = 1, 
-                                                            return_indices = True
-                                                        ))
+                                self.conv_layers.append(
+                                    nn.MaxPool2d(
+                                        kernel_size = 2,
+                                        padding = 0,
+                                        stride = 1,
+                                        return_indices = True
+                                    )
+                                )
 
                     elif isinstance(layer, nn.Linear):
                         if fc == 4 and num_classes != 1000:
-                            self.fc_layers.append(nn.Linear(
-                                                    in_features = layer.in_features, 
-                                                    out_features = num_classes, 
-                                                    bias = True
-                                                 ))
+                            self.fc_layers.append(
+                                nn.Linear(
+                                    in_features = layer.in_features, 
+                                    out_features = num_classes, 
+                                    bias = True
+                                )
+                            )
                         else:
                             self.fc_layers.append(layer)
                         fc += 1
@@ -97,14 +111,16 @@ class AlexNet(nn.Module):
                             if c == 3 and regular_input:
                                 self.conv_layers.append(layer)
                             else:
-                                self.conv_layers.append(nn.Conv2d(
-                                                            in_channels = input_shape[0], 
-                                                            out_channels = 64, 
-                                                            kernel_size = 6, 
-                                                            stride = 3, 
-                                                            padding = 1, 
-                                                            bias = False
-                                                        ))
+                                self.conv_layers.append(
+                                    nn.Conv2d(
+                                        in_channels = input_shape[0], 
+                                        out_channels = 64, 
+                                        kernel_size = 6, 
+                                        stride = 3, 
+                                        padding = 1, 
+                                        bias = False
+                                    )
+                                )
                             first_conv = False
                         else:
                             self.conv_layers.append(layer)
@@ -119,6 +135,15 @@ class AlexNet(nn.Module):
                 self.conv_layers.append(module)
 
     def forward(self, x: torch.Tensor, rep=False) -> torch.Tensor:
+        """
+        Forward pass of the AlexNet model.
+
+        Args:
+            x (torch.Tensor): Input tensor
+            rep (bool, optional): Whether to save activations. Defaults to False.
+        Returns:
+            torch.Tensor: Output tensor
+        """
         if not rep:
             if len(x.shape) == 3: x = x.unsqueeze(0)
             for layer in self.conv_layers:
@@ -182,4 +207,10 @@ class AlexNet(nn.Module):
         return x
     
     def get_activation_fn(self):
+        """
+        Returns the activation function used in the model.
+
+        Returns:
+            nn.ReLU: ReLU activation function
+        """
         return nn.ReLU()
