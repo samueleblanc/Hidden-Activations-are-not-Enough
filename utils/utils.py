@@ -46,7 +46,6 @@ def get_architecture(
         Returns:
             The architecture to use.
     """
-    # TODO: Should return AlexNet or VGG if needed
     if architecture_index <= 7 and architecture_index >= 0:
         model = MLP(
             input_shape = input_shape,
@@ -56,8 +55,18 @@ def get_architecture(
             bias = True,
             dropout = dropout,
         )
-    elif architecture_index < 0:
+    elif architecture_index == -3:
+        model = AlexNet(
+            input_shape = input_shape,
+            num_classes = num_classes
+        )
+    elif architecture_index == -2:
         model = ResNet(
+            input_shape = input_shape,
+            num_classes = num_classes
+        )
+    elif architecture_index == -1:
+        model = VGG(
             input_shape = input_shape,
             num_classes = num_classes
         )

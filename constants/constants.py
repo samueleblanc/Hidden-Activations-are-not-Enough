@@ -33,7 +33,13 @@ ARCHITECTURES = [
     (814, 351, 118, 467, 823, 191, 756, 628, 935, 270),
     # CNNs
     ((10,10,10,10), (300,)),
-    ((12,10,10,10), (300,))
+    ((12,10,10,10), (300,)),
+    # AlexNet
+    ("AlexNet"),
+    # ResNet
+    ("ResNet"),
+    # VGG
+    ("VGG")
 ]
 
 ATTACKS = [
@@ -330,7 +336,7 @@ DEFAULT_EXPERIMENTS = {
         'dropout': 0,
     },
     'experiment_20': {
-        'architecture_index': -99,  # ResNet
+        'architecture_index': -2,  # ResNet
         'optimizer': 'sgd',
         'dataset': 'cifar10',
         'lr': 0.01,
