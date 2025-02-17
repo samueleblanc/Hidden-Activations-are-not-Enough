@@ -17,19 +17,73 @@ from utils.utils import get_architecture, get_dataset, get_device
 
 
 def parse_args() -> Namespace:
+    """
+        Return:
+            The parsed arguments.
+    """
     parser = ArgumentParser()
-    parser.add_argument("--default_index", type=int, default=0, help="The index for default experiment")
-    parser.add_argument("--architecture_index", type=int, help="The index of the architecture to train.")
-    parser.add_argument("--residual", type=int, help="Residual connections in the architecture every 4 layers.")
-    parser.add_argument("--dataset", type=str, help="The dataset to train the model on.")
-    parser.add_argument("--optimizer", type=str, help="Optimizer to train the model with.")
-    parser.add_argument("--lr", type=float, help="The learning rate.")
-    parser.add_argument("--batch_size", type=int, help="The batch size.")
-    parser.add_argument("--epochs", type=int, help="The number of epochs to train.")
-    parser.add_argument("--reduce_lr_each", type=int, help="Reduce learning rate every this number of epochs.")
-    parser.add_argument("--save_every_epochs", type=int, help="Save weights every this number of epochs.")
-    parser.add_argument("--from_checkpoint", action='store_true', help="Resume training from the last checkpoint.")
-    parser.add_argument("--temp_dir", type=str, default=None, help="Temporary path on compute node where the dataset is saved.")
+    parser.add_argument(
+        "--default_index", 
+        type = int, 
+        default = 0, 
+        help = "The index for default experiment"
+    )
+    parser.add_argument(
+        "--architecture_index", 
+        type = int, 
+        help = "The index of the architecture to train."
+    )
+    parser.add_argument(
+        "--residual", 
+        type = int, 
+        help = "Residual connections in the architecture every 4 layers."
+    )
+    parser.add_argument(
+        "--dataset", 
+        type = str, 
+        help = "The dataset to train the model on."
+    )
+    parser.add_argument(
+        "--optimizer", 
+        type = str, 
+        help = "Optimizer to train the model with."
+    )
+    parser.add_argument(
+        "--lr", 
+        type = float, 
+        help = "The learning rate."
+    )
+    parser.add_argument(
+        "--batch_size", 
+        type = int, 
+        help = "The batch size."
+    )
+    parser.add_argument(
+        "--epochs", 
+        type = int, 
+        help = "The number of epochs to train."
+    )
+    parser.add_argument(
+        "--reduce_lr_each", 
+        type = int, 
+        help = "Reduce learning rate every this number of epochs."
+    )
+    parser.add_argument(
+        "--save_every_epochs", 
+        type = int, 
+        help = "Save weights every this number of epochs."
+    )
+    parser.add_argument(
+        "--from_checkpoint", 
+        action = 'store_true', 
+        help = "Resume training from the last checkpoint."
+    )
+    parser.add_argument(
+        "--temp_dir", 
+        type = str, 
+        default = None, 
+        help = "Temporary path on compute node where the dataset is saved."
+    )
     return parser.parse_args()
 
 
@@ -40,6 +94,14 @@ def train_one_epoch(
         optimizer: optim.SGD|optim.Adam, 
         device: torch.device
     ) -> None:
+    """
+        Args:
+            model: the model to train.
+            train_loader: the training loader.
+            criterion: the criterion.
+            optimizer: the optimizer.
+            device: the device to train on.
+    """
     model.train()
     running_loss = 0.0
     for inputs, labels in train_loader:
@@ -58,6 +120,15 @@ def evaluate_model(
         criterion: nn.CrossEntropyLoss, 
         device: torch.device
     ) -> tuple[float, float]:
+    """
+        Args:
+            model: the model to evaluate.
+            data_loader: the data loader.
+            criterion: the criterion.
+            device: the device to evaluate on.
+        Returns:
+            The loss and the accuracy.
+    """
     model.eval()
     running_loss = 0.0
     correct = 0
@@ -75,6 +146,9 @@ def evaluate_model(
 
 
 def main() -> None:
+    """
+        Main function to train the model.
+    """
     print("Start main")
     args = parse_args()
     if args.default_index is not None:
@@ -99,7 +173,12 @@ def main() -> None:
         raise ValueError("Default index not specified in constants/constants.py")
 
     device = get_device()
-    train_loader, test_loader = get_dataset(dataset, batch_size, data_loader=True, data_path=args.temp_dir)
+    train_loader, test_loader = get_dataset(
+        dataset = dataset,
+        batch_size = batch_size,
+        data_loader = True,
+        data_path = args.temp_dir
+    )
     input_shape = (3, 32, 32) if dataset == 'cifar10' or 'cifar100' else (1, 28, 28)
     model = get_architecture(
         architecture_index = architecture_index,
@@ -109,15 +188,32 @@ def main() -> None:
     ).to(device)
     criterion = nn.CrossEntropyLoss()
     if optimizer_name == "sgd":
-        optimizer = optim.SGD(model.parameters(), lr=lr, weight_decay=weight_decay)
+        optimizer = optim.SGD(
+            params = model.parameters(), 
+            lr = lr, 
+            weight_decay = weight_decay
+        )
     elif optimizer_name == "momentum":
-        optimizer = optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=weight_decay)
+        optimizer = optim.SGD(
+            params = model.parameters(), 
+            lr = lr, 
+            momentum = 0.9, 
+            weight_decay = weight_decay
+        )
     elif optimizer_name == "adam":
-        optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+        optimizer = optim.Adam(
+            params = model.parameters(), 
+            lr = lr, 
+            weight_decay = weight_decay
+        )
     else:
         raise ValueError("Unsupported optimizer. Add it manually at line 97 on training.py")
 
-    scheduler = StepLR(optimizer, step_size=reduce_lr_each, gamma=0.1)
+    scheduler = StepLR(
+        optimizer = optimizer, 
+        step_size = reduce_lr_each, 
+        gamma = 0.1
+    )
 
     start_epoch = 0
     if args.from_checkpoint:
@@ -137,10 +233,25 @@ def main() -> None:
 
     print("Training...", flush=True)
     for epoch in range(start_epoch, epochs):
-        train_one_epoch(model, train_loader, criterion, optimizer, device)
-
-        train_loss, train_accuracy = evaluate_model(model, train_loader, criterion, device)
-        test_loss, test_accuracy = evaluate_model(model, test_loader, criterion, device)
+        train_one_epoch(
+            model = model, 
+            train_loader = train_loader, 
+            criterion = criterion, 
+            optimizer = optimizer, 
+            device = device
+        )
+        train_loss, train_accuracy = evaluate_model(
+            model = model, 
+            data_loader = train_loader, 
+            criterion = criterion, 
+            device = device
+        )
+        test_loss, test_accuracy = evaluate_model(
+            model = model, 
+            data_loader = test_loader, 
+            criterion = criterion, 
+            device = device
+        )
 
         history['train_acc'].append(train_accuracy)
         history['test_acc'].append(test_accuracy)
@@ -158,6 +269,7 @@ def main() -> None:
 
         with open(f'experiments/{args.default_index}/weights/history.json', 'w') as json_file:
             json.dump(history, json_file, indent=4)
+
 
 if __name__ == "__main__":
     main()

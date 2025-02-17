@@ -1,6 +1,3 @@
-"""
-    Creates adversarial examples
-"""
 import torch
 import torchattacks
 from argparse import ArgumentParser, Namespace
@@ -14,30 +11,38 @@ from constants.constants import DEFAULT_EXPERIMENTS, ATTACKS
 def parse_args(
         parser:ArgumentParser|None = None
     ) -> Namespace:
+    """
+        Args:
+            parser: the parser to use.
+        Returns:
+            The parsed arguments.
+    """
     if parser is None:
         parser = ArgumentParser()
     parser.add_argument(
         "--default_index",
-        type=int,
-        default=0,
-        help="Index of default trained network.",
+        type = int,
+        default = 0,
+        help = "Index of default trained network."
     )
     parser.add_argument(
         "--test_size",
-        type=int,
-        default=-1,
-        help="Size of subset of test data from where to generate adversarial examples. As default -1 takes 10k test samples",
+        type = int,
+        default = -1,
+        help = "Size of subset of test data from where to generate adversarial examples."
+              "As default -1 takes 10k test samples"
     )
     parser.add_argument(
         "--nb_workers",
-        type=int,
-        default=8,
-        help="How many processes in parallel for adversarial examples computations and their matrices.",
+        type = int,
+        default = 8,
+        help = "How many processes in parallel for adversarial examples computations and their matrices."
     )
     parser.add_argument(
         "--temp_dir",
-        type=str,
-        help="Temporary directory for reading data when using clusters.")
+        type = str,
+        help = "Temporary directory for reading data when using clusters."
+    )
     return parser.parse_args()
 
 
@@ -53,6 +58,23 @@ def apply_attack(
         num_classes: int, 
         dropout: bool
     ) -> tuple[str, torch.Tensor]:
+    """
+        Applies an attack to the data and saves the adversarial examples.
+
+        Args:
+            attack_name: the name of the attack.
+            data: the data to attack.
+            labels: the labels of the data.
+            weights_path: the path to the weights.
+            architecture_index: the index of the architecture (See constants/constants.py).
+            path_adv_examples: the path to save the adversarial examples.
+            residual: whether the model has residual connections.
+            input_shape: the shape of the input.
+            num_classes: the number of classes.
+            dropout: whether the model has dropout layers.
+        Returns:
+            The name of the attack and the adversarial examples (that are misclassified).
+    """
     attack_save_path = path_adv_examples / f'{attack_name}/adversarial_examples.pth'
 
     if attack_save_path.exists():
@@ -61,41 +83,51 @@ def apply_attack(
         return attack_name, misclassified_images
 
     print(f"Attacking with {attack_name}", flush=True)
-    model = get_model(weights_path, architecture_index, residual, input_shape, num_classes, dropout)
+    model = get_model(
+        path = weights_path,
+        architecture_index = architecture_index,
+        residual = residual,
+        input_shape = input_shape,
+        num_classes = num_classes,
+        dropout = dropout
+    )
 
-    attacks_classes = dict(zip(["test"] + ATTACKS,
-                               [torchattacks.VANILA(model),
-                                torchattacks.GN(model),
-                                torchattacks.FGSM(model),
-                                torchattacks.RFGSM(model),
-                                torchattacks.PGD(model),
-                                torchattacks.EOTPGD(model),
-                                torchattacks.FFGSM(model),
-                                # torchattacks.TPGD(model),
-                                torchattacks.MIFGSM(model),
-                                torchattacks.UPGD(model),
-                                torchattacks.DIFGSM(model),
-                                torchattacks.Jitter(model),
-                                # torchattacks.NIFGSM(model),
-                                torchattacks.PGDRS(model),
-                                # torchattacks.VMIFGSM(model),
-                                # torchattacks.VNIFGSM(model),
-                                torchattacks.CW(model),
-                                # torchattacks.PGDL2(model),
-                                # torchattacks.PGDRSL2(model),
-                                torchattacks.DeepFool(model),
-                                torchattacks.SparseFool(model),
-                                torchattacks.OnePixel(model),
-                                torchattacks.Pixle(model),
-                                torchattacks.APGD(model),
-                                torchattacks.APGDT(model),
-                                torchattacks.FAB(model),
-                                torchattacks.Square(model),
-                                torchattacks.SPSA(model),
-                                torchattacks.JSMA(model),
-                                torchattacks.EADL1(model),
-                                torchattacks.EADEN(model)
-                                ]))
+    attacks_classes = dict(
+        zip(
+            ["test"] + ATTACKS,
+            [torchattacks.VANILA(model),
+            torchattacks.GN(model),
+            torchattacks.FGSM(model),
+            torchattacks.RFGSM(model),
+            torchattacks.PGD(model),
+            torchattacks.EOTPGD(model),
+            torchattacks.FFGSM(model),
+            # torchattacks.TPGD(model),
+            torchattacks.MIFGSM(model),
+            torchattacks.UPGD(model),
+            torchattacks.DIFGSM(model),
+            torchattacks.Jitter(model),
+            # torchattacks.NIFGSM(model),
+            torchattacks.PGDRS(model),
+            # torchattacks.VMIFGSM(model),
+            # torchattacks.VNIFGSM(model),
+            torchattacks.CW(model),
+            # torchattacks.PGDL2(model),
+            # torchattacks.PGDRSL2(model),
+            torchattacks.DeepFool(model),
+            torchattacks.SparseFool(model),
+            torchattacks.OnePixel(model),
+            torchattacks.Pixle(model),
+            torchattacks.APGD(model),
+            torchattacks.APGDT(model),
+            torchattacks.FAB(model),
+            torchattacks.Square(model),
+            torchattacks.SPSA(model),
+            torchattacks.JSMA(model),
+            torchattacks.EADL1(model),
+            torchattacks.EADEN(model)]
+        )
+    )
     try:
         attacked_data = attacks_classes[attack_name](data, labels)
     except:
@@ -134,6 +166,18 @@ def generate_adversarial_examples(
         input_shape: tuple[int,int,int],
         dropout: bool
     ) -> None:
+    """
+        Args:
+            exp_dataset_test: the test set.
+            exp_labels_test: the labels of the test set.
+            weights_path: the path to the weights.
+            architecture_index: the index of the architecture (See constants/constants.py).
+            default_index: the index of the default experiment (See constants/constants.py).
+            nb_workers: the number of workers.
+            residual: whether the model has residual connections.
+            input_shape: the shape of the input.
+            dropout: whether the model has dropout layers.
+    """
 
     experiment_dir = Path(f'experiments/{default_index}/adversarial_examples')
     experiment_dir.mkdir(parents=True, exist_ok=True)
@@ -159,6 +203,9 @@ def generate_adversarial_examples(
 
 
 def main() -> None:
+    """
+        Main function to generate adversarial examples.
+    """
     args = parse_args()
     if args.default_index is not None:
         try:

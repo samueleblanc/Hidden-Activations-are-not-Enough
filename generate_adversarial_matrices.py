@@ -1,6 +1,3 @@
-"""
-    Creates matrices of existing adversarial examples
-"""
 import torch
 from argparse import ArgumentParser, Namespace
 from multiprocessing import Pool
@@ -8,6 +5,9 @@ from pathlib import Path
 
 from model_zoo.mlp import MLP
 from model_zoo.cnn import CNN_2D
+from model_zoo.alex_net import AlexNet
+from model_zoo.res_net import ResNet
+from model_zoo.vgg import VGG
 from matrix_construction.matrix_computation import MlpRepresentation, ConvRepresentation_2D
 from utils.utils import get_model
 from constants.constants import DEFAULT_EXPERIMENTS, ATTACKS
@@ -17,25 +17,31 @@ from utils.utils import zip_and_cleanup
 def parse_args(
         parser:ArgumentParser|None = None
     ) -> Namespace:
+    """
+        Args:
+            parser: the parser to use.
+        Returns:
+            The parsed arguments.
+    """
     if parser is None:
         parser = ArgumentParser()
     parser.add_argument(
         "--default_index",
-        type=int,
-        default=0,
-        help="Index of default trained network.",
+        type = int,
+        default = 0,
+        help = "Index of default trained network."
     )
     parser.add_argument(
         "--nb_workers",
-        type=int,
-        default=8,
-        help="How many processes in parallel for adversarial examples computations and their matrices.",
+        type = int,
+        default = 8,
+        help = "How many processes in parallel for adversarial examples computations and their matrices."
     )
     parser.add_argument(
         "--temp_dir",
-        type=str,
-        default=None,
-        help="Temporary directory to save and read data. Useful when using clusters."
+        type = str,
+        default = None,
+        help = "Temporary directory to save and read data. Useful when using clusters."
     )
 
     return parser.parse_args()
@@ -52,8 +58,22 @@ def save_one_matrix(
         input_shape: tuple[int,int,int], 
         num_classes: int, 
         dropout: bool, 
-        temp_dir: str
+        temp_dir: str|None
     ) -> None:
+    """
+        Args:
+            im: the image to save the matrix of.
+            attack: the attack to save the matrix of.
+            i: the index of the image.
+            default_index: the index of the default experiment (See constants/constants.py).
+            weights_path: the path to the weights.
+            architecture_index: the index of the architecture (See constants/constants.py).
+            residual: whether the model has residual connections.
+            input_shape: the shape of the input.
+            num_classes: the number of classes.
+            dropout: whether the model has dropout layers.
+            temp_dir: the temporary directory to save the matrix.
+    """
     model = get_model(
         path = weights_path, 
         architecture_index = architecture_index, 
@@ -64,10 +84,10 @@ def save_one_matrix(
     )
     if isinstance(model, MLP):
         representation = MlpRepresentation(model)
-    elif isinstance(model, CNN_2D):
+    elif isinstance(model, (CNN_2D, AlexNet, VGG, ResNet)):
         representation = ConvRepresentation_2D(model)
     else:
-        NotImplementedError()
+        raise NotImplementedError(f"Model {type(model)} not implemented.")
     if temp_dir is not None:
         matrix_save_path = Path(f'{temp_dir}/experiments/{default_index}/adversarial_matrices') / f'{attack}' / f'{i}/matrix.pth'
     else:
@@ -81,7 +101,7 @@ def save_one_matrix(
 
 def generate_matrices_for_attacks(
         default_index: int,
-        temp_dir: str,
+        temp_dir: str|None,
         weights_path: str,
         architecture_index: int,
         residual: bool,
@@ -89,6 +109,19 @@ def generate_matrices_for_attacks(
         dropout: bool,
         nb_workers: int
     ) -> None:
+    """
+        Calls the save_one_matrix function for each adversarial example.
+
+        Args:
+            default_index: the index of the default experiment (See constants/constants.py).
+            temp_dir: the temporary directory to save the matrices.
+            weights_path: the path to the weights.
+            architecture_index: the index of the architecture (See constants/constants.py).
+            residual: whether the model has residual connections.
+            input_shape: the shape of the input.
+            dropout: whether the model has dropout layers.
+            nb_workers: the number of workers.
+    """
     for attack in ['test'] + ATTACKS:
         if temp_dir is not None:
             path_adv_examples = Path(temp_dir) / f'experiments/{default_index}/adversarial_examples' / f"{attack}/adversarial_examples.pth"
@@ -117,6 +150,9 @@ def generate_matrices_for_attacks(
 
 
 def main() -> None:
+    """
+        Main function to generate adversarial matrices.
+    """
     args = parse_args()
     if args.default_index is not None:
         try:
@@ -133,7 +169,6 @@ def main() -> None:
             print(f"When computing adversarial examples of new model, add the experiment to constants.constants.py inside DEFAULT_EXPERIMENTS"
                   f"and provide the corresponding --default_index N when running this script.")
             return -1
-
     else:
         raise ValueError("Default index not specified in constants/constants.py")
 
@@ -163,7 +198,8 @@ def main() -> None:
 
     if args.temp_dir is not None:
         zip_and_cleanup(f'{args.temp_dir}/experiments/{args.default_index}/adversarial_matrices/',
-                        f'experiments/{args.default_index}/adversarial_matrices/adversarial_matrices', clean=False)
+                        f'experiments/{args.default_index}/adversarial_matrices/adversarial_matrices', 
+                        clean = False)
 
 
 if __name__ == "__main__":

@@ -21,34 +21,34 @@ def parse_args(
         parser = ArgumentParser()
     parser.add_argument(
         "--default_index",
-        type=int,
-        default=0,
-        help="Index of default trained networks.",
+        type = int,
+        default = 0,
+        help = "Index of default trained networks."
     )
     parser.add_argument(
         "--t_epsilon",
-        type=float,
-        default=1,
-        help="This times the standard deviation gives a margin for rejection level.",
+        type = float,
+        default = 1,
+        help = "This times the standard deviation gives a margin for rejection level."
     )
     parser.add_argument(
         "--epsilon",
-        type=float,
-        default=0.1,
-        help="Determines how small should the standard deviation be per coordinate on matrix statistics.",
+        type = float,
+        default = 0.1,
+        help = "Determines how small should the standard deviation be per coordinate on matrix statistics."
     )
     parser.add_argument(
         "--epsilon_p",
-        type=float,
-        default=0.1,
-        help="Determines how small should the standard deviation be per coordinate when detecting.",
+        type = float,
+        default = 0.1,
+        help = "Determines how small should the standard deviation be per coordinate when detecting."
     )
     parser.add_argument(
         "--temp_dir",
-        type=str,
-        default=None,
-        help="Temporary directory to read data for computations from, such as weights, matrix statistics and adversarial matrices."
-             "Useful on clusters but not on local experiments.",
+        type = str,
+        default = None,
+        help = "Temporary directory to read data for computations from, such as weights, matrix statistics and adversarial matrices."
+             "Useful on clusters but not on local experiments."
     )
 
     return parser.parse_args()

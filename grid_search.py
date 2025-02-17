@@ -12,62 +12,67 @@ from argparse import ArgumentParser, Namespace
 def parse_args(
         parser:ArgumentParser|None = None
     ) -> Namespace:
+    """
+        Args:
+            parser: the parser to use.
+        Returns:
+            The parsed arguments.
+    """
     if parser is None:
         parser = ArgumentParser()
     parser.add_argument(
-        "--std_values",
-        type=float,
-        nargs='+',
-        default=[0.1, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2],
-        help="The values of std to sweep",
+        "--t_epsilon_values",
+        type = float,
+        nargs = '+',
+        default = [0.1, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2],
+        help = "The values of t_epsilon to sweep",
     )
     parser.add_argument(
-        "--d1_values",
-        type=float,
-        nargs='+',
-        default=[0.01, 0.1, 0.3, 0.5, 0.75, 0.8, 1, 1.25, 1.5],
-        help="The values of d1 to sweep",
+        "--epsilon_values",
+        type = float,
+        nargs = '+',
+        default = [0.01, 0.1, 0.3, 0.5, 0.75, 0.8, 1, 1.25, 1.5],
+        help = "The values of epsilon to sweep",
     )
     parser.add_argument(
-        "--d2_values",
-        type=float,
-        nargs='+',
-        default=[0.01, 0.1, 0.3, 0.5, 0.75, 0.8, 1, 1.25, 1.5],
-        help="The values of d2 to sweep",
+        "--epsilon_p_values",
+        type = float,
+        nargs = '+',
+        default = [0.01, 0.1, 0.3, 0.5, 0.75, 0.8, 1, 1.25, 1.5],
+        help = "The values of epsilon_p to sweep",
     )
     parser.add_argument(
         "--default_index",
-        default=0,
-        type=int,
-        help="The index for default experiment",
+        default = 0,
+        type = int,
+        help = "The index for default experiment",
     )
     parser.add_argument(
         "--nb_workers",
-        type=int,
-        default=8,
-        help="Number of threads for parallel computation",
+        type = int,
+        default = 8,
+        help = "Number of threads for parallel computation",
     )
     parser.add_argument(
         "--temp_dir",
-        type=str,
-        default=None,
-        help="Temporary directory to save and read data. Useful when using clusters.",
+        type = str,
+        default = None,
+        help = "Temporary directory to save and read data. Useful when using clusters.",
     )
     parser.add_argument(
         "--rej_lev",
-        type=int,
-        default=1,
-        help="Wheter or not to compute rejection level. If 1 then it computes rejection level using only std and d1, "
-             "if 0 it runs the detection method on d2 with precomputed rejection level.",
+        type = int,
+        default = 1,
+        help = "Wheter or not to compute rejection level. If 1 then it computes rejection level using only t_epsilon and epsilon, "
+             "if 0 it runs the detection method on epsilon_p with precomputed rejection level.",
     )
     parser.add_argument(
         "--extensive_search",
-        type=int,
-        default=0,
-        help="If 1, it runs grid search on smaller and more values for std, d1 and d2. "
-             "Experiments such as 7 and 11 require this for good results.",
+        type = int,
+        default = 0,
+        help = "If 1, it runs grid search on smaller and more values for t_epsilon, epsilon and epsilon_p. "
+               "Experiments such as 7 and 11 require this for good results.",
     )
-
     return parser.parse_args()
 
 
@@ -75,34 +80,52 @@ def check_index_exists(
         output_file: str, 
         default_index: int
     ) -> bool:
-    # Check if the default index exists in the output file
-    if not os.path.exists(output_file):
-        return False
-
+    """
+        Args:
+            output_file: the path to the output file.
+            default_index: the index of the default experiment.
+        Returns:
+            True if the default index exists in the output file, False otherwise.
+    """
+    if not os.path.exists(output_file): return False
     df = pd.read_csv(output_file)
     return f'default {default_index}' in df['default_index'].values
 
 
 def check_param_combination_exists(
         output_file: str, 
-        std: float, 
-        d1: float, 
-        d2: float, 
+        t_epsilon: float, 
+        epsilon: float, 
+        epsilon_p: float, 
         index: int
     ) -> bool:
-    # Check if a parameter combination exists in the output file
+    """
+        Args:
+            output_file: the path to the output file.
+            t_epsilon: the value of t_epsilon.
+            epsilon: the value of epsilon.
+            epsilon_p: the value of epsilon_p.
+            index: the index of the experiment.
+        Returns:
+            True if the parameter combination exists in the output file, False otherwise.
+    """
     if not os.path.exists(output_file):
         return False
 
     df = pd.read_csv(output_file)
-    return not df[(df['std'] == std) & (df['d1'] == d1) & (df['d2'] == d2) & (df['default_index'] == f'default {index}')].empty
+    return not df[(df['t_epsilon'] == t_epsilon) & (df['epsilon'] == epsilon) & (df['epsilon_p'] == epsilon_p) & (df['default_index'] == f'default {index}')].empty
 
 
 def run_adv_examples_script(params: tuple) -> None:
-    # Run the generate_adversarial_examples.py script with given parameters
-    std, d1, d2, index, lock, output_file, temp_dir, rej_lev_flag = params
+    """
+        Run the generate_adversarial_examples.py script with given parameters
+
+        Args:
+            params: the parameters to run the script with.
+    """
+    t_epsilon, epsilon, epsilon_p, index, lock, output_file, temp_dir, rej_lev_flag = params
     print(f'Running parameters: {params}', flush=True)
-    reject_path = f'experiments/{index}/rejection_levels/reject_at_{std}_{d1}.json'
+    reject_path = f'experiments/{index}/rejection_levels/reject_at_{t_epsilon}_{epsilon}.json'
 
     if os.path.exists(reject_path):
         print("Loading rejection level...", flush=True)
@@ -115,12 +138,12 @@ def run_adv_examples_script(params: tuple) -> None:
     if rej_lev_flag == 1:
         if temp_dir is not None:
             cmd = f"source ENV/bin/activate &&" \
-                  f" python compute_rejection_level.py --std {std} --d1 {d1} " \
+                  f" python compute_rejection_level.py --t_epsilon {t_epsilon} --epsilon {epsilon} " \
                   f"--default_index {index} --temp_dir {temp_dir}"
         else:
             # Assumes the environment is named "matrix"
             cmd = f"source matrix/bin/activate &&" \
-                  f" python compute_rejection_level.py --std {std} --d1 {d1} " \
+                  f" python compute_rejection_level.py --t_epsilon {t_epsilon} --epsilon {epsilon} " \
                   f"--default_index {index}"
 
         result = subprocess.run(
@@ -141,12 +164,12 @@ def run_adv_examples_script(params: tuple) -> None:
 
     if temp_dir is not None:
         cmd = f"source ENV/bin/activate &&" \
-                  f" python detect_adversarial_examples.py --std {std} --d1 {d1} --d2 {d2} " \
-                  f"--default_index {index} --temp_dir {temp_dir}"
+              f" python detect_adversarial_examples.py --t_epsilon {t_epsilon} --epsilon {epsilon} --epsilon_p {epsilon_p} " \
+              f"--default_index {index} --temp_dir {temp_dir}"
     else:
         # Assumes the environment is named "matrix"
         cmd = f"source matrix/bin/activate &&" \
-              f" python detect_adversarial_examples.py --std {std} --d1 {d1} --d2 {d2} " \
+              f" python detect_adversarial_examples.py --t_epsilon {t_epsilon} --epsilon {epsilon} --epsilon_p {epsilon_p} " \
               f"--default_index {index}"
 
     result = subprocess.run(
@@ -168,7 +191,7 @@ def run_adv_examples_script(params: tuple) -> None:
             wrong_rejection = float(line.split()[-1].strip(':'))
 
     if good_defences is not None and wrong_rejection is not None:
-        result_line = f"{std},{d1},{d2},default {index},{good_defences},{wrong_rejection}\n"
+        result_line = f"{t_epsilon},{epsilon},{epsilon_p},default {index},{good_defences},{wrong_rejection}\n"
 
     print(result_line.strip())
 
@@ -179,6 +202,9 @@ def run_adv_examples_script(params: tuple) -> None:
 
 
 def main() -> None:
+    """
+        Main function to run the grid search.
+    """
     print("Grid search starting...", flush=True)
     args = parse_args()
 
@@ -193,13 +219,13 @@ def main() -> None:
                     stop = 1, 
                     num = 10
                 )
-        std_values = vals
-        d1_values = vals
-        d2_values = vals
+        t_epsilon_values = vals
+        epsilon_values = vals
+        epsilon_p_values = vals
     else:
-        std_values = args.std_values
-        d1_values = args.d1_values
-        d2_values = args.d2_values
+        t_epsilon_values = args.t_epsilon_values
+        epsilon_values = args.epsilon_values
+        epsilon_p_values = args.epsilon_p_values
 
     indexes = [args.default_index]
 
@@ -223,13 +249,15 @@ def main() -> None:
                         # If true, add the file to the list
                         files_to_keep.append(filename)
 
-    param_grid = list(itertools.product(
-                        std_values, 
-                        d1_values, 
-                        d2_values, 
-                        indexes, 
-                        [args.rej_lev]
-                    ))
+    param_grid = list(
+        itertools.product(
+            t_epsilon_values, 
+            epsilon_values, 
+            epsilon_p_values, 
+            indexes, 
+            [args.rej_lev]
+        )
+    )
 
     # Use Manager to create a Lock
     with Manager() as manager:
@@ -238,19 +266,19 @@ def main() -> None:
         # Initialize the output file if it doesn't exist
         if not os.path.exists(output_file):
             with open(output_file, 'w') as f:
-                f.write("std,d1,d2,default_index,good_defence,wrong_rejection\n")
+                f.write("t_epsilon,epsilon,epsilon_p,default_index,good_defence,wrong_rejection\n")
 
         # Prepare arguments
-        param_grid_with_lock = [(std, d1, d2, index, lock, output_file, args.temp_dir, args.rej_lev) for std, d1, d2, index, _ in param_grid]
+        param_grid_with_lock = [(t_epsilon, epsilon, epsilon_p, index, lock, output_file, args.temp_dir, args.rej_lev) for t_epsilon, epsilon, epsilon_p, index, _ in param_grid]
 
         # This case assumes rejection levels were already computed.
         if args.rej_lev == 0:
-            param_grid_filtered = [(std, d1, d2, index, lock, output_file, args.temp_dir, args.rej_lev) for std, d1, d2, index, lock, output_file, args.temp_dir, _ in param_grid_with_lock if f'reject_at_{std}_{d1}.json' in files_to_keep]
+            param_grid_filtered = [(t_epsilon, epsilon, epsilon_p, index, lock, output_file, args.temp_dir, args.rej_lev) for t_epsilon, epsilon, epsilon_p, index, lock, output_file, args.temp_dir, _ in param_grid_with_lock if f'reject_at_{t_epsilon}_{epsilon}.json' in files_to_keep]
             with Pool(processes=args.nb_workers) as pool:
                 pool.map(run_adv_examples_script, param_grid_filtered)
         # This case computes rejection levels only using std and d1.
         else:
-            param_grid_with_lock_rej_lev = [(std, d1, 0, index, lock, output_file, args.temp_dir, args.rej_lev) for std, d1, d2, index, _ in param_grid]
+            param_grid_with_lock_rej_lev = [(t_epsilon, epsilon, 0, index, lock, output_file, args.temp_dir, args.rej_lev) for t_epsilon, epsilon, epsilon_p, index, _ in param_grid]
             with Pool(processes=args.nb_workers) as pool:
                 pool.map(run_adv_examples_script, param_grid_with_lock_rej_lev)
 

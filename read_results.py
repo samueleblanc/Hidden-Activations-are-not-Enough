@@ -8,22 +8,32 @@ from argparse import ArgumentParser, Namespace
 def parse_args(
         parser:ArgumentParser|None = None
     ) -> Namespace:
+    """
+        Args:
+            parser: the parser to use.
+        Returns:
+            The parsed arguments.
+    """
     if parser is None:
         parser = ArgumentParser()
     parser.add_argument(
         "--output_file",
-        type=str,
-        default='grid_search_results.txt',
-        help="Output file name to read results of grid search.",
+        type = str,
+        default = 'grid_search_results.txt',
+        help = "Output file name to read results of grid search.",
     )
     parser.add_argument(
         "--default_index",
-        type=int,
-        default=0,
-        help="The index for default experiment",
+        type = int,
+        default = 0,
+        help = "The index for default experiment",
     )
-    parser.add_argument("--temp_dir", type=str, default=None)
-
+    parser.add_argument(
+        "--temp_dir",
+        type = str,
+        default = None,
+        help = "The temporary directory to use.",
+    )
     return parser.parse_args()
 
 
@@ -31,6 +41,13 @@ def check_default_index_exists(
         df: pd.DataFrame, 
         default_index: int
     ) -> bool:
+    """
+        Args:
+            df: the dataframe to check.
+            default_index: the default index to check.
+        Returns:
+            True if the default index exists, False otherwise.
+    """
     return f'default {default_index}' in df['default_index'].values
 
 
@@ -38,6 +55,13 @@ def get_top_10_abs_difference(
         df: pd.DataFrame, 
         default_index: int
     ) -> pd.DataFrame:
+    """
+        Args:
+            df: the dataframe to get the top 10 absolute difference from.
+            default_index: the default index to get the top 10 absolute difference from.
+        Returns:
+            The top 10 absolute difference.
+    """
     filtered_df = df[df['default_index'] == f'default {default_index}'].copy()
 
     # Convert columns to float, coercing errors to NaN
@@ -49,24 +73,33 @@ def get_top_10_abs_difference(
 
     filtered_df['abs_difference'] = filtered_df['good_defence'] - filtered_df['wrong_rejection']
     top_10 = filtered_df.nlargest(10, 'abs_difference')
-    return top_10[['std', 'd1', 'd2', 'good_defence', 'wrong_rejection']]
+    return top_10[['t_epsilon', 'epsilon', 'epsilon_p', 'good_defence', 'wrong_rejection']]
 
 
 def run_detect_adversarial_examples(
-        std: float, 
-        d1: float, 
-        d2: float, 
+        t_epsilon: float, 
+        epsilon: float, 
+        epsilon_p: float, 
         default_index: int, 
         top: int, 
         temp_dir:str|None = None
     ) -> None:
+    """
+        Args:
+            t_epsilon: the t_epsilon value.
+            epsilon: the epsilon value.
+            epsilon_p: the epsilon_p value.
+            default_index: the default index of the experiment.
+            top: the index of a value in the top 10 dataframe.
+            temp_dir: the temporary directory.
+    """
     if temp_dir is not None:
         cmd = f"source ENV/bin/activate &&" \
-              f" python detect_adversarial_examples.py --std {std} --d1 {d1} --d2 {d2} " \
+              f" python detect_adversarial_examples.py --t_epsilon {t_epsilon} --epsilon {epsilon} --epsilon_p {epsilon_p} " \
               f"--default_index {default_index} --temp_dir {temp_dir}"
     else:
         cmd = f"source matrix/bin/activate &&" \
-              f" python detect_adversarial_examples.py --std {std} --d1 {d1} --d2 {d2} " \
+              f" python detect_adversarial_examples.py --t_epsilon {t_epsilon} --epsilon {epsilon} --epsilon_p {epsilon_p} " \
               f"--default_index {default_index}"
 
     # Run the command and capture the output
@@ -75,15 +108,18 @@ def run_detect_adversarial_examples(
     )
 
     if result.returncode != 0:
-        print(f"Error running script with params --std {std} --d1 {d1} --d2 {d2}: {result.stderr}")
+        print(f"Error running script with params --t_epsilon {t_epsilon} --epsilon {epsilon} --epsilon_p {epsilon_p}: {result.stderr}")
     else:
-        print(f"Successfully ran script with params --std {std} --d1 {d1} --d2 {d2}")
+        print(f"Successfully ran script with params --t_epsilon {t_epsilon} --epsilon {epsilon} --epsilon_p {epsilon_p}")
 
-        with open(f'experiments/{default_index}/results/{top}_output_{std}_{d1}_{d2}.txt', 'w') as f:
+        with open(f'experiments/{default_index}/results/{top}_output_{t_epsilon}_{epsilon}_{epsilon_p}.txt', 'w') as f:
             f.write(result.stdout)
 
 
 def main() -> None:
+    """
+        Main function to read the results of the grid search.
+    """
     args = parse_args()
 
     if args.temp_dir is None:
@@ -109,7 +145,14 @@ def main() -> None:
     count = 0
     for top, rows in enumerate(top_10_abs_diff.iterrows()):
         _, row = rows
-        run_detect_adversarial_examples(row['std'], row['d1'], row['d2'], args.default_index, top, args.temp_dir)
+        run_detect_adversarial_examples(
+            t_epsilon = row['t_epsilon'], 
+            epsilon = row['epsilon'], 
+            epsilon_p = row['epsilon_p'], 
+            default_index = args.default_index, 
+            top = top, 
+            temp_dir = args.temp_dir
+        )
         count += 1
         if count >= 3:
             break
