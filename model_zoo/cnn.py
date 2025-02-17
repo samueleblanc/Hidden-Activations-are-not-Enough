@@ -163,7 +163,7 @@ class CNN_2D(nn.Module):
             )
         )
 
-    def forward(self, x: torch.Tensor, rep=False) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, rep:bool=False) -> torch.Tensor:
         """
         Forward pass for the CNN.
 
@@ -174,6 +174,7 @@ class CNN_2D(nn.Module):
             torch.Tensor: Output tensor
         """
         if not rep:
+            # Regular forward pass
             if self.batch_norm and (len(x.shape) == 3): x = x.unsqueeze(0)
             cnt = 0
             x_res = {}
@@ -216,6 +217,8 @@ class CNN_2D(nn.Module):
                     x = layer(x)
             return x
 
+        # Forward pass for matrix computation
+        # Save activations and preactivations
         self.pre_acts: list[torch.Tensor] = []
         self.acts: list[torch.Tensor] = []
         cnt = 0

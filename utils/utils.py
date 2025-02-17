@@ -14,6 +14,10 @@ from constants.constants import ARCHITECTURES
 
 
 def get_device() -> torch.device:
+    """
+        Returns:
+            The device to use.
+    """
     if torch.cuda.is_available():
         print("DEVICE: cuda")
         return torch.device("cuda")
@@ -32,6 +36,16 @@ def get_architecture(
         residual:bool = False,
         dropout:bool = False
     ) -> MLP|CNN_2D|ResNet|AlexNet|VGG:
+    """
+        Args:
+            input_shape: The shape of the input data.
+            num_classes: The number of classes in the dataset.
+            architecture_index: The index of the architecture to use (See constants/constants.py).
+            residual: Whether to use residual connections.
+            dropout: Whether to use dropout.
+        Returns:
+            The architecture to use.
+    """
     # TODO: Should return AlexNet or VGG if needed
     if architecture_index <= 7 and architecture_index >= 0:
         model = MLP(
@@ -65,6 +79,17 @@ def get_model(
         num_classes: int, 
         dropout: bool
     ) -> MLP|CNN_2D|ResNet|AlexNet|VGG:
+    """ 
+        Args:
+            path: The path to the model weights.
+            architecture_index: The index of the architecture to use (See constants/constants.py).
+            residual: Whether to use residual connections.
+            input_shape: The shape of the input data.
+            num_classes: The number of classes in the dataset.
+            dropout: Whether to use dropout.
+        Returns:
+            The model to use.
+    """
     weight_path = torch.load(str(path), map_location=torch.device('cpu'))
     model = get_architecture(
                 architecture_index = architecture_index,
@@ -83,72 +108,145 @@ def get_dataset(
         data_loader:bool = True,
         data_path:str|None = None
     ) -> tuple:
-    transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])
+    """
+        Args:
+            data_set: The dataset to use.
+            batch_size: The batch size.
+            data_loader: Whether to use a data loader.
+            data_path: The path to the data.
+        Returns:
+            The dataset to use.
+    """
+    transform = transforms.Compose([
+            transforms.ToTensor(), 
+            transforms.Normalize((0.5,), (0.5,))
+    ])
     if data_path is None:
         data_path = './data'
     else:
         data_path = data_path + '/data'
 
     if data_set == 'mnist':
-        train_set = torchvision.datasets.MNIST(root=data_path, train=True, transform=transform, download=True)
-        test_set = torchvision.datasets.MNIST(root=data_path, train=False, transform=transform, download=True)
-
+        train_set = torchvision.datasets.MNIST(
+            root = data_path, 
+            train = True, 
+            transform = transform, 
+            download = True
+        )
+        test_set = torchvision.datasets.MNIST(
+            root = data_path, 
+            train = False, 
+            transform = transform, 
+            download = True
+        )
     elif data_set == 'fashion':
-        train_set = torchvision.datasets.FashionMNIST(root=data_path, train=True, transform=transform, download=True)
-        test_set = torchvision.datasets.FashionMNIST(root=data_path, train=False, transform=transform, download=True)
-
+        train_set = torchvision.datasets.FashionMNIST(
+            root = data_path, 
+            train = True, 
+            transform = transform, 
+            download = True
+        )
+        test_set = torchvision.datasets.FashionMNIST(
+            root = data_path, 
+            train = False, 
+            transform = transform, 
+            download = True
+        )
     elif data_set == 'cifar10':
         # Use data augmentation for CIFAR-10
         transform_train = transforms.Compose([
-                                transforms.Resize((32,32)),
-                                transforms.RandomHorizontalFlip(),
-                                transforms.RandomRotation(7),
-                                transforms.RandomAffine(0, shear=6, scale=(0.9,1.1)),
-                                transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1),
-                                transforms.ToTensor(),
-                                transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
-                            ])
-        train_set = torchvision.datasets.CIFAR10(root=data_path, train=True, transform=transform_train, download=True)
-        test_set = torchvision.datasets.CIFAR10(root=data_path, train=False, transform=transform, download=True)
-
+            transforms.Resize((32,32)),
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomRotation(7),
+            transforms.RandomAffine(0, shear=6, scale=(0.9,1.1)),
+            transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1),
+            transforms.ToTensor(),
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+        ])
+        train_set = torchvision.datasets.CIFAR10(
+            root = data_path, 
+            train = True, 
+            transform = transform_train, 
+            download = True
+        )
+        test_set = torchvision.datasets.CIFAR10(
+            root = data_path, 
+            train = False, 
+            transform = transform, 
+            download = True
+        )
     elif data_set == 'cifar100':
         # Use data augmentation for CIFAR-100
         transform_train = transforms.Compose([
-                                transforms.Resize((32,32)),
-                                transforms.RandomHorizontalFlip(),
-                                transforms.RandomRotation(7),
-                                transforms.RandomAffine(0, shear=6, scale=(0.9,1.1)),
-                                transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1),
-                                transforms.ToTensor(),
-                                transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
-                           ])
-        train_set = torchvision.datasets.CIFAR100(root=data_path, train=True, transform=transform_train, download=True)
-        test_set = torchvision.datasets.CIFAR100(root=data_path, train=False, transform=transform, download=True)
-
+            transforms.Resize((32,32)),
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomRotation(7),
+            transforms.RandomAffine(0, shear=6, scale=(0.9,1.1)),
+            transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1),
+            transforms.ToTensor(),
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+        ])
+        train_set = torchvision.datasets.CIFAR100(
+            root = data_path, 
+            train = True, 
+            transform = transform_train, 
+            download = True
+        )
+        test_set = torchvision.datasets.CIFAR100(
+            root = data_path, 
+            train = False, 
+            transform = transform, 
+            download = True
+        )
     elif data_set == 'imagenette':
         preprocess = transforms.Compose([
-                            transforms.Resize(256),
-                            transforms.CenterCrop(224),
-                            transforms.ToTensor(),
-                            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-                      ])
-        train_set = torchvision.datasets.Imagenette(root=data_path, train=True, transform=preprocess, download=True)
-        test_set = torchvision.datasets.Imagenette(root=data_path, train=False, transform=preprocess, download=True)
-
+            transforms.Resize(256),
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ])
+        train_set = torchvision.datasets.Imagenette(
+            root = data_path, 
+            train = True, 
+            transform = preprocess, 
+            download = True
+        )
+        test_set = torchvision.datasets.Imagenette(
+            root = data_path, 
+            train = False, 
+            transform = preprocess, 
+            download = True
+        )
     else:
         print(f"Dataset {data_set} not supported...")
         exit(1)
 
     if data_loader:
-        train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, shuffle=True)
-        test_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuffle=False)
+        train_loader = torch.utils.data.DataLoader(
+            dataset = train_set, 
+            batch_size = batch_size, 
+            shuffle = True
+        )
+        test_loader = torch.utils.data.DataLoader(
+            dataset = test_set, 
+            batch_size = batch_size, 
+            shuffle = False
+        )
         return train_loader, test_loader
     else:
         return train_set, test_set
 
 
 def find_matrices(base_dir: str) -> dict[int, list[str]]:
-    # Accurately locate matrix.pt files for training data
+    """
+        Finds the matrices for the given base directory.
+
+        Args:
+            base_dir: The base directory to search for matrices.
+        Returns:
+            A dictionary with the keys being the class indices and the values 
+            being the paths to the matrices.
+    """
     matrix_paths = {}
     for j in range(10):  # Considering subfolders '0' to '9'
         matrices_path = os.path.join(base_dir, str(j))  # Only use training data
@@ -166,7 +264,16 @@ def find_matrices(base_dir: str) -> dict[int, list[str]]:
 def compute_statistics(
         matrix_paths: dict[int, list[str]]
     ) -> dict[int, dict[str, torch.Tensor]]:
-    # Load matrices and compute mean and standard deviation matrix
+    """
+        Computes the statistics for the given matrix paths.
+
+        Args:
+            matrix_paths: A dictionary with the keys being the class indices and 
+            the values being the paths to the matrices.
+        Returns:
+            A dictionary with the keys being the class indices and the values 
+            being the statistics (mean and std).
+    """
     statistics = {}
     for j, paths in matrix_paths.items():
         matrices = [torch.load(path) for path in paths]
@@ -185,6 +292,13 @@ def compute_train_statistics(
         default_index:int = 0, 
         path:str|None = None
     ) -> None:
+    """
+        Computes the statistics for the given path.
+
+        Args:
+            default_index: The index of the experiment.
+            path: The path to the matrices.
+    """
     if path is not None:
         original_matrices_path = f'{path}/experiments/{default_index}/matrices/'
     else:
@@ -211,9 +325,12 @@ def get_ellipsoid_data(
         param: str
     ) -> torch.Tensor:
     """
-    :param: ellipsoids: matrix statistics dictionary with keys the classes and mean and std
-    :param: result:     predicted class by the model
-    :param: ellipsoids: ellipsoids per class
+        Args:
+            ellipsoids: matrix statistics dictionary with keys the classes and mean and std
+            result: predicted class by the model
+            param: the parameter to get from the ellipsoid statistics
+        Returns:
+            The boundary of the ellipsoid.
     """
     return torch.Tensor(ellipsoids[str(result.item())][param])
 
@@ -224,7 +341,15 @@ def is_in_ellipsoid(
         ellipsoid_std: torch.Tensor,
         std: float = 2
     ) -> torch.LongTensor:
-    # Gives the opposite of what would be intuitive (ie more non zero if attacked)
+    """
+        Args:
+            matrix: the matrix to check.
+            ellipsoid_mean: the mean of the ellipsoid.
+            ellipsoid_std: the std of the ellipsoid.
+            std: increase the size of the ellipsoid by this factor.
+        Returns:
+            The number of elements in the ellipsoid.
+    """
     low_bound = torch.le(ellipsoid_mean-std*ellipsoid_std, matrix)
     up_bound = torch.le(matrix, ellipsoid_mean+std*ellipsoid_std)
     return torch.count_nonzero(torch.logical_and(low_bound, up_bound))
@@ -233,16 +358,31 @@ def is_in_ellipsoid(
 def zero_std(
         matrix: torch.Tensor,
         ellipsoid_std: torch.Tensor,
-        d1: float = 0
+        epsilon: float = 0
     ) -> torch.LongTensor:
-    return torch.count_nonzero(torch.logical_and((ellipsoid_std <= d1), (matrix > d1)))  # ¬(P => Q) <==> P ∧ ¬Q
-
+    """
+        Args:
+            matrix: the matrix to check.
+            ellipsoid_std: the std of the ellipsoid.
+            epsilon: the threshold.
+        Returns:
+            The number of elements in the ellipsoid.
+    """
+    return torch.count_nonzero(torch.logical_and((ellipsoid_std <= epsilon), (matrix > epsilon)))
 
 def subset(
         train_set, 
         length: int, 
         input_shape: tuple[int] = (1, 28, 28)
     ) -> tuple[torch.Tensor]:
+    """
+        Args:
+            train_set: the training set (MNIST, CIFAR-10, etc.).
+            length: the length of the subset.
+            input_shape: the shape of the input.
+        Returns:
+            A random subset of the training set of the given length.
+    """
     idx = torch.randint(low=0, high=len(train_set), size=[length], generator=torch.Generator("cpu"))
     exp_dataset = torch.zeros([length, input_shape[0], input_shape[1], input_shape[2]])
     exp_labels = torch.zeros([length], dtype=torch.long)
@@ -257,6 +397,12 @@ def zip_and_cleanup(
         zip_filename: str, 
         clean:bool = True
     ) -> None:
+    """
+        Args:
+            src_directory: the source directory.
+            zip_filename: the filename of the zip file.
+            clean: whether to clean the source directory.
+    """
     # Create a zip archive
     print("Zipping", flush=True)
     shutil.make_archive(zip_filename, 'zip', src_directory)

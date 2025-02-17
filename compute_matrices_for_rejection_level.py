@@ -17,45 +17,73 @@ from matrix_construction.matrix_computation import MlpRepresentation, ConvRepres
 def parse_args(
         parser:ArgumentParser|None = None
     ) -> Namespace:
+    """
+        Args:
+            parser: the parser to use.
+        Returns:
+            The parsed arguments.
+    """
     if parser is None:
         parser = ArgumentParser()
     parser.add_argument(
         "--default_index",
-        type=int,
-        default=0,
-        help="Index of default trained networks.",
+        type = int,
+        default = 0,
+        help = "Index of default trained networks.",
     )
     parser.add_argument(
         "--num_samples_rejection_level",
-        type=int,
-        default=10000,
-        help="Number of train samples to compute rejection level.",
+        type = int,
+        default = 10000,
+        help = "Number of train samples to compute rejection level.",
     )
     parser.add_argument(
         "--nb_workers",
-        type=int,
-        default=8,
-        help="How many processes in parallel for adversarial examples computations.",
+        type = int,
+        default = 8,
+        help = "How many processes in parallel for adversarial examples computations.",
     )
     parser.add_argument(
         "--temp_dir",
-        type=str,
-        default=None,
-        help="Temporary directory to save and read data. Useful when using clusters."
+        type = str,
+        default = None,
+        help = "Temporary directory to save and read data. Useful when using clusters."
     )
     return parser.parse_args()
 
 
 def compute_one_matrix(args: tuple) -> None:
-    im, label, weights_path, architecture_index, residual, input_shape, default_index, dropout, i, temp_dir = args
+    """
+        Args:
+            args: the arguments (see below).
+    """
+    (
+        im, 
+        label, 
+        weights_path, 
+        architecture_index, 
+        residual, 
+        input_shape, 
+        default_index, 
+        dropout, 
+        i, 
+        temp_dir
+    ) = args
 
-    model = get_model(weights_path, architecture_index, residual, input_shape, dropout)
+    model = get_model(
+        path = weights_path,
+        architecture_index = architecture_index,
+        residual = residual,
+        input_shape = input_shape,
+        num_classes = 10,
+        dropout = dropout
+    )
     if isinstance(model, MLP):
-        representation = MlpRepresentation(model)
-    elif isinstance(model, CNN_2D):
-        representation = ConvRepresentation_2D(model)
+        matrix_computer = MlpRepresentation(model)
+    elif isinstance(model, (CNN_2D, AlexNet, VGG, ResNet)):
+        matrix_computer = ConvRepresentation_2D(model)
     else:
-        NotImplementedError()
+        raise NotImplementedError(f"Model {type(model)} not supported")
     pred = torch.argmax(model.forward(im))
     if temp_dir is not None:
         path_experiment_matrix = Path(f'{temp_dir}/experiments/{default_index}/rejection_levels/matrices/{i}/matrix.pth')
@@ -67,7 +95,7 @@ def compute_one_matrix(args: tuple) -> None:
 
     if os.path.exists(path_experiment_matrix):
         return
-    mat = representation.forward(im)
+    mat = matrix_computer.forward(im)
     if temp_dir is not None:
         path_prediction = Path(f'{temp_dir}/experiments/{default_index}/rejection_levels/matrices/{i}/prediction.pth')
         Path(f'{temp_dir}/experiments/{default_index}/rejection_levels/matrices/{i}/').mkdir(parents=True, exist_ok=True)
@@ -91,7 +119,19 @@ def compute_matrices_for_rejection_level(
         nb_workers: int = 8,
         temp_dir:str|None = None
     ) -> None:
-
+    """
+        Args:
+            exp_dataset_train: the training set.
+            exp_dataset_labels: the labels of the training set.
+            default_index: the index of the default experiment (See constants/constants.py).
+            weights_path: the path to the weights.
+            architecture_index: the index of the architecture (See constants/constants.py).
+            residual: whether the model has residual connections.
+            input_shape: the shape of the input.
+            dropout: whether the model has dropout layers.
+            nb_workers: the number of workers.
+            temp_dir: the temporary directory.
+    """
     Path(f'experiments/{default_index}/rejection_levels/').mkdir(parents=True, exist_ok=True)
     print("Computing matrices for rejection level...", flush=True)
 
@@ -111,6 +151,9 @@ def compute_matrices_for_rejection_level(
 
 
 def main() -> None:
+    """
+        Main function to compute the matrices for the rejection level.
+    """
     args = parse_args()
     if args.default_index is not None:
         try:
@@ -140,11 +183,21 @@ def main() -> None:
         raise ValueError(f"Experiment needs to be trained")
 
     input_shape = (3, 32, 32) if dataset == 'cifar10' or dataset == 'cifar100' else (1, 28, 28)
-    train_set, test_set = get_dataset(dataset, data_loader=False)
-    exp_dataset_train, exp_dataset_labels = subset(train_set, args.num_samples_rejection_level, input_shape=input_shape)
+    train_set, _ = get_dataset(
+        data_set = dataset,
+        data_loader = False
+    )
+    exp_dataset_train, exp_dataset_labels = subset(
+        train_set = train_set,
+        length = args.num_samples_rejection_level,
+        input_shape = input_shape
+    )
 
     Path(f'experiments/{args.default_index}/rejection_levels/').mkdir(parents=True, exist_ok=True)
-    torch.save(exp_dataset_train, f'experiments/{args.default_index}/rejection_levels/exp_dataset_train.pth')
+    torch.save(
+        obj = exp_dataset_train, 
+        f = f'experiments/{args.default_index}/rejection_levels/exp_dataset_train.pth'
+    )
 
     compute_matrices_for_rejection_level(
         exp_dataset_train = exp_dataset_train,
@@ -161,9 +214,9 @@ def main() -> None:
 
     if args.temp_dir is not None:
         zip_and_cleanup(
-            f'{args.temp_dir}/experiments/{args.default_index}/rejection_levels/matrices/',
-            f'experiments/{args.default_index}/rejection_levels/matrices/matrices',
-            clean=False
+            src_directory = f'{args.temp_dir}/experiments/{args.default_index}/rejection_levels/matrices/',
+            zip_filename = f'experiments/{args.default_index}/rejection_levels/matrices/matrices',
+            clean = False
         )
 
 

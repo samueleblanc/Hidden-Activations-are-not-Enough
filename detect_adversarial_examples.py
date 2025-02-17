@@ -11,6 +11,12 @@ from constants.constants import DEFAULT_EXPERIMENTS, ATTACKS
 def parse_args(
         parser:ArgumentParser|None = None
     ) -> Namespace:
+    """
+        Args:
+            parser: the parser to use.
+        Returns:
+            The parsed arguments.
+    """
     if parser is None:
         parser = ArgumentParser()
     parser.add_argument(
@@ -20,19 +26,19 @@ def parse_args(
         help="Index of default trained networks.",
     )
     parser.add_argument(
-        "--std",
+        "--t_epsilon",
         type=float,
         default=1,
         help="This times the standard deviation gives a margin for rejection level.",
     )
     parser.add_argument(
-        "--d1",
+        "--epsilon",
         type=float,
         default=0.1,
         help="Determines how small should the standard deviation be per coordinate on matrix statistics.",
     )
     parser.add_argument(
-        "--d2",
+        "--epsilon_p",
         type=float,
         default=0.1,
         help="Determines how small should the standard deviation be per coordinate when detecting.",
@@ -57,21 +63,45 @@ def reject_predicted_attacks(
         num_classes: int,
         dropout: bool,
         ellipsoids: dict,
-        std:float = 2,
-        d1:float = 0.1,
-        d2:float = 0.1,
+        t_epsilon:float = 2,
+        epsilon:float = 0.1,
+        epsilon_p:float = 0.1,
         verbose:bool = True,
         temp_dir:str|None = None
     ) -> None:
+    """
+        Goes over the dataset and predicts if it is an adversarial example or not.
 
+        Args:
+            default_index: experiment index (See constants/constants.py).
+            weights_path: the path to the weights.
+            architecture_index: the index of the architecture (See constants/constants.py).
+            residual: whether the model has residual connections.
+            input_shape: the shape of the input.
+            num_classes: the number of classes.
+            dropout: whether the model has dropout layers.
+            ellipsoids: the ellipsoids.
+            t_epsilon: t^epsilon from the paper.
+            epsilon: the threshold for matrix statistics.
+            epsilon_p: the threshold for detection.
+            verbose: whether to print the results.
+            temp_dir: the temporary directory.
+    """
     if temp_dir is not None:
-        reject_path = f'{temp_dir}/experiments/{default_index}/rejection_levels/reject_at_{std}_{d1}.json'
+        reject_path = f'{temp_dir}/experiments/{default_index}/rejection_levels/reject_at_{t_epsilon}_{epsilon}.json'
         Path(f'{temp_dir}/experiments/{default_index}/rejection_levels/').mkdir(parents=True, exist_ok=True)
     else:
-        reject_path = f'experiments/{default_index}/rejection_levels/reject_at_{std}_{d1}.json'
+        reject_path = f'experiments/{default_index}/rejection_levels/reject_at_{t_epsilon}_{epsilon}.json'
         Path(f'experiments/{default_index}/rejection_levels/').mkdir(parents=True, exist_ok=True)
 
-    model = get_model(weights_path, architecture_index, residual, input_shape, num_classes, dropout)
+    model = get_model(
+        path = weights_path,
+        architecture_index = architecture_index,
+        residual = residual,
+        input_shape = input_shape,
+        num_classes = num_classes,
+        dropout = dropout
+    )
 
     if os.path.exists(reject_path):
         print("Loading rejection level...", flush=True)
@@ -119,13 +149,13 @@ def reject_predicted_attacks(
         rejected_and_not_attacked = 0
 
         for i in range(len(attacked_dataset)):
-            current_matrix_path = path_adv_matrices + f"{a}/{i}/matrix.pth"
+            current_matrix_path = f"{path_adv_matrices}{a}/{i}/matrix.pth"
             im = attacked_dataset[i]
             pred = torch.argmax(model.forward(im))
             mat = torch.load(current_matrix_path)
 
             b = get_ellipsoid_data(ellipsoids, pred, "std")
-            c = zero_std(mat, b, d2).item()
+            c = zero_std(mat, b, epsilon_p).item()
 
             res = ((reject_at > c), (a != "test"))
 
@@ -175,12 +205,12 @@ def reject_predicted_attacks(
                 print(f'Detected adversarial examples : {rejected_and_attacked} out of {len(attacked_dataset)}', flush=True)
                 print(f'Successful adversarial examples : {not_rejected_and_attacked} out of {len(attacked_dataset)}', flush=True)
 
-    counts_file = f'experiments/{default_index}/counts_per_attack/counts_per_attack_{std}_{d1}_{d2}.json'
+    counts_file = f'experiments/{default_index}/counts_per_attack/counts_per_attack_{t_epsilon}_{epsilon}_{epsilon_p}.json'
     Path(f'experiments/{default_index}/counts_per_attack/').mkdir(parents=True, exist_ok=True)
     with open(counts_file, 'w') as json_file:
         json.dump(counts, json_file, indent=4)
 
-    test_accuracy = f'experiments/{default_index}/counts_per_attack/test_accuracy_{std}_{d1}_{d2}.json'
+    test_accuracy = f'experiments/{default_index}/counts_per_attack/test_accuracy_{t_epsilon}_{epsilon}_{epsilon_p}.json'
     with open(test_accuracy, 'w') as json_file:
         json.dump([test_acc], json_file, indent=4)
 
@@ -198,6 +228,9 @@ def reject_predicted_attacks(
 
 
 def main() -> None:
+    """
+        Main function to detect adversarial examples.
+    """
     args = parse_args()
     if args.default_index is not None:
         try:
@@ -247,9 +280,9 @@ def main() -> None:
         num_classes = num_classes,
         dropout = dropout,
         ellipsoids = ellipsoids,
-        std = args.std,
-        d1 = args.d1,
-        d2 = args.d2,
+        t_epsilon = args.t_epsilon,
+        epsilon = args.epsilon,
+        epsilon_p = args.epsilon_p,
         verbose = True,
         temp_dir = args.temp_dir
     )

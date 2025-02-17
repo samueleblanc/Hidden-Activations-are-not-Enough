@@ -45,20 +45,26 @@ class AlexNet(nn.Module):
                 transforms.Resize(256),
                 transforms.CenterCrop(224),
                 transforms.ToTensor(),
-                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+                transforms.Normalize(
+                    mean = [0.485, 0.456, 0.406], 
+                    std = [0.229, 0.224, 0.225]
+                )
             ])
         else:
             self.transform = transforms.Compose([
                 transforms.ToTensor(),
-                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+                transforms.Normalize(
+                    mean = [0.485, 0.456, 0.406], 
+                    std = [0.229, 0.224, 0.225]
+                )
             ])
 
         if pretrained:
             for param in self.model.parameters():
                 param.requires_grad = False
 
-        self.conv_layers = []
-        self.fc_layers = []
+        self.conv_layers: list[nn.Module] = []
+        self.fc_layers: list[nn.Module] = []
         
         # Iterate through model layers and build conv_layers and fc_layers lists
         # Handles MaxPool2d, Linear, Dropout, Conv2d and other layer types
@@ -134,7 +140,7 @@ class AlexNet(nn.Module):
             elif isinstance(module, (nn.AvgPool2d, nn.AdaptiveAvgPool2d)):
                 self.conv_layers.append(module)
 
-    def forward(self, x: torch.Tensor, rep=False) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, rep:bool=False) -> torch.Tensor:
         """
         Forward pass of the AlexNet model.
 
@@ -145,6 +151,7 @@ class AlexNet(nn.Module):
             torch.Tensor: Output tensor
         """
         if not rep:
+            # Regular forward pass
             if len(x.shape) == 3: x = x.unsqueeze(0)
             for layer in self.conv_layers:
                 if isinstance(layer, nn.MaxPool2d):
@@ -160,6 +167,8 @@ class AlexNet(nn.Module):
 
             return x
 
+        # Forward pass for matrix computation
+        # Save activations and preactivations
         self.pre_acts: list[torch.Tensor] = []
         self.acts: list[torch.Tensor] = []
 

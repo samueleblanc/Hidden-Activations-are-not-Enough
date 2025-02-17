@@ -10,31 +10,37 @@ from utils.utils import get_ellipsoid_data, zero_std
 def parse_args(
         parser:ArgumentParser|None = None
     ) -> Namespace:
+    """
+        Args:
+            parser: the parser to use.
+        Returns:
+            The parsed arguments.
+    """
     if parser is None:
         parser = ArgumentParser()
     parser.add_argument(
         "--default_index",
-        type=int,
-        default=0,
-        help="Index of default trained networks.",
+        type = int,
+        default = 0,
+        help = "Index of default trained networks."
     )
     parser.add_argument(
-        "--std",
-        type=float,
-        default=1,
-        help="This times the standard deviation gives a margin for rejection level.",
+        "--t_epsilon",
+        type = float,
+        default = 1,
+        help = "This parameter gives a margin for rejection level."
     )
     parser.add_argument(
-        "--d1",
-        type=float,
-        default=0.1,
-        help="Determines how small should the standard deviation be per coordinate on matrix statistics.",
+        "--epsilon",
+        type = float,
+        default = 0.1,
+        help = "Determines how small should the standard deviation be per coordinate on matrix statistics."
     )
     parser.add_argument(
         "--temp_dir",
-        type=str,
-        default=None,
-        help="Temporary directory to save and read data. Useful when using clusters.",
+        type = str,
+        default = None,
+        help = "Temporary directory to save and read data. Useful when using clusters."
     )
 
     return parser.parse_args()
@@ -42,11 +48,21 @@ def parse_args(
 
 def process_sample(
         ellipsoids: dict, 
-        d1: float, 
+        epsilon: float, 
         default_index: int, 
         i: int, 
         temp_dir:str|None
     ) -> torch.Tensor|None:
+    """
+        Args:
+            ellipsoids: the ellipsoids.
+            epsilon: the threshold.
+            default_index: experiment index (See constants/constants.py).
+            i: the index of the sample.
+            temp_dir: the temporary directory.
+        Returns:
+            The rejection level.
+    """
     if temp_dir is not None:
         path_experiment_matrix = Path(f'{temp_dir}/experiments/{default_index}/rejection_levels/matrices/{i}/matrix.pth')
         path_prediction = Path(f'{temp_dir}/experiments/{default_index}/rejection_levels/matrices/{i}/prediction.pth')
@@ -58,7 +74,7 @@ def process_sample(
         mat = torch.load(path_experiment_matrix)
         pred = torch.load(path_prediction)
         a = get_ellipsoid_data(ellipsoids, pred, "std")
-        b = zero_std(mat, a, d1)
+        b = zero_std(mat, a, epsilon)
         c = b.expand([1])
         return c
     else:
@@ -69,23 +85,31 @@ def compute_rejection_level(
         exp_dataset_train: torch.Tensor,
         default_index: int,
         ellipsoids: dict,
-        std:float = 2,
-        d1:float = 0.1,
+        t_epsilon:float = 2,
+        epsilon:float = 0.1,
         temp_dir:str|None = None
     ) -> None:
-
+    """
+        Args:
+            exp_dataset_train: the training set.
+            default_index: experiment index (See constants/constants.py).
+            ellipsoids: the ellipsoids.
+            t_epsilon: t^epsilon from the paper.
+            epsilon: the threshold.
+            temp_dir: the temporary directory.
+    """
     # Compute mean and std of number of (almost) zero dims
-    reject_path = f'experiments/{default_index}/rejection_levels/reject_at_{std}_{d1}.json'
+    reject_path = f'experiments/{default_index}/rejection_levels/reject_at_{t_epsilon}_{epsilon}.json'
     Path(f'experiments/{default_index}/rejection_levels/').mkdir(parents=True, exist_ok=True)
     print("Computing rejection level...", flush=True)
 
     results = []
     for i in range(len(exp_dataset_train)):
-        results.append(process_sample(ellipsoids, d1, default_index, i, temp_dir))
+        results.append(process_sample(ellipsoids, epsilon, default_index, i, temp_dir))
 
     zeros = torch.cat([result for result in results if result is not None]).float()
 
-    reject_at = zeros.mean().item() - std*zeros.std().item()
+    reject_at = zeros.mean().item() - t_epsilon*zeros.std().item()
 
     print(f"Rejection level: {reject_at}", flush=True)
 
@@ -94,6 +118,9 @@ def compute_rejection_level(
 
 
 def main() -> None:
+    """
+        Main function to compute the rejection level.
+    """
     args = parse_args()
 
     print("Experiment: ", args.default_index, flush=True)
@@ -116,8 +143,8 @@ def main() -> None:
         exp_dataset_train = exp_dataset_train,
         default_index = args.default_index,
         ellipsoids = ellipsoids,
-        std = args.std,
-        d1 = args.d1,
+        t_epsilon = args.t_epsilon,
+        epsilon = args.epsilon,
         temp_dir = args.temp_dir
     )
 
