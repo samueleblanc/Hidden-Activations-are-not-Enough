@@ -67,7 +67,7 @@ class MLP(nn.Module):
                 self.layers.append(nn.Dropout(dropout))
             self.layers.append(self.get_activation_fn()())
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, return_penultimate:bool=False) -> torch.Tensor:
         """
         Forward pass for the MLP.
 
@@ -91,7 +91,7 @@ class MLP(nn.Module):
         x_res = x
         cont = 0
 
-        for i in range(2, len(self.layers)):
+        for i in range(2, len(self.layers)-1):
             layer = self.layers[i]
             if isinstance(layer, nn.Linear):
                 x = layer(x)
@@ -110,6 +110,9 @@ class MLP(nn.Module):
                     x = layer(x)
                 if self.save:
                     self.acts.append(x.detach().clone())
+        if return_penultimate:
+            return x
+        x = self.layers[-1](x)
         return x
 
     def get_weights(self) -> list[torch.Tensor]:

@@ -150,7 +150,7 @@ class VGG(nn.Module):
             elif isinstance(module, (nn.AvgPool2d, nn.AdaptiveAvgPool2d)):
                 self.conv_layers.append(module)
 
-    def forward(self, x: torch.Tensor, rep:bool=False) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, rep:bool=False, return_penultimate:bool=False) -> torch.Tensor:
         """
         Forward pass through the model.
 
@@ -170,9 +170,11 @@ class VGG(nn.Module):
                 x = x.view(x.size(0), -1)
             else:
                 x = torch.flatten(x)
-            for layer in self.fc_layers:
+            for layer in self.fc_layers[:-1]:
                 x = layer(x)
-
+            if return_penultimate:
+                return x
+            x = self.fc_layers[-1](x)
             return x
 
         # Forward pass for matrix computation

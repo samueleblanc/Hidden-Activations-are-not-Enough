@@ -163,7 +163,7 @@ class CNN_2D(nn.Module):
             )
         )
 
-    def forward(self, x: torch.Tensor, rep:bool=False) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, rep:bool=False, return_penultimate:bool=False) -> torch.Tensor:
         """
         Forward pass for the CNN.
 
@@ -199,7 +199,7 @@ class CNN_2D(nn.Module):
                 x = x.view(x.size(0), -1)
             else:
                 x = torch.flatten(x)
-            for layer in self.fc_layers:
+            for layer in self.fc_layers[:-1]:
                 if isinstance(layer, nn.Linear): 
                     cnt += 1
                 elif isinstance(layer, (nn.ReLU, nn.Tanh, nn.ELU, nn.LeakyReLU, nn.PReLU, nn.Sigmoid)):
@@ -215,6 +215,9 @@ class CNN_2D(nn.Module):
                     x, _ = layer(x)
                 else:
                     x = layer(x)
+            if return_penultimate:
+                return x
+            x = self.fc_layers[-1](x)
             return x
 
         # Forward pass for matrix computation
