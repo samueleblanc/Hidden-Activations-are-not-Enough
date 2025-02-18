@@ -73,8 +73,9 @@ class MLP(nn.Module):
 
         Args:
             x (torch.Tensor): Input tensor
+            return_penultimate (bool): Whether to return features from the penultimate layer
         Returns:
-            torch.Tensor: Output tensor
+            torch.Tensor: Output tensor (either final predictions or penultimate features).
         """
         self.pre_acts = []
         self.acts = []

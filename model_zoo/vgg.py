@@ -157,6 +157,9 @@ class VGG(nn.Module):
         Args:
             x (torch.Tensor): The input tensor.
             rep (bool): Whether to save the activations and preactivations.
+            return_penultimate (bool): Whether to return features from the penultimate layer.
+        Returns:
+            torch.Tensor: The output tensor (either final predictions or penultimate features).
         """
         if not rep:
             # Regular forward pass

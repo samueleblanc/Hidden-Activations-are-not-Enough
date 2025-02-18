@@ -170,8 +170,9 @@ class CNN_2D(nn.Module):
         Args:
             x (torch.Tensor): Input tensor
             rep (bool): Whether to save the activations and preactivations
+            return_penultimate (bool): Whether to return features from the penultimate layer
         Returns:
-            torch.Tensor: Output tensor
+            torch.Tensor: Output tensor (either final predictions or penultimate features).
         """
         if not rep:
             # Regular forward pass

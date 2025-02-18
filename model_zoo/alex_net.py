@@ -147,8 +147,9 @@ class AlexNet(nn.Module):
         Args:
             x (torch.Tensor): Input tensor
             rep (bool, optional): Whether to save activations. Defaults to False.
+            return_penultimate (bool, optional): Whether to return features from the penultimate layer.
         Returns:
-            torch.Tensor: Output tensor
+            torch.Tensor: Output tensor (either final predictions or penultimate features).
         """
         if not rep:
             # Regular forward pass
