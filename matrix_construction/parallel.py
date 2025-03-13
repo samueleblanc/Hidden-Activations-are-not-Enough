@@ -45,6 +45,7 @@ class ParallelMatrixConstruction:
         self.dropout: bool = dict_exp['dropout']
 
         self.num_classes: int = 10  # TODO: This should not be fixed
+        self.batch_size: int = 16  # TODO: This should not be fixed
         self.data = get_dataset(self.dataname, data_loader=False)[0]
 
     def compute_matrices_on_dataset(
@@ -58,7 +59,7 @@ class ParallelMatrixConstruction:
         if isinstance(model, MLP):
             matrix_computer = MlpRepresentation(model=model)
         elif isinstance(model, (CNN_2D, AlexNet, ResNet, VGG)):
-            matrix_computer = ConvRepresentation_2D(model=model)
+            matrix_computer = ConvRepresentation_2D(model=model, batch_size=self.batch_size)
         else:
             raise ValueError(f"Architecture not supported: {model}. Expects MLP, CNN_2D, AlexNet, ResNet, or VGG.")
 
@@ -76,9 +77,7 @@ class ParallelMatrixConstruction:
                 data = x_train,
                 matrix_computer = matrix_computer,
                 out_class = i,
-                save_path = self.save_path,
-                chunk_id = chunk_id,
-                chunk_size = self.chunk_size
+                chunk_id = chunk_id
             )
 
     def values_on_epoch(self, chunk_id: int) -> None:
