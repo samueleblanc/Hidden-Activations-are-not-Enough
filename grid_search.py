@@ -8,6 +8,9 @@ from numpy import geomspace
 from multiprocessing import Pool, Manager
 from argparse import ArgumentParser, Namespace
 
+from compute_rejection_level import main as compute_rejection_level
+from detect_adversarial_examples import main as detect_adversarial_examples
+
 
 def parse_args(
         parser:ArgumentParser|None = None
@@ -123,7 +126,7 @@ def run_adv_examples_script(params: tuple) -> None:
         Args:
             params: the parameters to run the script with.
     """
-    t_epsilon, epsilon, epsilon_p, index, lock, output_file, temp_dir, rej_lev_flag = params
+    t_epsilon, epsilon, epsilon_p, index, lock, output_file, temp_dir, rej_lev_flag, baseline = params
     print(f'Running parameters: {params}', flush=True)
     reject_path = f'experiments/{index}/rejection_levels/reject_at_{t_epsilon}_{epsilon}.json'
 
@@ -136,69 +139,44 @@ def run_adv_examples_script(params: tuple) -> None:
             return
 
     if rej_lev_flag == 1:
-        if temp_dir is not None:
-            cmd = f"source ENV/bin/activate &&" \
-                  f" python compute_rejection_level.py --t_epsilon {t_epsilon} --epsilon {epsilon} " \
-                  f"--default_index {index} --temp_dir {temp_dir}"
-        else:
-            # Assumes the environment is named "matrix"
-            cmd = f"source matrix/bin/activate &&" \
-                  f" python compute_rejection_level.py --t_epsilon {t_epsilon} --epsilon {epsilon} " \
-                  f"--default_index {index}"
-
-        result = subprocess.run(
-            cmd, shell=True, capture_output=True, text=True, executable="/bin/bash"
+        compute_rejection_level(
+            default_index = index,
+            t_epsilon = t_epsilon,
+            epsilon = epsilon,
+            temp_dir = temp_dir
+        )
+    elif rej_lev_flag == 0:
+        result = detect_adversarial_examples(
+            default_index = index,
+            t_epsilon = t_epsilon,
+            epsilon = epsilon,
+            epsilon_p = epsilon_p,
+            temp_dir = temp_dir,
+            baseline = baseline
         )
 
-        if result.returncode != 0:
-            print(f"Error running compute_rejection_level.py with params {params}: {result.stderr}",flush=True)
-            return
-
-        output_lines = result.stdout.split('\n')
+        # Extract the metrics from the output
+        output_lines = result.split('\n')
+        good_defences = None
+        wrong_rejection = None
         for line in output_lines:
-            if "Rejection level" in line:
-                rej_lev = float(line.split()[-1].strip(':'))
-                print(f"Rejection level: {rej_lev}", flush=True)
+            if "Percentage of good defences" in line:
+                good_defences = float(line.split()[-1].strip(':'))
+            if "Percentage of wrong rejections" in line:
+                wrong_rejection = float(line.split()[-1].strip(':'))
 
-        return
+        if good_defences is not None and wrong_rejection is not None:
+            result_line = f"{t_epsilon},{epsilon},{epsilon_p},default {index},{good_defences},{wrong_rejection}\n"
+            print(result_line.strip())
 
-    if temp_dir is not None:
-        cmd = f"source ENV/bin/activate &&" \
-              f" python detect_adversarial_examples.py --t_epsilon {t_epsilon} --epsilon {epsilon} --epsilon_p {epsilon_p} " \
-              f"--default_index {index} --temp_dir {temp_dir}"
+            # Write the result to the file
+            #with lock:
+            with open(output_file, 'a') as f:
+                f.write(result_line)
+
     else:
-        # Assumes the environment is named "matrix"
-        cmd = f"source matrix/bin/activate &&" \
-              f" python detect_adversarial_examples.py --t_epsilon {t_epsilon} --epsilon {epsilon} --epsilon_p {epsilon_p} " \
-              f"--default_index {index}"
-
-    result = subprocess.run(
-        cmd, shell=True, capture_output=True, text=True, executable="/bin/bash"
-    )
-
-    if result.returncode != 0:
-        print(f"Error running detect_adversarial_examples.py with params {params}: {result.stderr}", flush=True)
+        print("Error: Invalid rej_lev flag", flush=True)
         return
-
-    # Extract the metrics from the output
-    output_lines = result.stdout.split('\n')
-    good_defences = None
-    wrong_rejection = None
-    for line in output_lines:
-        if "Percentage of good defences" in line:
-            good_defences = float(line.split()[-1].strip(':'))
-        if "Percentage of wrong rejections" in line:
-            wrong_rejection = float(line.split()[-1].strip(':'))
-
-    if good_defences is not None and wrong_rejection is not None:
-        result_line = f"{t_epsilon},{epsilon},{epsilon_p},default {index},{good_defences},{wrong_rejection}\n"
-
-    print(result_line.strip())
-
-    # Write the result to the file
-    with lock:
-        with open(output_file, 'a') as f:
-            f.write(result_line)
 
 
 def main() -> None:
@@ -217,7 +195,7 @@ def main() -> None:
         vals = geomspace(
                     start = 0.00001,
                     stop = 1, 
-                    num = 10
+                    num = 5
                 )
         t_epsilon_values = vals
         epsilon_values = vals
@@ -260,27 +238,35 @@ def main() -> None:
     )
 
     # Use Manager to create a Lock
-    with Manager() as manager:
-        lock = manager.Lock()
+    #with Manager() as manager:
+    #    lock = manager.Lock()
 
-        # Initialize the output file if it doesn't exist
-        if not os.path.exists(output_file):
-            with open(output_file, 'w') as f:
-                f.write("t_epsilon,epsilon,epsilon_p,default_index,good_defence,wrong_rejection\n")
+    # Initialize the output file if it doesn't exist
+    if not os.path.exists(output_file):
+        with open(output_file, 'w') as f:
+            f.write("t_epsilon,epsilon,epsilon_p,default_index,good_defence,wrong_rejection\n")
+    lock = None
+    # Prepare arguments
+    param_grid_with_lock = [(t_epsilon, epsilon, epsilon_p, index, lock, output_file, args.temp_dir, args.rej_lev) for t_epsilon, epsilon, epsilon_p, index, _ in param_grid]
 
-        # Prepare arguments
-        param_grid_with_lock = [(t_epsilon, epsilon, epsilon_p, index, lock, output_file, args.temp_dir, args.rej_lev) for t_epsilon, epsilon, epsilon_p, index, _ in param_grid]
-
-        # This case assumes rejection levels were already computed.
-        if args.rej_lev == 0:
-            param_grid_filtered = [(t_epsilon, epsilon, epsilon_p, index, lock, output_file, args.temp_dir, args.rej_lev) for t_epsilon, epsilon, epsilon_p, index, lock, output_file, args.temp_dir, _ in param_grid_with_lock if f'reject_at_{t_epsilon}_{epsilon}.json' in files_to_keep]
-            with Pool(processes=args.nb_workers) as pool:
-                pool.map(run_adv_examples_script, param_grid_filtered)
-        # This case computes rejection levels only using std and d1.
-        else:
-            param_grid_with_lock_rej_lev = [(t_epsilon, epsilon, 0, index, lock, output_file, args.temp_dir, args.rej_lev) for t_epsilon, epsilon, epsilon_p, index, _ in param_grid]
-            with Pool(processes=args.nb_workers) as pool:
-                pool.map(run_adv_examples_script, param_grid_with_lock_rej_lev)
+    # This case assumes rejection levels were already computed.
+    if args.rej_lev == 0:
+        param_grid_filtered = [(t_epsilon, epsilon, epsilon_p, index, lock, output_file, args.temp_dir, args.rej_lev) for t_epsilon, epsilon, epsilon_p, index, lock, output_file, args.temp_dir, _ in param_grid_with_lock if f'reject_at_{t_epsilon}_{epsilon}.json' in files_to_keep]
+        # TODO: Uncomment this when running on clusters.
+        #with Pool(processes=args.nb_workers) as pool:
+        #    pool.map(run_adv_examples_script, param_grid_filtered)
+        first = True
+        for params in param_grid_filtered:
+            run_adv_examples_script(params + (first,))
+            first = False
+    # This case computes rejection levels only using std and d1.
+    else:
+        param_grid_with_lock_rej_lev = [(t_epsilon, epsilon, 0, index, lock, output_file, args.temp_dir, args.rej_lev) for t_epsilon, epsilon, epsilon_p, index, _ in param_grid]
+        # TODO: Uncomment this when running on clusters.
+        #with Pool(processes=args.nb_workers) as pool:
+        #    pool.map(run_adv_examples_script, param_grid_with_lock_rej_lev)
+        for params in param_grid_with_lock_rej_lev:
+            run_adv_examples_script(params + (False,))
 
 
 if __name__ == "__main__":

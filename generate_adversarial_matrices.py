@@ -85,7 +85,7 @@ def save_one_matrix(
     if isinstance(model, MLP):
         representation = MlpRepresentation(model)
     elif isinstance(model, (CNN_2D, AlexNet, VGG, ResNet)):
-        representation = ConvRepresentation_2D(model)
+        representation = ConvRepresentation_2D(model, batch_size=16)
     else:
         raise NotImplementedError(f"Model {type(model)} not implemented.")
     if temp_dir is not None:
@@ -133,7 +133,7 @@ def generate_matrices_for_attacks(
         attacked_dataset = torch.load(path_adv_examples)
 
         print(f"Generating matrices for attack {attack}.", flush=True)
-
+        num_classes = 10  # TODO: this should not be hardcoded
         arguments = [(attacked_dataset[i],
                       attack,
                       i,
@@ -142,12 +142,15 @@ def generate_matrices_for_attacks(
                       architecture_index,
                       residual,
                       input_shape,
-                      dropout, temp_dir)
+                      num_classes,
+                      dropout, 
+                      temp_dir)
                      for i in range(len(attacked_dataset))]
 
         with Pool(processes=nb_workers) as pool:
-            pool.starmap(save_one_matrix, arguments)
-
+            # pool.starmap(save_one_matrix, arguments)
+            for argument in arguments:
+                save_one_matrix(*argument)
 
 def main() -> None:
     """
@@ -183,7 +186,7 @@ def main() -> None:
         raise ValueError(f"Experiment needs to be trained")
 
     # TODO: Should take input as argument
-    input_shape = (3, 32, 32) if dataset == 'cifar10' or 'cifar100' else (1, 28, 28)
+    input_shape = (3, 32, 32) if dataset == 'cifar10' or dataset == 'cifar100' else (1, 28, 28)
 
     generate_matrices_for_attacks(
         default_index = args.default_index,

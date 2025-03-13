@@ -106,8 +106,10 @@ def main() -> None:
     arguments = list(zip([mat_constructer for _ in range(len(chunks))], chunks))
 
     print(f"Computing matrices...", flush=True)
-    with Pool(processes=args.nb_workers) as pool:
-        pool.starmap(compute_matrices, arguments)
+    # TODO: uncomment this when running on clusters
+    #with Pool(processes=args.nb_workers) as pool:
+    #    pool.starmap(compute_matrices, arguments)
+    compute_matrices(mat_constructer, 0)
     print("Done!", flush=True)
 
 

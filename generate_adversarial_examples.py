@@ -186,6 +186,7 @@ def generate_adversarial_examples(
 
     exp_dataset_test = exp_dataset_test.detach().clone()
     exp_labels_test = exp_labels_test.detach().clone()
+    num_classes = 10  # TODO: this should not be hardcoded
 
     arguments = [(attack_name,
                   exp_dataset_test,
@@ -195,11 +196,15 @@ def generate_adversarial_examples(
                   experiment_dir,
                   residual,
                   input_shape,
+                  num_classes,
                   dropout)
                  for attack_name in ["test"] + ATTACKS]
 
-    with Pool(processes=nb_workers) as pool:
-        pool.starmap(apply_attack, arguments)
+    # TODO: uncomment this when running on clusters
+    #with Pool(processes=nb_workers) as pool:
+    #    pool.starmap(apply_attack, arguments)
+    for argument in arguments:
+        apply_attack(*argument)
 
 
 def main() -> None:

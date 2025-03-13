@@ -3,8 +3,10 @@ import json
 import torch
 import numpy as np
 from sklearn.neighbors import KNeighborsClassifier
+from sklearn.neighbors import KernelDensity
 from sklearn.mixture import GaussianMixture
 from sklearn.svm import OneClassSVM
+from sklearn.ensemble import IsolationForest
 from argparse import ArgumentParser, Namespace
 from pathlib import Path
 
@@ -234,6 +236,26 @@ def reject_predicted_attacks(
     print(f"Percentage of good defences: {good_defence/num_att}", flush=True)
     print(f"Percentage of wrong rejections: {wrongly_rejected/(len(results)-num_att)}", flush=True)
 
+    return f"Percentage of good defences: {good_defence/num_att}\nPercentage of wrong rejections: {wrongly_rejected/(len(results)-num_att)}"
+
+
+def get_features(data: torch.Tensor, model) -> np.ndarray:
+    """
+        Extracts features from the data using the model's penultimate layer.
+
+        Args:
+            data: the data to extract features from.
+            model: the model to extract features from.
+        Returns:
+            The features.
+    """
+    model.eval()
+    with torch.no_grad():
+        features = []
+        for img in data:
+            feat = model.forward(img.unsqueeze(0).float(), return_penultimate=True)
+            features.append(feat.cpu().numpy().flatten())
+        return np.array(features)
 
 def reject_predicted_attacks_baseline(        
         default_index: int,
@@ -262,6 +284,10 @@ def reject_predicted_attacks_baseline(
             verbose: whether to print the results.
             temp_dir: the temporary directory.
     """
+    output_file = f'experiments/{default_index}/grid_search/grid_search_{default_index}_baseline.txt'
+    with open(output_file, 'w') as f:
+        f.write("method,parameter,default_index,good_defence,wrong_rejection\n")
+
     model = get_model(
         path = weights_path,
         architecture_index = architecture_index,
@@ -273,23 +299,6 @@ def reject_predicted_attacks_baseline(
 
     dataset = DEFAULT_EXPERIMENTS[f'experiment_{default_index}']['dataset']
 
-    # Initialize baseline detectors
-    knn = KNeighborsClassifier(n_neighbors=5)
-    gmm = GaussianMixture(n_components=2, random_state=0)
-    ocsvm = OneClassSVM(kernel='rbf', nu=0.1)
-
-    # Initialize results dictionaries for each method
-    methods = ['knn', 'gmm', 'ocsvm']
-    results = {method: [] for method in methods}
-    counts = {
-        method: {
-            'not_rejected_and_attacked': 0,
-            'not_rejected_and_not_attacked': 0,
-            'rejected_and_attacked': 0,
-            'rejected_and_not_attacked': 0
-        } for method in methods
-    }
-
     # Load train and test data
     if temp_dir is not None:
         train_data, _ = get_dataset(dataset, data_loader=False, data_path=temp_dir)
@@ -298,19 +307,9 @@ def reject_predicted_attacks_baseline(
         train_data, _ = get_dataset(dataset, data_loader=False)
         test_labels = torch.load(f'experiments/{default_index}/adversarial_examples/test/labels.pth')
 
-    # Extract features using model's penultimate layer
-    def get_features(data):
-        model.eval()
-        with torch.no_grad():
-            features = []
-            for img in data:
-                feat = model.forward(img.unsqueeze(0), return_penultimate=True)
-                features.append(feat.cpu().numpy().flatten())
-            return np.array(features)
-
     # Get features from training data
     print("Extracting features from training data...", flush=True)
-    train_features = get_features(train_data.data)
+    train_features = get_features(train_data.data, model)
     train_labels = np.zeros(len(train_features))  # 0 for clean data
 
     # Get some adversarial examples for training
@@ -326,7 +325,7 @@ def reject_predicted_attacks_baseline(
             
             # Take a small subset of each attack type for training
             subset_size = min(100, len(attack_data))
-            attack_features = get_features(attack_data[:subset_size])
+            attack_features = get_features(attack_data[:subset_size], model)
             adv_features.append(attack_features)
         except:
             print(f"Attack {attack} not found for training.", flush=True)
@@ -339,72 +338,141 @@ def reject_predicted_attacks_baseline(
         # Combine clean and adversarial data for training
         train_features = np.vstack([train_features, adv_features])
         train_labels = np.concatenate([train_labels, adv_labels])
+        # Shuffle the data
+        permutation = np.random.permutation(len(train_features))
+        train_features = train_features[permutation]
+        train_labels = train_labels[permutation]
 
-    # Train the detectors
-    print("Training detection models...", flush=True)
-    knn.fit(train_features, train_labels)
-    gmm.fit(train_features)
-    ocsvm.fit(train_features[train_labels == 0])  # Train only on clean data for One-Class SVM
+    # TODO: Adjust parameters depending on the dataset
+    knn_parameters = [3, 5, 7]
+    kde_parameters = [0.1, 0.5, 1]
+    gmm_parameters = [10, 20, 30]
+    ocsvm_parameters = [0.01, 0.05, 0.1]
+    iforest_parameters = [100, 200, 300]
+    parameters = {
+        'knn': knn_parameters,
+        'kde': kde_parameters,
+        'gmm': gmm_parameters,
+        'ocsvm': ocsvm_parameters,
+        'iforest': iforest_parameters
+    }
+    methods = list(parameters.keys())
 
-    test_acc = {method: 0 for method in methods}
+    # Initialize results dictionaries for each method
+    counts = {
+        method: {
+            parameters[method][parameter]: {
+                attack: {
+                    'not_rejected_and_attacked': 0,
+                    'not_rejected_and_not_attacked': 0,
+                    'rejected_and_attacked': 0,
+                    'rejected_and_not_attacked': 0
+                } for attack in ["test"] + ATTACKS
+            } for parameter in range(len(parameters[method]))
+        } for method in methods
+    }
 
-    # Test on both clean and adversarial data
-    for a in ["test"] + ATTACKS:
-        print(f"Evaluating {a} examples", flush=True)
-        try:
-            if temp_dir is not None:
-                attacked_dataset = torch.load(f'{temp_dir}/experiments/{default_index}/adversarial_examples/{a}/adversarial_examples.pth')
-            else:
-                attacked_dataset = torch.load(f'experiments/{default_index}/adversarial_examples/{a}/adversarial_examples.pth')
-        except:
-            print(f"Attack {a} not found.", flush=True)
-            continue
+    test_acc = {
+        method: {
+            parameters[method][parameter]: 0
+                for parameter in range(len(parameters[method]))
+        } for method in methods
+    }
 
-        # Get features for current dataset
-        current_features = get_features(attacked_dataset)
+    for param in range(len(knn_parameters)):
+        print("Initializing detectors...", flush=True)
+        knn = KNeighborsClassifier(n_neighbors=knn_parameters[param])
+        kde = KernelDensity(bandwidth=kde_parameters[param])
+        gmm = GaussianMixture(n_components=gmm_parameters[param], random_state=0)
+        ocsvm = OneClassSVM(kernel='rbf', nu=ocsvm_parameters[param])
+        iforest = IsolationForest(n_estimators=iforest_parameters[param])
 
-        # Evaluate each detection method
+        print("Training detection models...", flush=True)
+        knn.fit(train_features, train_labels)
+        kde.fit(train_features)
+        gmm.fit(train_features)
+        ocsvm.fit(train_features[train_labels == 0])  # Train only on clean data for One-Class SVM
+        iforest.fit(train_features)
+
         for method in methods:
-            if method == 'knn':
-                predictions = knn.predict(current_features)
-            elif method == 'gmm':
-                scores = gmm.score_samples(current_features)
-                predictions = scores < np.percentile(scores, 10)
-            else:  # ocsvm
-                predictions = ocsvm.predict(current_features) == -1
-
-            # Rest of the evaluation code remains the same
-            for i, is_adversarial in enumerate(predictions):
-                if a == "test":
-                    if not is_adversarial:
-                        counts[method]['not_rejected_and_not_attacked'] += 1
-                        pred = torch.argmax(model.forward(attacked_dataset[i].unsqueeze(0)))
-                        if pred == test_labels[i]:
-                            test_acc[method] += 1
+            # Test on both clean and adversarial data
+            results = []
+            for a in ["test"] + ATTACKS:
+                print(f"Evaluating {a} examples", flush=True)
+                try:
+                    if temp_dir is not None:
+                        attacked_dataset = torch.load(f'{temp_dir}/experiments/{default_index}/adversarial_examples/{a}/adversarial_examples.pth')
                     else:
-                        counts[method]['rejected_and_not_attacked'] += 1
+                        attacked_dataset = torch.load(f'experiments/{default_index}/adversarial_examples/{a}/adversarial_examples.pth')
+                except:
+                    print(f"Attack {a} not found.", flush=True)
+                    continue
+
+                # Get features for current dataset
+                current_features = get_features(attacked_dataset, model)
+
+                if method == 'knn':
+                    predictions = knn.predict(current_features)
+                elif method == 'kde':
+                    scores = kde.score_samples(current_features)
+                    predictions = scores < np.percentile(scores, 10)
+                elif method == 'gmm':
+                    scores = gmm.score_samples(current_features)
+                    predictions = scores < np.percentile(scores, 10)
+                elif method == 'ocsvm':
+                    predictions = ocsvm.predict(current_features) == -1
+                elif method == 'iforest':
+                    predictions = iforest.predict(current_features) == -1
                 else:
-                    if is_adversarial:
-                        counts[method]['rejected_and_attacked'] += 1
-                    else:
-                        counts[method]['not_rejected_and_attacked'] += 1
+                    raise ValueError(f"Method {method} not found.")
 
-        # Print results
-        if verbose:
-            for method in methods:
-                print(f"\nResults for {method.upper()}:")
-                if a == 'test':
-                    print(f'Wrongly rejected test data: {counts[method]["rejected_and_not_attacked"]}')
-                    print(f'Trusted test data: {counts[method]["not_rejected_and_not_attacked"]}')
+                for i, is_adversarial in enumerate(predictions):
+                    results.append((is_adversarial, a != "test"))
+                    if a == "test":
+                        if not is_adversarial:
+                            counts[method][parameters[method][param]][a]['not_rejected_and_not_attacked'] += 1
+                            pred = torch.argmax(model.forward(attacked_dataset[i].unsqueeze(0)))
+                            if pred == test_labels[i]:
+                                test_acc[method][parameters[method][param]] += 1
+                        else:
+                            counts[method][parameters[method][param]][a]['rejected_and_not_attacked'] += 1
+                    else:
+                        if is_adversarial:
+                            counts[method][parameters[method][param]][a]['rejected_and_attacked'] += 1
+                        else:
+                            counts[method][parameters[method][param]][a]['not_rejected_and_attacked'] += 1
                     
-                    if counts[method]['not_rejected_and_not_attacked'] > 0:
-                        test_acc[method] = test_acc[method] / counts[method]['not_rejected_and_not_attacked']
+                # Print results
+                if verbose:
+                    print(f"\nResults for {method.upper()}:")
+                    if a == 'test':
+                        print(f'Wrongly rejected test data: {counts[method][parameters[method][param]][a]["rejected_and_not_attacked"]}')
+                        print(f'Trusted test data: {counts[method][parameters[method][param]][a]["not_rejected_and_not_attacked"]}')
+                        
+                        if counts[method][parameters[method][param]][a]['not_rejected_and_not_attacked'] > 0:
+                            test_acc[method][parameters[method][param]] = test_acc[method][parameters[method][param]] / counts[method][parameters[method][param]][a]['not_rejected_and_not_attacked']
+                        else:
+                            test_acc[method][parameters[method][param]] = 0
+                        print(f"Accuracy on trusted test data: {test_acc[method][parameters[method][param]]}")
                     else:
-                        test_acc[method] = 0
-                    print(f"Accuracy on trusted test data: {test_acc[method]}")
+                        print(f'Detected adversarial examples: {counts[method][parameters[method][param]][a]["rejected_and_attacked"]}')
+                        print(f'Missed adversarial examples: {counts[method][parameters[method][param]][a]["not_rejected_and_attacked"]}')
+
+            good_defence = 0
+            wrongly_rejected = 0
+            num_att = 0
+            for rej, att in results:
+                if att:
+                    good_defence += int(rej)
+                    num_att += 1
                 else:
-                    print(f'Detected adversarial examples: {counts[method]["rejected_and_attacked"]}')
-                    print(f'Missed adversarial examples: {counts[method]["not_rejected_and_attacked"]}')
+                    wrongly_rejected += int(rej)
+
+            result_line = f"{method},{parameters[method][param]},{default_index},{good_defence/num_att},{wrongly_rejected/(len(results)-num_att)}\n"
+
+            # Write the result to the file
+            with open(output_file, 'a') as f:
+                f.write(result_line)
 
     # Save results
     for method in methods:
@@ -420,11 +488,36 @@ def reject_predicted_attacks_baseline(
             json.dump([test_acc[method]], f, indent=4)
 
 
-def main() -> None:
+def main(
+        default_index:int|None = None,
+        t_epsilon:float|None = None,
+        epsilon:float|None = None,
+        epsilon_p:float|None = None,
+        temp_dir:str|None = None,
+        baseline:bool = False
+    ) -> str:
     """
         Main function to detect adversarial examples.
+        Args:
+            default_index: the index of the default experiment.
+            t_epsilon: the t^epsilon parameter.
+            epsilon: the epsilon parameter.
+            epsilon_p: the epsilon prime parameter.
+            temp_dir: the temporary directory.
+        Returns:
+            The result of the detection.
     """
-    args = parse_args()
+    if default_index is None:
+        args = parse_args()
+    else:
+        args = Namespace(
+            default_index = default_index, 
+            t_epsilon = t_epsilon, 
+            epsilon = epsilon, 
+            epsilon_p = epsilon_p, 
+            temp_dir = temp_dir
+        )
+
     if args.default_index is not None:
         try:
             experiment = DEFAULT_EXPERIMENTS[f'experiment_{args.default_index}']
@@ -438,7 +531,6 @@ def main() -> None:
         except KeyError:
             print(f"Error: Default index {args.default_index} does not exist.")
             return -1
-
     else:
         raise ValueError("Default index not specified in constants/constants.py")
 
@@ -464,7 +556,20 @@ def main() -> None:
 
     ellipsoids = json.load(ellipsoids_file)
 
-    reject_predicted_attacks(
+    if baseline:
+        reject_predicted_attacks_baseline(
+            default_index = args.default_index,
+            weights_path = weights_path,
+            architecture_index = architecture_index,
+            residual = residual,
+            input_shape = input_shape,
+            num_classes = num_classes,
+            dropout = dropout,
+            verbose = True,
+            temp_dir = args.temp_dir
+        )
+
+    result = reject_predicted_attacks(
         default_index = args.default_index,
         weights_path = weights_path,
         architecture_index = architecture_index,
@@ -480,17 +585,7 @@ def main() -> None:
         temp_dir = args.temp_dir
     )
 
-    reject_predicted_attacks_baseline(
-        default_index = args.default_index,
-        weights_path = weights_path,
-        architecture_index = architecture_index,
-        residual = residual,
-        input_shape = input_shape,
-        num_classes = num_classes,
-        dropout = dropout,
-        verbose = True,
-        temp_dir = args.temp_dir
-    )
+    return result
 
 
 if __name__ == '__main__':

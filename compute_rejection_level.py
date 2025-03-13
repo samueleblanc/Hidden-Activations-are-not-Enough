@@ -74,9 +74,7 @@ def process_sample(
         mat = torch.load(path_experiment_matrix)
         pred = torch.load(path_prediction)
         a = get_ellipsoid_data(ellipsoids, pred, "std")
-        b = zero_std(mat, a, epsilon)
-        c = b.expand([1])
-        return c
+        return zero_std(mat, a, epsilon).expand([1])
     else:
         return None
 
@@ -117,14 +115,30 @@ def compute_rejection_level(
         json.dump([reject_at], json_file, indent=4)
 
 
-def main() -> None:
+def main(
+        default_index:int|None = None,
+        t_epsilon:float|None = None, 
+        epsilon:float|None = None, 
+        temp_dir:str|None = None
+    ) -> None:
     """
         Main function to compute the rejection level.
+        Args:
+            t_epsilon: t^epsilon from the paper.
+            epsilon: the threshold.
+            temp_dir: the temporary directory.
     """
     args = parse_args()
-
+    if default_index is None:
+        args = parse_args()
+    else:
+        args = Namespace(
+            default_index = default_index, 
+            t_epsilon = t_epsilon, 
+            epsilon = epsilon, 
+            temp_dir = temp_dir
+        )
     print("Experiment: ", args.default_index, flush=True)
-
     if args.temp_dir is not None:
         matrices_path = Path(f'{args.temp_dir}/experiments/{args.default_index}/matrices/matrix_statistics.json')
         exp_dataset_train = torch.load(f'{args.temp_dir}/experiments/{args.default_index}/rejection_levels/exp_dataset_train.pth')

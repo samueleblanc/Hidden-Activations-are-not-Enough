@@ -53,16 +53,21 @@ def check_default_index_exists(
 
 def get_top_10_abs_difference(
         df: pd.DataFrame, 
-        default_index: int
+        default_index: int,
+        baseline: bool = False
     ) -> pd.DataFrame:
     """
         Args:
             df: the dataframe to get the top 10 absolute difference from.
             default_index: the default index to get the top 10 absolute difference from.
+            baseline: whether to get the top 10 absolute difference from the baseline methods.
         Returns:
             The top 10 absolute difference.
     """
-    filtered_df = df[df['default_index'] == f'default {default_index}'].copy()
+    if baseline:
+        filtered_df = df[df['default_index'] == default_index].copy()
+    else:
+        filtered_df = df[df['default_index'] == f'default {default_index}'].copy()
 
     # Convert columns to float, coercing errors to NaN
     filtered_df['good_defence'] = pd.to_numeric(filtered_df['good_defence'], errors='coerce')
@@ -73,7 +78,10 @@ def get_top_10_abs_difference(
 
     filtered_df['abs_difference'] = filtered_df['good_defence'] - filtered_df['wrong_rejection']
     top_10 = filtered_df.nlargest(10, 'abs_difference')
-    return top_10[['t_epsilon', 'epsilon', 'epsilon_p', 'good_defence', 'wrong_rejection']]
+    if baseline:
+        return top_10[['method', 'parameter', 'good_defence', 'wrong_rejection']]
+    else:
+        return top_10[['t_epsilon', 'epsilon', 'epsilon_p', 'good_defence', 'wrong_rejection']]
 
 
 def run_detect_adversarial_examples(
@@ -129,7 +137,6 @@ def main() -> None:
 
     Path(f'experiments/{args.default_index}/results/').mkdir(parents=True, exist_ok=True)
 
-    # Read the results file into a DataFrame
     df = pd.read_csv(path_output)
 
     # Check if the default_index exists
@@ -156,6 +163,19 @@ def main() -> None:
         count += 1
         if count >= 3:
             break
+    
+    # Read results of baseline methods
+    if args.temp_dir is None:
+        path_output = Path(f'experiments/{args.default_index}/grid_search/grid_search_{args.default_index}_baseline.txt')
+    else:
+        path_output = Path(f'{args.temp_dir}/experiments/{args.default_index}/grid_search/grid_search_{args.default_index}_baseline.txt')
+
+    df = pd.read_csv(path_output)
+
+    top_10_abs_diff = get_top_10_abs_difference(df, args.default_index, baseline=True)
+    print("Top 10 values for highest absolute difference in baseline methods:")
+    print(top_10_abs_diff)
+
 
 if __name__ == "__main__":
     main()

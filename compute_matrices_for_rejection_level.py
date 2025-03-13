@@ -81,7 +81,7 @@ def compute_one_matrix(args: tuple) -> None:
     if isinstance(model, MLP):
         matrix_computer = MlpRepresentation(model)
     elif isinstance(model, (CNN_2D, AlexNet, VGG, ResNet)):
-        matrix_computer = ConvRepresentation_2D(model)
+        matrix_computer = ConvRepresentation_2D(model, batch_size=16)
     else:
         raise NotImplementedError(f"Model {type(model)} not supported")
     pred = torch.argmax(model.forward(im))
@@ -146,9 +146,9 @@ def compute_matrices_for_rejection_level(
                  dropout,
                  i,
                  temp_dir) for i in range(len(exp_dataset_train))]
-
-        pool.map(compute_one_matrix, args)
-
+        for arg in args:
+            compute_one_matrix(arg)
+        #pool.map(compute_one_matrix, args)
 
 def main() -> None:
     """
