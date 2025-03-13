@@ -164,7 +164,7 @@ flowchart LR
 ```
 To run a grid search to compute several rejection levels run the following:
 ```bash
-python grid_search.py --default_index {idx} --rej_level 1 --nb_workers {workers}
+python grid_search.py --default_index {idx} --rej_lev 1 --nb_workers {workers}
 ```
 This will create files `experiments/{idx}/rejection_levels/reject_at_{s}_{d1}.json` for different values of `s, d1`.
 If you have access to a SLURM cluster, run the following job
@@ -182,7 +182,7 @@ flowchart LR
 ```
 To run the detection algorithm using the pre-computed rejection levels run the following:
 ```bash
-python grid_search.py --default_index {idx} --rej_level 0 --nb_workers {workers}
+python grid_search.py --default_index {idx} --rej_lev 0 --nb_workers {workers}
 ```
 This will create a file `experiments/{idx}/grid_search/grid_search_{idx}.txt` which contains the percentages of good defence and wrong rejection for each combination of the parameters `s, d1, d2`.
 If you have access to a SLURM cluster, run the following job
