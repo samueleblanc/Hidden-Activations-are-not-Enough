@@ -42,6 +42,10 @@ class CNN_2D(nn.Module):
     ) -> None:
         super().__init__()
         c, h, w = input_shape
+        if len(kernel_size) != len(channels):
+            kernel_size = [kernel_size[0] for _ in channels]
+        if len(padding) != len(channels):
+            padding = [padding[0] for _ in channels]
         shape_per_layer = []
         h1 = h
         w1 = w
@@ -68,7 +72,7 @@ class CNN_2D(nn.Module):
         self.conv_layers.append(
             nn.Conv2d(
                 in_channels = c,
-                out_channels = channels[0] if isinstance(channels, tuple) else channels,
+                out_channels = channels[0],
                 kernel_size = kernel_size[0],
                 padding = padding[0],
                 bias = False
@@ -78,7 +82,7 @@ class CNN_2D(nn.Module):
         if batch_norm:
             self.conv_layers.append(
                 nn.BatchNorm2d(
-                    channels[0] if isinstance(channels, tuple) else channels
+                    channels[0]
                 )
             )
 
