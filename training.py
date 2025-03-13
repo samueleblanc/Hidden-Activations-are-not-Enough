@@ -174,12 +174,12 @@ def main() -> None:
 
     device = get_device()
     train_loader, test_loader = get_dataset(
-        dataset = dataset,
+        data_set = dataset,
         batch_size = batch_size,
         data_loader = True,
         data_path = args.temp_dir
     )
-    input_shape = (3, 32, 32) if dataset == 'cifar10' or 'cifar100' else (1, 28, 28)
+    input_shape = (3, 32, 32) if dataset == 'cifar10' or dataset == 'cifar100' else (1, 28, 28)
     model = get_architecture(
         architecture_index = architecture_index,
         residual = residual,
@@ -207,7 +207,7 @@ def main() -> None:
             weight_decay = weight_decay
         )
     else:
-        raise ValueError("Unsupported optimizer. Add it manually at line 97 on training.py")
+        raise ValueError("Unsupported optimizer. Add it manually at line 210 on training.py")
 
     scheduler = StepLR(
         optimizer = optimizer, 
