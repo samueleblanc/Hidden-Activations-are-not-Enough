@@ -33,7 +33,7 @@ ARCHITECTURES = [
     (814, 351, 118, 467, 823, 191, 756, 628, 935, 270),
     # CNNs
     ((10,10,10,10), (300,)),
-    ((12,10,10,10), (300,)),
+    ((32,64), (128,)),
     # AlexNet
     ("AlexNet"),
     # ResNet
@@ -345,6 +345,19 @@ DEFAULT_EXPERIMENTS = {
         'reduce_lr_each': 3,
         'save_every_epochs': 1,
         'residual': True,
+        'weight_decay': 0,
+        'dropout': 0,
+    },
+    'experiment_21': {
+        'architecture_index': 9,
+        'optimizer': 'sgd',
+        'dataset': 'mnist',
+        'lr': 0.01,
+        'batch_size': 16,
+        'epoch': 5,
+        'reduce_lr_each': 50,
+        'save_every_epochs': 1,
+        'residual': False,
         'weight_decay': 0,
         'dropout': 0,
     }
