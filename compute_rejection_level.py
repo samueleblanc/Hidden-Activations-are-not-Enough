@@ -1,49 +1,11 @@
 import os
 import json
 import torch
-from argparse import ArgumentParser, Namespace
+from argparse import Namespace
 from pathlib import Path
+from typing import Union
 
 from utils.utils import get_ellipsoid_data, zero_std
-
-
-def parse_args(
-        parser:ArgumentParser|None = None
-    ) -> Namespace:
-    """
-        Args:
-            parser: the parser to use.
-        Returns:
-            The parsed arguments.
-    """
-    if parser is None:
-        parser = ArgumentParser()
-    parser.add_argument(
-        "--default_index",
-        type = int,
-        default = 0,
-        help = "Index of default trained networks."
-    )
-    parser.add_argument(
-        "--t_epsilon",
-        type = float,
-        default = 1,
-        help = "This parameter gives a margin for rejection level."
-    )
-    parser.add_argument(
-        "--epsilon",
-        type = float,
-        default = 0.1,
-        help = "Determines how small should the standard deviation be per coordinate on matrix statistics."
-    )
-    parser.add_argument(
-        "--temp_dir",
-        type = str,
-        default = None,
-        help = "Temporary directory to save and read data. Useful when using clusters."
-    )
-
-    return parser.parse_args()
 
 
 def process_sample(
@@ -51,8 +13,8 @@ def process_sample(
         epsilon: float, 
         default_index: int, 
         i: int, 
-        temp_dir:str|None
-    ) -> torch.Tensor|None:
+        temp_dir:Union[str, None]
+    ) -> Union[torch.Tensor, None]:
     """
         Args:
             ellipsoids: the ellipsoids.
@@ -85,7 +47,7 @@ def compute_rejection_level(
         ellipsoids: dict,
         t_epsilon:float = 2,
         epsilon:float = 0.1,
-        temp_dir:str|None = None
+        temp_dir:Union[str, None] = None
     ) -> None:
     """
         Args:
@@ -116,10 +78,10 @@ def compute_rejection_level(
 
 
 def main(
-        default_index:int|None = None,
-        t_epsilon:float|None = None, 
-        epsilon:float|None = None, 
-        temp_dir:str|None = None
+        default_index:Union[int, None] = None,
+        t_epsilon:Union[float, None] = None, 
+        epsilon:Union[float, None] = None, 
+        temp_dir:Union[str, None] = None
     ) -> None:
     """
         Main function to compute the rejection level.
@@ -128,16 +90,12 @@ def main(
             epsilon: the threshold.
             temp_dir: the temporary directory.
     """
-    args = parse_args()
-    if default_index is None:
-        args = parse_args()
-    else:
-        args = Namespace(
-            default_index = default_index, 
-            t_epsilon = t_epsilon, 
-            epsilon = epsilon, 
-            temp_dir = temp_dir
-        )
+    args = Namespace(
+        default_index = default_index, 
+        t_epsilon = t_epsilon, 
+        epsilon = epsilon, 
+        temp_dir = temp_dir
+    )
     print("Experiment: ", args.default_index, flush=True)
     if args.temp_dir is not None:
         matrices_path = Path(f'{args.temp_dir}/experiments/{args.default_index}/matrices/matrix_statistics.json')

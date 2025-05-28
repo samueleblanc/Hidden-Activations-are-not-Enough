@@ -1,12 +1,14 @@
 import sys
-import subprocess
 import pandas as pd
 from pathlib import Path
 from argparse import ArgumentParser, Namespace
+from typing import Union
+
+from detect_adversarial_examples import main as detect_adversarial_examples
 
 
 def parse_args(
-        parser:ArgumentParser|None = None
+        parser:Union[ArgumentParser, None] = None
     ) -> Namespace:
     """
         Args:
@@ -90,7 +92,7 @@ def run_detect_adversarial_examples(
         epsilon_p: float, 
         default_index: int, 
         top: int, 
-        temp_dir:str|None = None
+        temp_dir:Union[str, None] = None
     ) -> None:
     """
         Args:
@@ -101,27 +103,21 @@ def run_detect_adversarial_examples(
             top: the index of a value in the top 10 dataframe.
             temp_dir: the temporary directory.
     """
-    if temp_dir is not None:
-        cmd = f"source ENV/bin/activate &&" \
-              f" python detect_adversarial_examples.py --t_epsilon {t_epsilon} --epsilon {epsilon} --epsilon_p {epsilon_p} " \
-              f"--default_index {default_index} --temp_dir {temp_dir}"
-    else:
-        cmd = f"source matrix/bin/activate &&" \
-              f" python detect_adversarial_examples.py --t_epsilon {t_epsilon} --epsilon {epsilon} --epsilon_p {epsilon_p} " \
-              f"--default_index {default_index}"
 
     # Run the command and capture the output
-    result = subprocess.run(
-        cmd, shell=True, capture_output=True, text=True, executable="/bin/bash"
+    result = detect_adversarial_examples(
+        t_epsilon = t_epsilon, 
+        epsilon = epsilon, 
+        epsilon_p = epsilon_p, 
+        default_index = default_index, 
+        temp_dir = temp_dir
     )
 
-    if result.returncode != 0:
-        print(f"Error running script with params --t_epsilon {t_epsilon} --epsilon {epsilon} --epsilon_p {epsilon_p}: {result.stderr}")
-    else:
+    if result is not None:
         print(f"Successfully ran script with params --t_epsilon {t_epsilon} --epsilon {epsilon} --epsilon_p {epsilon_p}")
 
         with open(f'experiments/{default_index}/results/{top}_output_{t_epsilon}_{epsilon}_{epsilon_p}.txt', 'w') as f:
-            f.write(result.stdout)
+            f.write(result)
 
 
 def main() -> None:

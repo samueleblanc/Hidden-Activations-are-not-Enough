@@ -1,19 +1,19 @@
 import os
 import json
 import itertools
-import subprocess
 import pandas as pd
 from pathlib import Path
 from numpy import geomspace
-from multiprocessing import Pool, Manager
+from multiprocessing import Pool
 from argparse import ArgumentParser, Namespace
+from typing import Union
 
 from compute_rejection_level import main as compute_rejection_level
 from detect_adversarial_examples import main as detect_adversarial_examples
 
 
 def parse_args(
-        parser:ArgumentParser|None = None
+        parser:Union[ArgumentParser, None] = None
     ) -> Namespace:
     """
         Args:
@@ -237,10 +237,6 @@ def main() -> None:
         )
     )
 
-    # Use Manager to create a Lock
-    #with Manager() as manager:
-    #    lock = manager.Lock()
-
     # Initialize the output file if it doesn't exist
     if not os.path.exists(output_file):
         with open(output_file, 'w') as f:
@@ -252,21 +248,15 @@ def main() -> None:
     # This case assumes rejection levels were already computed.
     if args.rej_lev == 0:
         param_grid_filtered = [(t_epsilon, epsilon, epsilon_p, index, lock, output_file, args.temp_dir, args.rej_lev) for t_epsilon, epsilon, epsilon_p, index, lock, output_file, args.temp_dir, _ in param_grid_with_lock if f'reject_at_{t_epsilon}_{epsilon}.json' in files_to_keep]
-        # TODO: Uncomment this when running on clusters.
-        #with Pool(processes=args.nb_workers) as pool:
-        #    pool.map(run_adv_examples_script, param_grid_filtered)
-        first = True
-        for params in param_grid_filtered:
-            run_adv_examples_script(params + (first,))
-            first = False
+        for i in range(len(param_grid_filtered)):
+            param_grid_filtered[i] = param_grid_filtered[i] + (i==0,)
+        with Pool(processes=args.nb_workers) as pool:
+            pool.map(run_adv_examples_script, param_grid_filtered)
     # This case computes rejection levels only using std and d1.
     else:
-        param_grid_with_lock_rej_lev = [(t_epsilon, epsilon, 0, index, lock, output_file, args.temp_dir, args.rej_lev) for t_epsilon, epsilon, epsilon_p, index, _ in param_grid]
-        # TODO: Uncomment this when running on clusters.
-        #with Pool(processes=args.nb_workers) as pool:
-        #    pool.map(run_adv_examples_script, param_grid_with_lock_rej_lev)
-        for params in param_grid_with_lock_rej_lev:
-            run_adv_examples_script(params + (False,))
+        param_grid_with_lock_rej_lev = [(t_epsilon, epsilon, 0, index, lock, output_file, args.temp_dir, args.rej_lev, False) for t_epsilon, epsilon, epsilon_p, index, _ in param_grid]
+        with Pool(processes=args.nb_workers) as pool:
+            pool.map(run_adv_examples_script, param_grid_with_lock_rej_lev)
 
 
 if __name__ == "__main__":
