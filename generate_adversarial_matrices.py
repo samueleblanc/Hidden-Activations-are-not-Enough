@@ -2,6 +2,7 @@ import torch
 from argparse import ArgumentParser, Namespace
 from multiprocessing import Pool
 from pathlib import Path
+from typing import Union
 
 from model_zoo.mlp import MLP
 from model_zoo.cnn import CNN_2D
@@ -15,7 +16,7 @@ from utils.utils import zip_and_cleanup
 
 
 def parse_args(
-        parser:ArgumentParser|None = None
+        parser:Union[ArgumentParser, None] = None
     ) -> Namespace:
     """
         Args:
@@ -58,7 +59,7 @@ def save_one_matrix(
         input_shape: tuple[int,int,int], 
         num_classes: int, 
         dropout: bool, 
-        temp_dir: str|None
+        temp_dir: Union[str, None]
     ) -> None:
     """
         Args:
@@ -101,7 +102,7 @@ def save_one_matrix(
 
 def generate_matrices_for_attacks(
         default_index: int,
-        temp_dir: str|None,
+        temp_dir: Union[str, None],
         weights_path: str,
         architecture_index: int,
         residual: bool,
@@ -148,9 +149,7 @@ def generate_matrices_for_attacks(
                      for i in range(len(attacked_dataset))]
 
         with Pool(processes=nb_workers) as pool:
-            # pool.starmap(save_one_matrix, arguments)
-            for argument in arguments:
-                save_one_matrix(*argument)
+            pool.starmap(save_one_matrix, arguments)
 
 def main() -> None:
     """

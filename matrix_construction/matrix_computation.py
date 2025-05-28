@@ -4,6 +4,7 @@
 
 import torch
 import torch.nn as nn
+from typing import Union
 
 from model_zoo.alex_net import AlexNet
 from model_zoo.cnn import CNN_2D
@@ -116,7 +117,7 @@ class ConvRepresentation_2D:
     """
     def __init__(
             self,
-            model: CNN_2D|ResNet|AlexNet|VGG,
+            model: Union[CNN_2D, ResNet, AlexNet, VGG],
             batch_size:int = 1
         ) -> None:
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -128,7 +129,7 @@ class ConvRepresentation_2D:
         self.input_size: int = self.in_c*self.in_h*self.in_w
 
         # Saves the output of the NN on the current sample in the forward method
-        self.current_output: CNN_2D|ResNet|AlexNet|VGG|None = None
+        self.current_output: Union[CNN_2D, ResNet, AlexNet, VGG, None] = None
 
         # Find index of first FC layer (used for flatten layer)
         for i,layer in enumerate(self.layers):

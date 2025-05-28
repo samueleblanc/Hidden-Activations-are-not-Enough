@@ -4,6 +4,7 @@ import json
 import torchvision
 from torchvision import transforms
 import shutil
+from typing import Union
 
 from model_zoo.mlp import MLP
 from model_zoo.cnn import CNN_2D
@@ -35,7 +36,7 @@ def get_architecture(
         architecture_index:int = 0,
         residual:bool = False,
         dropout:bool = False
-    ) -> MLP|CNN_2D|ResNet|AlexNet|VGG:
+    ) -> Union[MLP, CNN_2D, ResNet, AlexNet, VGG]:
     """
         Args:
             input_shape: The shape of the input data.
@@ -87,7 +88,7 @@ def get_model(
         input_shape: tuple[int], 
         num_classes: int, 
         dropout: bool
-    ) -> MLP|CNN_2D|ResNet|AlexNet|VGG:
+    ) -> Union[MLP, CNN_2D, ResNet, AlexNet, VGG]:
     """ 
         Args:
             path: The path to the model weights.
@@ -115,7 +116,7 @@ def get_dataset(
         data_set: str, 
         batch_size:int = 32,
         data_loader:bool = True,
-        data_path:str|None = None
+        data_path:Union[str, None] = None
     ) -> tuple:
     """
         Args:
@@ -299,7 +300,7 @@ def compute_statistics(
 
 def compute_train_statistics(
         default_index:int = 0, 
-        path:str|None = None
+        path:Union[str, None] = None
     ) -> None:
     """
         Computes the statistics for the given path.

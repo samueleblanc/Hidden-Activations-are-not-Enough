@@ -6,6 +6,7 @@ import torch.optim as optim
 from torch.optim.lr_scheduler import StepLR
 from pathlib import Path
 from argparse import ArgumentParser, Namespace
+from typing import Union
 
 from model_zoo.alex_net import AlexNet
 from model_zoo.cnn import CNN_2D
@@ -88,10 +89,10 @@ def parse_args() -> Namespace:
 
 
 def train_one_epoch(
-        model: AlexNet|CNN_2D|MLP|ResNet|VGG, 
+        model: Union[AlexNet, CNN_2D, MLP, ResNet, VGG], 
         train_loader, 
         criterion: nn.CrossEntropyLoss, 
-        optimizer: optim.SGD|optim.Adam, 
+        optimizer: Union[optim.SGD, optim.Adam], 
         device: torch.device
     ) -> None:
     """
@@ -115,7 +116,7 @@ def train_one_epoch(
 
 
 def evaluate_model(
-        model: AlexNet|CNN_2D|MLP|ResNet|VGG, 
+        model: Union[AlexNet, CNN_2D, MLP, ResNet, VGG], 
         data_loader, 
         criterion: nn.CrossEntropyLoss, 
         device: torch.device

@@ -5,6 +5,7 @@
 import os
 import torch
 from torch.utils.data import DataLoader, Subset
+from typing import Union
 
 from model_zoo.mlp import MLP
 from model_zoo.cnn import CNN_2D
@@ -50,7 +51,7 @@ class ParallelMatrixConstruction:
 
     def compute_matrices_on_dataset(
             self,
-            model: MLP|CNN_2D|AlexNet|ResNet|VGG,
+            model: Union[MLP, CNN_2D, AlexNet, ResNet, VGG],
             chunk_id: int
     ) -> None:
         """
@@ -106,7 +107,7 @@ class ParallelMatrixConstruction:
     def compute_chunk_of_matrices(
             self,
             data: torch.Tensor,
-            matrix_computer: MlpRepresentation|ConvRepresentation_2D,
+            matrix_computer: Union[MlpRepresentation, ConvRepresentation_2D],
             out_class: int,
             chunk_id: int = 0
     ) -> None:
