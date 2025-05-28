@@ -3,13 +3,14 @@ import torchattacks
 from argparse import ArgumentParser, Namespace
 from multiprocessing import Pool
 from pathlib import Path
+from typing import Union
 
 from utils.utils import get_model, get_dataset, subset
 from constants.constants import DEFAULT_EXPERIMENTS, ATTACKS
 
 
 def parse_args(
-        parser:ArgumentParser|None = None
+        parser:Union[ArgumentParser, None] = None
     ) -> Namespace:
     """
         Args:
@@ -98,25 +99,25 @@ def apply_attack(
             [torchattacks.VANILA(model),
             torchattacks.GN(model),
             torchattacks.FGSM(model),
-            torchattacks.RFGSM(model),
+            # torchattacks.RFGSM(model),
             torchattacks.PGD(model),
             torchattacks.EOTPGD(model),
-            torchattacks.FFGSM(model),
+            # torchattacks.FFGSM(model),
             # torchattacks.TPGD(model),
             torchattacks.MIFGSM(model),
-            torchattacks.UPGD(model),
-            torchattacks.DIFGSM(model),
-            torchattacks.Jitter(model),
+            # torchattacks.UPGD(model),
+            # torchattacks.DIFGSM(model),
+            # torchattacks.Jitter(model),
             # torchattacks.NIFGSM(model),
-            torchattacks.PGDRS(model),
-            # torchattacks.VMIFGSM(model),
+            # torchattacks.PGDRS(model),
+            torchattacks.VMIFGSM(model),
             # torchattacks.VNIFGSM(model),
             torchattacks.CW(model),
             # torchattacks.PGDL2(model),
             # torchattacks.PGDRSL2(model),
             torchattacks.DeepFool(model),
-            torchattacks.SparseFool(model),
-            torchattacks.OnePixel(model),
+            # torchattacks.SparseFool(model),
+            # torchattacks.OnePixel(model),
             torchattacks.Pixle(model),
             torchattacks.APGD(model),
             torchattacks.APGDT(model),
@@ -125,7 +126,8 @@ def apply_attack(
             torchattacks.SPSA(model),
             torchattacks.JSMA(model),
             torchattacks.EADL1(model),
-            torchattacks.EADEN(model)]
+            torchattacks.EADEN(model)
+            ]
         )
     )
     try:
@@ -200,11 +202,8 @@ def generate_adversarial_examples(
                   dropout)
                  for attack_name in ["test"] + ATTACKS]
 
-    # TODO: uncomment this when running on clusters
-    #with Pool(processes=nb_workers) as pool:
-    #    pool.starmap(apply_attack, arguments)
-    for argument in arguments:
-        apply_attack(*argument)
+    with Pool(processes=nb_workers) as pool:
+        pool.starmap(apply_attack, arguments)
 
 
 def main() -> None:

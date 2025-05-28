@@ -34,35 +34,32 @@ ARCHITECTURES = [
     # CNNs
     ((10,10,10,10), (300,)),
     ((32,64), (128,)),
-    # AlexNet
     ("AlexNet"),
-    # ResNet
     ("ResNet"),
-    # VGG
     ("VGG")
 ]
 
 ATTACKS = [
     "GN", 
     "FGSM", 
-    "RFGSM", 
+    # "RFGSM", 
     "PGD", 
     "EOTPGD", 
-    "FFGSM", 
+    # "FFGSM", 
     # "TPGD",
     "MIFGSM", 
-    "UPGD", 
-    "DIFGSM", 
+    # "UPGD", 
+    # "DIFGSM", 
     # "NIFGSM",
-    "PGDRS", 
-    # "VMIFGSM",  
-    #"VNIFGSM",
+    # "PGDRS", 
+    "VMIFGSM",  
+    # "VNIFGSM",
     "CW", 
     # "PGDL2",
     # "PGDRSL2",
     "DeepFool", 
-    "SparseFool", 
-    "OnePixel", 
+    # "SparseFool", 
+    # "OnePixel", 
     "Pixle",
     "APGD",
     "APGDT",
