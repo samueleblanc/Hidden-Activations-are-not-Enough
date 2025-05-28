@@ -4,10 +4,10 @@
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=2
 #SBATCH --time=00:30:00 #hour:minutes:seconds
-#SBATCH --mem=8G #memory requested
-#SBATCH --array=8
+#SBATCH --mem=4G #memory requested
+#SBATCH --array=0
 
-module load StdEnv/2020 scipy-stack/2023a cuda cudnn #load the required module
+module load StdEnv/2020 python/3.9.6 scipy-stack/2023a cuda cudnn #load the required module
 
 mkdir -p $SLURM_TMPDIR/data/MNIST/
 mkdir -p $SLURM_TMPDIR/data/FashionMNIST/
