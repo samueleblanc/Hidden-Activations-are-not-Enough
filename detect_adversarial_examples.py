@@ -2,62 +2,18 @@ import os
 import json
 import torch
 import numpy as np
-from sklearn.neighbors import KNeighborsClassifier
+from sklearn.neighbors import NearestNeighbors
 from sklearn.neighbors import KernelDensity
 from sklearn.mixture import GaussianMixture
 from sklearn.svm import OneClassSVM
 from sklearn.ensemble import IsolationForest
-from argparse import ArgumentParser, Namespace
+from scipy.spatial.distance import mahalanobis
+from argparse import Namespace
 from pathlib import Path
+from typing import Union
 
-from utils.utils import get_ellipsoid_data, zero_std, get_model, get_dataset
+from utils.utils import get_ellipsoid_data, zero_std, get_model, get_dataset, subset
 from constants.constants import DEFAULT_EXPERIMENTS, ATTACKS
-
-
-def parse_args(
-        parser:ArgumentParser|None = None
-    ) -> Namespace:
-    """
-        Args:
-            parser: the parser to use.
-        Returns:
-            The parsed arguments.
-    """
-    if parser is None:
-        parser = ArgumentParser()
-    parser.add_argument(
-        "--default_index",
-        type = int,
-        default = 0,
-        help = "Index of default trained networks."
-    )
-    parser.add_argument(
-        "--t_epsilon",
-        type = float,
-        default = 1,
-        help = "This times the standard deviation gives a margin for rejection level."
-    )
-    parser.add_argument(
-        "--epsilon",
-        type = float,
-        default = 0.1,
-        help = "Determines how small should the standard deviation be per coordinate on matrix statistics."
-    )
-    parser.add_argument(
-        "--epsilon_p",
-        type = float,
-        default = 0.1,
-        help = "Determines how small should the standard deviation be per coordinate when detecting."
-    )
-    parser.add_argument(
-        "--temp_dir",
-        type = str,
-        default = None,
-        help = "Temporary directory to read data for computations from, such as weights, matrix statistics and adversarial matrices."
-             "Useful on clusters but not on local experiments."
-    )
-
-    return parser.parse_args()
 
 
 def reject_predicted_attacks(
@@ -73,7 +29,7 @@ def reject_predicted_attacks(
         epsilon:float = 0.1,
         epsilon_p:float = 0.1,
         verbose:bool = True,
-        temp_dir:str|None = None
+        temp_dir:Union[str, None] = None
     ) -> None:
     """
         Goes over the dataset and predicts if it is an adversarial example or not.
@@ -266,7 +222,7 @@ def reject_predicted_attacks_baseline(
         num_classes: int,
         dropout: bool,
         verbose:bool = True,
-        temp_dir:str|None = None
+        temp_dir:Union[str, None] = None
     ) -> None:
     """
         Goes over the dataset and predicts if it is an adversarial example or not using baseline methods.
@@ -309,52 +265,26 @@ def reject_predicted_attacks_baseline(
 
     # Get features from training data
     print("Extracting features from training data...", flush=True)
-    train_features = get_features(train_data.data, model)
-    train_labels = np.zeros(len(train_features))  # 0 for clean data
-
-    # Get some adversarial examples for training
-    print("Collecting adversarial examples for training...", flush=True)
-    adv_features = []
-    for attack in ATTACKS:
-        try:
-            # TODO: The attacked data should be from the training set
-            if temp_dir is not None:
-                attack_data = torch.load(f'{temp_dir}/experiments/{default_index}/adversarial_examples/{attack}/adversarial_examples.pth')
-            else:
-                attack_data = torch.load(f'experiments/{default_index}/adversarial_examples/{attack}/adversarial_examples.pth')
-            
-            # Take a small subset of each attack type for training
-            subset_size = min(100, len(attack_data))
-            attack_features = get_features(attack_data[:subset_size], model)
-            adv_features.append(attack_features)
-        except:
-            print(f"Attack {attack} not found for training.", flush=True)
-            continue
-
-    if len(adv_features) > 0:
-        adv_features = np.vstack(adv_features)
-        adv_labels = np.ones(len(adv_features))  # 1 for adversarial data
-
-        # Combine clean and adversarial data for training
-        train_features = np.vstack([train_features, adv_features])
-        train_labels = np.concatenate([train_labels, adv_labels])
-        # Shuffle the data
-        permutation = np.random.permutation(len(train_features))
-        train_features = train_features[permutation]
-        train_labels = train_labels[permutation]
+    train_data, train_labels = subset(train_data, 10000)  # The rejection level is computed on 10000 examples
+    train_features = get_features(train_data, model)
 
     # TODO: Adjust parameters depending on the dataset
     knn_parameters = [3, 5, 7]
     kde_parameters = [0.1, 0.5, 1]
-    gmm_parameters = [10, 20, 30]
+    gmm_parameters = [5, 10, 15]
     ocsvm_parameters = [0.01, 0.05, 0.1]
-    iforest_parameters = [100, 200, 300]
+    iforest_parameters = [100, 150, 200]
+    softmax_parameters = [0.85, 0.9, 0.95]
+    mahalanobis_parameters = [0.9, 0.95, 0.99]
+
     parameters = {
         'knn': knn_parameters,
         'kde': kde_parameters,
         'gmm': gmm_parameters,
         'ocsvm': ocsvm_parameters,
-        'iforest': iforest_parameters
+        'iforest': iforest_parameters,
+        'softmax': softmax_parameters,
+        'mahalanobis': mahalanobis_parameters
     }
     methods = list(parameters.keys())
 
@@ -379,26 +309,48 @@ def reject_predicted_attacks_baseline(
         } for method in methods
     }
 
+    # For mahalanobis, we need class means and covariances
+    class_means = {}
+    class_covariances = {}
+    for class_idx in range(num_classes):
+        class_data = train_features[train_labels == class_idx]
+        class_means[class_idx] = np.mean(class_data, axis=0)
+        class_covariances[class_idx] = np.cov(class_data, rowvar=False)
+    
+    def get_min_mahalanobis_distances(features: torch.Tensor) -> np.ndarray:
+        min_distances = np.array([])
+        for feature in features:
+            distances = [
+                mahalanobis(feature, class_means[class_idx], class_covariances[class_idx])
+                for class_idx in range(num_classes)
+            ]
+            min_distances = np.append(min_distances, min(distances))
+        return min_distances
+
     for param in range(len(knn_parameters)):
         print("Initializing detectors...", flush=True)
-        knn = KNeighborsClassifier(n_neighbors=knn_parameters[param])
+        knn = NearestNeighbors(n_neighbors=knn_parameters[param], metric="euclidean")
         kde = KernelDensity(bandwidth=kde_parameters[param])
-        gmm = GaussianMixture(n_components=gmm_parameters[param], random_state=0)
+        gmm = GaussianMixture(n_components=gmm_parameters[param])
         ocsvm = OneClassSVM(kernel='rbf', nu=ocsvm_parameters[param])
         iforest = IsolationForest(n_estimators=iforest_parameters[param])
 
         print("Training detection models...", flush=True)
-        knn.fit(train_features, train_labels)
+        knn.fit(train_features)
         kde.fit(train_features)
         gmm.fit(train_features)
-        ocsvm.fit(train_features[train_labels == 0])  # Train only on clean data for One-Class SVM
+        ocsvm.fit(train_features)
         iforest.fit(train_features)
+        mahalanobis_threshold = np.percentile(
+            get_min_mahalanobis_distances(train_features), 
+            mahalanobis_parameters[param]
+        )
 
         for method in methods:
             # Test on both clean and adversarial data
             results = []
             for a in ["test"] + ATTACKS:
-                print(f"Evaluating {a} examples", flush=True)
+                print(f"\n\nEvaluating {a} examples", flush=True)
                 try:
                     if temp_dir is not None:
                         attacked_dataset = torch.load(f'{temp_dir}/experiments/{default_index}/adversarial_examples/{a}/adversarial_examples.pth')
@@ -412,7 +364,9 @@ def reject_predicted_attacks_baseline(
                 current_features = get_features(attacked_dataset, model)
 
                 if method == 'knn':
-                    predictions = knn.predict(current_features)
+                    distances, _ = knn.kneighbors(current_features)
+                    average_distance = distances.mean(axis=1)
+                    predictions = average_distance < np.percentile(average_distance, 10)
                 elif method == 'kde':
                     scores = kde.score_samples(current_features)
                     predictions = scores < np.percentile(scores, 10)
@@ -423,6 +377,13 @@ def reject_predicted_attacks_baseline(
                     predictions = ocsvm.predict(current_features) == -1
                 elif method == 'iforest':
                     predictions = iforest.predict(current_features) == -1
+                elif method == 'softmax':
+                    logits = [model.forward(att.unsqueeze(0)) for att in attacked_dataset]
+                    probs = [torch.nn.functional.softmax(log, dim=1) for log in logits]
+                    confidences = [p.max(dim=1).values for p in probs]
+                    predictions = [conf < softmax_parameters[param] for conf in confidences]
+                elif method == 'mahalanobis':
+                    predictions = get_min_mahalanobis_distances(current_features) < mahalanobis_threshold
                 else:
                     raise ValueError(f"Method {method} not found.")
 
@@ -489,11 +450,11 @@ def reject_predicted_attacks_baseline(
 
 
 def main(
-        default_index:int|None = None,
-        t_epsilon:float|None = None,
-        epsilon:float|None = None,
-        epsilon_p:float|None = None,
-        temp_dir:str|None = None,
+        default_index:Union[int, None] = None,
+        t_epsilon:Union[float, None] = None,
+        epsilon:Union[float, None] = None,
+        epsilon_p:Union[float, None] = None,
+        temp_dir:Union[str, None] = None,
         baseline:bool = False
     ) -> str:
     """
@@ -507,16 +468,13 @@ def main(
         Returns:
             The result of the detection.
     """
-    if default_index is None:
-        args = parse_args()
-    else:
-        args = Namespace(
-            default_index = default_index, 
-            t_epsilon = t_epsilon, 
-            epsilon = epsilon, 
-            epsilon_p = epsilon_p, 
-            temp_dir = temp_dir
-        )
+    args = Namespace(
+        default_index = default_index, 
+        t_epsilon = t_epsilon, 
+        epsilon = epsilon, 
+        epsilon_p = epsilon_p, 
+        temp_dir = temp_dir
+    )
 
     if args.default_index is not None:
         try:
