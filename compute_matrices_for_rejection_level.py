@@ -3,6 +3,7 @@ import torch
 from argparse import ArgumentParser, Namespace
 from pathlib import Path
 from multiprocessing import Pool
+from typing import Union
 
 from model_zoo.mlp import MLP
 from model_zoo.cnn import CNN_2D
@@ -15,7 +16,7 @@ from matrix_construction.matrix_computation import MlpRepresentation, ConvRepres
 
 
 def parse_args(
-        parser:ArgumentParser|None = None
+        parser:Union[ArgumentParser, None] = None
     ) -> Namespace:
     """
         Args:
@@ -117,7 +118,7 @@ def compute_matrices_for_rejection_level(
         input_shape: tuple[int,int,int],
         dropout: bool,
         nb_workers: int = 8,
-        temp_dir:str|None = None
+        temp_dir:Union[str, None] = None
     ) -> None:
     """
         Args:
@@ -146,9 +147,7 @@ def compute_matrices_for_rejection_level(
                  dropout,
                  i,
                  temp_dir) for i in range(len(exp_dataset_train))]
-        for arg in args:
-            compute_one_matrix(arg)
-        #pool.map(compute_one_matrix, args)
+        pool.map(compute_one_matrix, args)
 
 def main() -> None:
     """
