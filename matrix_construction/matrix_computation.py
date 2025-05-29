@@ -171,7 +171,7 @@ class ConvRepresentation_2D:
 
                 # Create batched input for this chunk
                 batched_input = torch.zeros((current_batch_size,C,H,W), device=self.device)
-                batched_input[torch.arange(current_batch_size),c,h,w] = x.flatten()[start:end]
+                batched_input[torch.arange(current_batch_size, device=self.device),c,h,w] = x.detach().flatten()[start:end]
                 
                 B = batched_input
                 i = 0

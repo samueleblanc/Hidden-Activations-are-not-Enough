@@ -251,7 +251,7 @@ class ResNet(nn.Module):
                 if self.save:
                     self.pre_acts.append(x.detach().clone())
 
-        x = torch.flatten(x)
+        x = torch.flatten(x).to(self.device)
 
         for layer in self.fc_layers:
             if isinstance(layer, nn.Linear):

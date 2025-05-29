@@ -33,7 +33,7 @@ class AlexNet(nn.Module):
 
         self.weights = AlexNet_Weights.DEFAULT if pretrained else None
 
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = 'cpu'#"cuda" if torch.cuda.is_available() else "cpu"
         self.model = alexnet(weights=self.weights, progress=False)
         self.model.eval()
         self.model.to(self.device)
@@ -83,7 +83,7 @@ class AlexNet(nn.Module):
                                         padding = layer.padding,
                                         stride = layer.stride,
                                         return_indices = True
-                                    )
+                                    ).to(self.device)
                                 )
                             else:
                                 self.conv_layers.append(
@@ -92,7 +92,7 @@ class AlexNet(nn.Module):
                                         padding = 0,
                                         stride = 1,
                                         return_indices = True
-                                    )
+                                    ).to(self.device)
                                 )
 
                     elif isinstance(layer, nn.Linear):
@@ -102,20 +102,20 @@ class AlexNet(nn.Module):
                                     in_features = layer.in_features, 
                                     out_features = num_classes, 
                                     bias = True
-                                )
+                                ).to(self.device)
                             )
                         else:
-                            self.fc_layers.append(layer)
+                            self.fc_layers.append(layer.to(self.device))
                         fc += 1
                     
                     elif isinstance(layer, nn.Dropout):
-                        self.fc_layers.append(layer)
+                        self.fc_layers.append(layer.to(self.device))
                         fc += 1
 
                     elif isinstance(layer, nn.Conv2d):
                         if first_conv:
                             if c == 3 and regular_input:
-                                self.conv_layers.append(layer)
+                                self.conv_layers.append(layer.to(self.device))
                             else:
                                 self.conv_layers.append(
                                     nn.Conv2d(
@@ -125,20 +125,20 @@ class AlexNet(nn.Module):
                                         stride = 3, 
                                         padding = 1, 
                                         bias = False
-                                    )
+                                    ).to(self.device)
                                 )
                             first_conv = False
                         else:
-                            self.conv_layers.append(layer)
+                            self.conv_layers.append(layer.to(self.device))
 
                     else:
                         if fc == 0:  # Not yet in the fully connected part of the NN
-                            self.conv_layers.append(layer)
+                            self.conv_layers.append(layer.to(self.device))
                         else:
-                            self.fc_layers.append(layer)
+                            self.fc_layers.append(layer.to(self.device))
             
             elif isinstance(module, (nn.AvgPool2d, nn.AdaptiveAvgPool2d)):
-                self.conv_layers.append(module)
+                self.conv_layers.append(module.to(self.device))
 
     def forward(self, x: torch.Tensor, rep:bool=False, return_penultimate:bool=False) -> torch.Tensor:
         """

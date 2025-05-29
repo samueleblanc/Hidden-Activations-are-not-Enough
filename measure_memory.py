@@ -10,11 +10,11 @@ if __name__ == '__main__':
     input_shape = (3,224,224)
     print('1')
     num_classes = 10
-    model = VGG(input_shape=input_shape,
+    model = ResNet(input_shape=input_shape,
                 num_classes=num_classes,
                 pretrained=False).to('mps')
     print('2')
-    representation = ConvRepresentation_2D(model=model)
+    representation = ConvRepresentation_2D(model=model, batch_size=32)
     print('3')
     x = torch.rand(input_shape, device='mps')
     print(x.shape)
