@@ -10,7 +10,7 @@ import os
 os.environ['SSL_CERT_FILE'] = certifi.where()
 device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
 device = 'cuda' if torch.cuda.is_available() else device
-print("Device: ", device)
+print("Device: ", device, flush=True)
 
 def train_model(trial):
     # Define hyperparameters to tune
@@ -24,11 +24,15 @@ def train_model(trial):
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
     ])
 
+    data_dir = os.path.join(os.getcwd(), 'data')
+
+    if not os.path.exists(data_dir):
+        os.makedirs(data_dir)
     # Load CIFAR10 dataset
-    trainset = datasets.CIFAR10('~/.pytorch/CIFAR_data/', download=True, train=True, transform=transform)
+    trainset = datasets.CIFAR10(data_dir, download=True, train=True, transform=transform)
     trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=True)
 
-    testset = datasets.CIFAR10('~/.pytorch/CIFAR_data/', download=True, train=False, transform=transform)
+    testset = datasets.CIFAR10(data_dir, download=True, train=False, transform=transform)
     testloader = torch.utils.data.DataLoader(testset, batch_size=batch_size, shuffle=False)
 
     # Initialize VGG model
