@@ -5,9 +5,13 @@ import torch.optim as optim
 from torchvision import datasets, transforms
 from model_zoo.vgg import VGG
 import joblib
-import certifi
+#import certifi
 import os
-os.environ['SSL_CERT_FILE'] = certifi.where()
+#from optuna.storages import JournalStorage, JournalFileBackend
+
+from optuna.storages import JournalStorage
+from optuna.storages.journal import JournalFileBackend
+#os.environ['SSL_CERT_FILE'] = certifi.where()
 device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
 device = 'cuda' if torch.cuda.is_available() else device
 print("Device: ", device, flush=True)
@@ -34,7 +38,8 @@ def train_model(trial):
 
     testset = datasets.CIFAR10(data_dir, download=True, train=False, transform=transform)
     testloader = torch.utils.data.DataLoader(testset, batch_size=batch_size, shuffle=False)
-
+    #print("Data ready",flush=True)
+    #return
     # Initialize VGG model
     model = VGG(input_shape=(3, 32, 32), num_classes=10, pretrained=False).to(device)
 
@@ -77,14 +82,15 @@ def save_study(study, trial):
 
 if __name__ == '__main__':
     # Create a study object and specify the direction
+    storage = JournalStorage(JournalFileBackend('/lustre07/scratch/armenta/vgg_journal.log'))
     study = optuna.create_study(direction="maximize",
-                                study_name="vgg_hyperparameter_tuning",
-                                storage="sqlite:///vgg_hyperparameter_tuning.db",
+                                study_name="vgg_journal",
+                                storage=storage,
                                 load_if_exists=True)
 
     # Perform hyperparameter tuning using Optuna
     study.optimize(train_model, n_trials=50,
-                                n_jobs=4, callbacks=[save_study])
+                                n_jobs=2, callbacks=[save_study])
     #study.optimize(train_model, n_trials=50)
 
     # Print the best hyperparameters and accuracy

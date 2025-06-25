@@ -44,11 +44,11 @@ class VGG(nn.Module):
         else:
             self.weights = None
 
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        if batch_norm:
-            self.model = vgg11_bn(weights=self.weights, progress=False)
-        else:
-            self.model = vgg11(weights=self.weights, progress=False)
+        #self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        #if batch_norm:
+        #    self.model = vgg11_bn(weights=self.weights, progress=False)
+        #else:
+        self.model = vgg11(weights=self.weights, progress=False)
         self.model.eval()
         self.model.to(self.device)
         self.matrix_input_dim = c*w*h + 1

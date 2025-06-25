@@ -33,7 +33,7 @@ class AlexNet(nn.Module):
 
         self.weights = AlexNet_Weights.DEFAULT if pretrained else None
 
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        #self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.model = alexnet(weights=self.weights, progress=False)
         self.model.eval()
         self.model.to(self.device)
