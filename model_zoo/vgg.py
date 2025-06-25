@@ -25,7 +25,8 @@ class VGG(nn.Module):
             pretrained:bool = True, 
             max_pool:bool = True, 
             batch_norm:bool = False, 
-            save:bool = False
+            save:bool = False,
+            device='cpu'
     ) -> None:
         super().__init__()
         self.input_shape = input_shape
@@ -34,6 +35,7 @@ class VGG(nn.Module):
         self.bias = True
         self.batch_norm = batch_norm
         self.save = save
+        self.device = device
 
         # Initialize the model
         if pretrained:

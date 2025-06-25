@@ -41,7 +41,7 @@ def train_model(trial):
     #print("Data ready",flush=True)
     #return
     # Initialize VGG model
-    model = VGG(input_shape=(3, 32, 32), num_classes=10, pretrained=False).to(device)
+    model = VGG(input_shape=(3, 32, 32), num_classes=10, pretrained=False, device=device)
 
     # Define loss function and optimizer
     criterion = nn.CrossEntropyLoss()
@@ -77,12 +77,15 @@ def train_model(trial):
     return accuracy
 
 def save_study(study, trial):
+    study_dir = "/lustre04/scratch/armenta"
+    if not os.path.exists(study_dir):
+        os.makedirs(study_dir)
     joblib.dump(study, "vgg_hyperparameter_tuning_study.pkl")
 
 
 if __name__ == '__main__':
     # Create a study object and specify the direction
-    storage = JournalStorage(JournalFileBackend('/lustre07/scratch/armenta/vgg_journal.log'))
+    storage = JournalStorage(JournalFileBackend('/lustre04/scratch/armenta/vgg_journal.log'))
     study = optuna.create_study(direction="maximize",
                                 study_name="vgg_journal",
                                 storage=storage,
