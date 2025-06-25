@@ -25,8 +25,7 @@ class VGG(nn.Module):
             pretrained:bool = True, 
             max_pool:bool = True, 
             batch_norm:bool = False, 
-            save:bool = False,
-            device='cpu'
+            save:bool = False
     ) -> None:
         super().__init__()
         self.input_shape = input_shape
@@ -35,7 +34,6 @@ class VGG(nn.Module):
         self.bias = True
         self.batch_norm = batch_norm
         self.save = save
-        self.device = device
 
         # Initialize the model
         if pretrained:
@@ -52,9 +50,11 @@ class VGG(nn.Module):
         #else:
         self.model = vgg11(weights=self.weights, progress=False)
         self.model.eval()
-        self.model.to(self.device)
+        #self.model.to(self.device)
         self.matrix_input_dim = c*w*h + 1
-
+        if num_classes != 1000:
+            in_features = self.model.classifier[-1].in_features
+            self.model.classifier[-1] = nn.Linear(in_features, num_classes, bias=True)
         regular_input = h >= 224
         if regular_input:
             self.transform = transforms.Compose([
@@ -81,7 +81,7 @@ class VGG(nn.Module):
 
         self.conv_layers: list[nn.Module] = []
         self.fc_layers: list[nn.Module] = []
-        
+
         first_conv = True  # Set to False once the first conv layer is added
         fc = 0  # Counter for the number of fully connected layers
         # Used to know when to add the final layer
@@ -148,9 +148,12 @@ class VGG(nn.Module):
                             self.conv_layers.append(layer)
                         else:
                             self.fc_layers.append(layer)
-            
+
             elif isinstance(module, (nn.AvgPool2d, nn.AdaptiveAvgPool2d)):
                 self.conv_layers.append(module)
+
+        self.conv_layers = nn.ModuleList(self.conv_layers)
+        self.fc_layers = nn.ModuleList(self.fc_layers)
 
     def forward(self, x: torch.Tensor, rep:bool=False, return_penultimate:bool=False) -> torch.Tensor:
         """

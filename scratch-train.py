@@ -18,14 +18,14 @@ print("Device: ", device, flush=True)
 
 def train_model(trial):
     # Define hyperparameters to tune
-    batch_size = trial.suggest_categorical("batch_size", [32, 64, 128])
-    learning_rate = trial.suggest_float("learning_rate", 1e-4, 1e-1)
-    epochs = trial.suggest_categorical("epochs", [40, 50, 60])
+    batch_size = trial.suggest_categorical("batch_size", [32, 64, 128, 256])
+    learning_rate = trial.suggest_float("learning_rate", 1e-4, 1.5)
+    epochs = trial.suggest_categorical("epochs", [70, 80, 90])
 
     # Define data transforms
     transform = transforms.Compose([
         transforms.ToTensor(),
-        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
 
     data_dir = os.path.join(os.getcwd(), 'data')
@@ -41,7 +41,7 @@ def train_model(trial):
     #print("Data ready",flush=True)
     #return
     # Initialize VGG model
-    model = VGG(input_shape=(3, 32, 32), num_classes=10, pretrained=False, device=device)
+    model = VGG(input_shape=(3, 32, 32), num_classes=10, pretrained=False).to(device)
 
     # Define loss function and optimizer
     criterion = nn.CrossEntropyLoss()
@@ -49,7 +49,7 @@ def train_model(trial):
 
     # Train the model
     for epoch in range(epochs):
-        print("Epoch: ", epoch)
+        #print("Epoch: ", epoch)
         for i, data in enumerate(trainloader, 0):
             inputs, labels = data
             inputs, labels = inputs.to(device), labels.to(device)
