@@ -35,10 +35,12 @@ class AlexNet(nn.Module):
 
         #self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.model = alexnet(weights=self.weights, progress=False)
-        self.model.eval()
-        self.model.to(self.device)
+        #self.model.eval()
+        #self.model.to(self.device)
         self.matrix_input_dim = c*w*h + 1
-
+        if num_classes != 1000:
+            in_features = self.model.classifier[-1].in_features
+            self.model.classifier[-1] = nn.Linear(in_features, num_classes, bias=True)
         regular_input = h >= 224
         if regular_input:
             self.transform = transforms.Compose([
@@ -139,6 +141,9 @@ class AlexNet(nn.Module):
             
             elif isinstance(module, (nn.AvgPool2d, nn.AdaptiveAvgPool2d)):
                 self.conv_layers.append(module)
+
+        self.conv_layers = nn.ModuleList(self.conv_layers)
+        self.fc_layers = nn.ModuleList(self.fc_layers)
 
     def forward(self, x: torch.Tensor, rep:bool=False, return_penultimate:bool=False) -> torch.Tensor:
         """
