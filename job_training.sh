@@ -17,7 +17,4 @@ source env/bin/activate #load the virtualenv (absolute or relative path to where
 export CUDA_LAUNCH_BLOCKING=1
 export TORCH_USE_CUDA_DSA=1
 
-echo "Checking GPU status..."
-nvidia-smi
-
 python scratch-train.py

@@ -8,7 +8,7 @@ import joblib
 #import certifi
 import os
 #from optuna.storages import JournalStorage, JournalFileBackend
-
+os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 from optuna.storages import JournalStorage
 from optuna.storages.journal import JournalFileBackend
 #os.environ['SSL_CERT_FILE'] = certifi.where()
@@ -36,24 +36,30 @@ def train_model(trial):
     #        )
     #])
 
+    # Define data transforms
+    #transform = transforms.Compose([
+    #    transforms.ToTensor(),
+    #    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    #])
+
     data_dir = os.path.join(os.getcwd(), 'data')
 
     if not os.path.exists(data_dir):
         os.makedirs(data_dir)
-    # Load CIFAR10 dataset
-    # Load CIFAR10 dataset
-    # Define normalization transform
+
+    # cifar10
     #normalize = transforms.Normalize(
     #    mean=[0.4914, 0.4822, 0.4465],
     #    std=[0.2470, 0.2435, 0.2616]
     #)
 
+    # cifar100
     normalize = transforms.Normalize(
         mean=[0.5071, 0.4867, 0.4408],
         std=[0.2675, 0.2565, 0.2761]
     )
 
-    # Define transforms for training and testing
+    # Cifar100
     train_transforms = transforms.Compose([
         transforms.RandomCrop(32, padding=4),
         transforms.RandomHorizontalFlip(),
@@ -71,14 +77,14 @@ def train_model(trial):
     trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=True, pin_memory=True)
 
     testset = datasets.CIFAR100(data_dir, download=False, train=False, transform=test_transforms)
-    testloader = torch.utils.data.DataLoader(testset, batch_size=batch_size, shuffle=False, pin_memory=True)
-    #print("Data ready",flush=True)
-    #return
-    # Initialize VGG model
+    testloader = torch.utils.data.DataLoader(testset, batch_size=batch_size, shuffle=True, pin_memory=True)
+
+    # Initialize model
     model = ResNet(input_shape=(3, 32, 32), num_classes=100, pretrained=False).to(device)
 
     # Define loss function and optimizer
     criterion = nn.CrossEntropyLoss().to(device)
+
     if opt == 'adam':
         optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=wd)
     else:
@@ -117,24 +123,26 @@ def train_model(trial):
     return accuracy
 
 def save_study(study, trial):
+    # /lustre07/ -> narval
+    # /lustre04/ -> beluga
+    # /          -> graham
     study_dir = "/lustre07/scratch/armenta"
     if not os.path.exists(study_dir):
         os.makedirs(study_dir)
     joblib.dump(study, "resnet_cifar100_hyperparameter_tuning_study_01.pkl")
 
-
 if __name__ == '__main__':
     # Create a study object and specify the direction
-    storage = JournalStorage(JournalFileBackend('/lustre07/scratch/armenta/resnet_cifar100_journal_01.log'))
+    storage = JournalStorage(JournalFileBackend('/lustre04/scratch/armenta/vgg_journal_01.log'))
     study = optuna.create_study(direction="maximize",
-                                study_name="resnet_cifar100_journal_01",
+                                study_name="vgg_journal_01",
                                 storage=storage,
                                 load_if_exists=True)
 
-    # Perform hyperparameter tuning using Optuna
-    study.optimize(train_model, n_trials=100,
-                                n_jobs=num_gpus, callbacks=[save_study])
-    #study.optimize(train_model, n_trials=50)
+    study.optimize(train_model,
+                   n_trials=100,
+                   n_jobs=num_gpus,
+                   callbacks=[save_study])
 
     # Print the best hyperparameters and accuracy
     print("Best hyperparameters:", study.best_params)
