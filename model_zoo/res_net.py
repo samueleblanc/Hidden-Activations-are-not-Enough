@@ -36,11 +36,15 @@ class ResNet(nn.Module):
 
         # Initialize the model
         self.weights = ResNet18_Weights.DEFAULT if pretrained else None
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        #self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.model = resnet18(weights=self.weights, progress=False)
         self.model.eval()
-        self.model.to(self.device)
+        #self.model.to(self.device)
         self.matrix_input_dim = c*w*h + 1
+
+        if num_classes != 1000:
+            in_features = self.model.fc.in_features
+            self.model.fc = nn.Linear(in_features, num_classes, bias=True)
 
         regular_input = h >= 224
         if regular_input:
@@ -148,6 +152,9 @@ class ResNet(nn.Module):
             else:
                 self.conv_layers.append(module)
                 cnt += 1
+
+        self.conv_layers = nn.ModuleList(self.conv_layers)
+        self.fc_layers = nn.ModuleList(self.fc_layers)
 
     def forward(self, x: torch.Tensor, rep:bool=False, return_penultimate:bool=False) -> torch.Tensor:
         """

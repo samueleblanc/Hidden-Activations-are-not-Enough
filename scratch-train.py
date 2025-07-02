@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torchvision import datasets, transforms
-from model_zoo.vgg import VGG
+from model_zoo.res_net import ResNet
 import joblib
 #import certifi
 import os
@@ -15,49 +15,89 @@ from optuna.storages.journal import JournalFileBackend
 device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
 device = 'cuda' if torch.cuda.is_available() else device
 print("Device: ", device, flush=True)
+num_gpus = torch.cuda.device_count()
 
 def train_model(trial):
     # Define hyperparameters to tune
-    batch_size = trial.suggest_categorical("batch_size", [32, 64, 128])
-    learning_rate = trial.suggest_float("learning_rate", 1e-4, 1e-1)
-    epochs = trial.suggest_categorical("epochs", [40, 50, 60])
-
+    batch_size = trial.suggest_categorical("batch_size", [32, 64, 128, 256, 512])
+    learning_rate = trial.suggest_float("learning_rate", 1e-4, 0.1)
+    epochs = trial.suggest_categorical("epochs", [90, 100, 150])
+    opt = trial.suggest_categorical("optimizer",['adam','sgd'])
+    mom = trial.suggest_float('momentum',0,0.99)
+    wd = trial.suggest_float('weight_decay',0,0.99)
     # Define data transforms
-    transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
-    ])
+    #transform = transforms.Compose([
+    #    transforms.RandomCrop(32, padding=4),  # Random crop with padding
+    #    transforms.RandomHorizontalFlip(),     # Random horizontal flip (50% chance)
+    #    transforms.ToTensor(),                 # Convert PIL Image to tensor
+    #    transforms.Normalize(
+    #        mean=[0.4914, 0.4822, 0.4465],    # CIFAR-10 dataset-specific mean
+    #        std=[0.2023, 0.1994, 0.2010]      # CIFAR-10 dataset-specific std
+    #        )
+    #])
 
     data_dir = os.path.join(os.getcwd(), 'data')
 
     if not os.path.exists(data_dir):
         os.makedirs(data_dir)
     # Load CIFAR10 dataset
-    trainset = datasets.CIFAR10(data_dir, download=True, train=True, transform=transform)
-    trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=True)
+    # Load CIFAR10 dataset
+    # Define normalization transform
+    #normalize = transforms.Normalize(
+    #    mean=[0.4914, 0.4822, 0.4465],
+    #    std=[0.2470, 0.2435, 0.2616]
+    #)
 
-    testset = datasets.CIFAR10(data_dir, download=True, train=False, transform=transform)
-    testloader = torch.utils.data.DataLoader(testset, batch_size=batch_size, shuffle=False)
+    normalize = transforms.Normalize(
+        mean=[0.5071, 0.4867, 0.4408],
+        std=[0.2675, 0.2565, 0.2761]
+    )
+
+    # Define transforms for training and testing
+    train_transforms = transforms.Compose([
+        transforms.RandomCrop(32, padding=4),
+        transforms.RandomHorizontalFlip(),
+        transforms.RandomRotation(15),
+        transforms.ToTensor(),
+        normalize
+    ])
+
+    test_transforms = transforms.Compose([
+        transforms.ToTensor(),
+        normalize
+    ])
+
+    trainset = datasets.CIFAR100(data_dir, download=False, train=True, transform=train_transforms)
+    trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=True, pin_memory=True)
+
+    testset = datasets.CIFAR100(data_dir, download=False, train=False, transform=test_transforms)
+    testloader = torch.utils.data.DataLoader(testset, batch_size=batch_size, shuffle=False, pin_memory=True)
     #print("Data ready",flush=True)
     #return
     # Initialize VGG model
-    model = VGG(input_shape=(3, 32, 32), num_classes=10, pretrained=False).to(device)
+    model = ResNet(input_shape=(3, 32, 32), num_classes=100, pretrained=False).to(device)
 
     # Define loss function and optimizer
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    criterion = nn.CrossEntropyLoss().to(device)
+    if opt == 'adam':
+        optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=wd)
+    else:
+        optimizer = optim.SGD(model.parameters(), lr=learning_rate, weight_decay=wd, momentum=mom)
 
+
+    model.train()
     # Train the model
     for epoch in range(epochs):
-        print("Epoch: ", epoch)
+        #print("Epoch: ", epoch)
         for i, data in enumerate(trainloader, 0):
             inputs, labels = data
-            inputs, labels = inputs.to(device), labels.to(device)
+            inputs, labels = inputs.to(device, non_blocking=True), labels.to(device, non_blocking=True)
             optimizer.zero_grad()
             outputs = model(inputs)
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
+            torch.cuda.synchronize()
 
     # Evaluate the model on the validation set
     model.eval()
@@ -66,31 +106,34 @@ def train_model(trial):
     with torch.no_grad():
         for data in testloader:
             images, labels = data
-            images, labels = images.to(device), labels.to(device)
+            images, labels = images.to(device, non_blocking=True), labels.to(device, non_blocking=True)
             outputs = model(images)
             _, predicted = torch.max(outputs.data, 1)
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
 
     accuracy = correct / total
-    print("Accuracy: ", accuracy)
+    #print("Accuracy: ", accuracy)
     return accuracy
 
 def save_study(study, trial):
-    joblib.dump(study, "vgg_hyperparameter_tuning_study.pkl")
+    study_dir = "/lustre07/scratch/armenta"
+    if not os.path.exists(study_dir):
+        os.makedirs(study_dir)
+    joblib.dump(study, "resnet_cifar100_hyperparameter_tuning_study_01.pkl")
 
 
 if __name__ == '__main__':
     # Create a study object and specify the direction
-    storage = JournalStorage(JournalFileBackend('/lustre07/scratch/armenta/vgg_journal.log'))
+    storage = JournalStorage(JournalFileBackend('/lustre07/scratch/armenta/resnet_cifar100_journal_01.log'))
     study = optuna.create_study(direction="maximize",
-                                study_name="vgg_journal",
+                                study_name="resnet_cifar100_journal_01",
                                 storage=storage,
                                 load_if_exists=True)
 
     # Perform hyperparameter tuning using Optuna
-    study.optimize(train_model, n_trials=50,
-                                n_jobs=2, callbacks=[save_study])
+    study.optimize(train_model, n_trials=100,
+                                n_jobs=num_gpus, callbacks=[save_study])
     #study.optimize(train_model, n_trials=50)
 
     # Print the best hyperparameters and accuracy
