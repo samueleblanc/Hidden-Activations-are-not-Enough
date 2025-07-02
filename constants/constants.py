@@ -72,6 +72,32 @@ ATTACKS = [
 ]
 
 DEFAULT_EXPERIMENTS = {
+    'resnet_cifar100': { # accuracy: 0.5017
+        'batch_size': 512,
+        'learning_rate': 0.017380615684942945,
+        'epochs': 100,
+        'optimizer': 'sgd',
+        'momentum': 0.10773147737028008,
+        'weight_decay': 0.021924018744206505,
+    },
+    'resnet_cifar10': { # accuracy: 0.8387
+        'batch_size': 64,
+        'learning_rate': 0.027315390782816647,
+        'epochs': 90,
+        'optimizer': 'sgd',
+        'momentum': 0.5229419637778813,
+        'weight_decay': 8.133119487251539e-05,
+    },
+    'alexnet_cifar10': { # accuracy: 0.7988
+        'batch_size': 512,
+        'learning_rate': 0.015137692417364314,
+        'epochs': 100,
+        'optimizer': 'sgd',
+        'momentum': 0.469341294558207,
+        'weight_decay': 0.00124098034087792
+    },
+
+
     'experiment_0': {
         'architecture_index': 0,
         'dataset': 'mnist',
