@@ -73,6 +73,7 @@ ATTACKS = [
 
 DEFAULT_EXPERIMENTS = {
     'resnet_cifar100': { # accuracy: 0.5017
+        'pretrained': False,
         'batch_size': 512,
         'learning_rate': 0.017380615684942945,
         'epochs': 100,
@@ -81,6 +82,7 @@ DEFAULT_EXPERIMENTS = {
         'weight_decay': 0.021924018744206505,
     },
     'resnet_cifar10': { # accuracy: 0.8387
+        'pretrained': False,
         'batch_size': 64,
         'learning_rate': 0.027315390782816647,
         'epochs': 90,
@@ -89,6 +91,7 @@ DEFAULT_EXPERIMENTS = {
         'weight_decay': 8.133119487251539e-05,
     },
     'alexnet_cifar10': { # accuracy: 0.7988
+        'pretrained': False,
         'batch_size': 512,
         'learning_rate': 0.015137692417364314,
         'epochs': 100,
@@ -96,7 +99,27 @@ DEFAULT_EXPERIMENTS = {
         'momentum': 0.469341294558207,
         'weight_decay': 0.00124098034087792
     },
-
+    'alexnet_imagenet': {
+        'pretrained':True
+    },
+    'mlp_mnist':{
+        'layers': (512, 512, 512, 512, 512)
+    },
+    'lenet_mnist':{
+        'input_shape':(3, 224, 224),
+        'num_classes':1000,
+        'channels':(6, 16),
+        'kernel_size':((5, 5), (5, 5)),
+        'padding':((0, 0), (0, 0)),
+        'fc':(120, 84),
+        'bias':True,
+        'residual':[],
+        'batch_norm':False,
+        'dropout':False,
+        'activation':"relu",
+        'pooling':"avg",
+        'save':False,
+    },
 
     'experiment_0': {
         'architecture_index': 0,
