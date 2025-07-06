@@ -5,7 +5,7 @@ from multiprocessing import Pool
 from pathlib import Path
 from typing import Union
 
-from utils.utils import get_model, get_dataset, subset
+from utils.utils import get_model, get_dataset, subset, get_num_classes, get_input_shape
 from constants.constants import DEFAULT_EXPERIMENTS, ATTACKS
 
 
@@ -166,6 +166,7 @@ def generate_adversarial_examples(
         nb_workers: int,
         residual: bool,
         input_shape: tuple[int,int,int],
+        num_classes: int,
         dropout: bool
     ) -> None:
     """
@@ -188,7 +189,6 @@ def generate_adversarial_examples(
 
     exp_dataset_test = exp_dataset_test.detach().clone()
     exp_labels_test = exp_labels_test.detach().clone()
-    num_classes = 10  # TODO: this should not be hardcoded
 
     arguments = [(attack_name,
                   exp_dataset_test,
@@ -240,8 +240,8 @@ def main() -> None:
     if not weights_path.exists():
         raise ValueError(f"Experiment needs to be trained")
 
-    # TODO: Should take input_shape as argument
-    input_shape = (3, 32, 32) if dataset == 'cifar10' or dataset == 'cifar100' else (1, 28, 28)
+    input_shape = get_input_shape(dataset)
+    num_classes = get_num_classes(dataset)
     _, test_set = get_dataset(dataset, data_loader=False, data_path=args.temp_dir)
     test_size = len(test_set) if args.test_size == -1 else args.test_size
     exp_dataset_test, exp_labels_test = subset(test_set, test_size, input_shape=input_shape)
@@ -255,6 +255,7 @@ def main() -> None:
         nb_workers = args.nb_workers,
         residual = residual,
         input_shape = input_shape,
+        num_classes = num_classes,
         dropout = dropout
     )
 

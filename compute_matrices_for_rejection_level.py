@@ -11,7 +11,7 @@ from model_zoo.alex_net import AlexNet
 from model_zoo.res_net import ResNet
 from model_zoo.vgg import VGG
 from constants.constants import DEFAULT_EXPERIMENTS
-from utils.utils import get_model, subset, get_dataset, zip_and_cleanup
+from utils.utils import get_model, subset, get_dataset, zip_and_cleanup, get_num_classes, get_input_shape
 from matrix_construction.matrix_computation import MlpRepresentation, ConvRepresentation_2D
 
 
@@ -65,6 +65,7 @@ def compute_one_matrix(args: tuple) -> None:
         architecture_index, 
         residual, 
         input_shape, 
+        num_classes,
         default_index, 
         dropout, 
         i, 
@@ -76,7 +77,7 @@ def compute_one_matrix(args: tuple) -> None:
         architecture_index = architecture_index,
         residual = residual,
         input_shape = input_shape,
-        num_classes = 10,
+        num_classes = num_classes,
         dropout = dropout
     )
     if isinstance(model, MLP):
@@ -116,6 +117,7 @@ def compute_matrices_for_rejection_level(
         architecture_index: int,
         residual: bool,
         input_shape: tuple[int,int,int],
+        num_classes: int,
         dropout: bool,
         nb_workers: int = 8,
         temp_dir:Union[str, None] = None
@@ -143,11 +145,13 @@ def compute_matrices_for_rejection_level(
                  architecture_index,
                  residual,
                  input_shape,
+                 num_classes,
                  default_index,
                  dropout,
                  i,
                  temp_dir) for i in range(len(exp_dataset_train))]
         pool.map(compute_one_matrix, args)
+
 
 def main() -> None:
     """
@@ -181,7 +185,8 @@ def main() -> None:
     if not weights_path.exists():
         raise ValueError(f"Experiment needs to be trained")
 
-    input_shape = (3, 32, 32) if dataset == 'cifar10' or dataset == 'cifar100' else (1, 28, 28)
+    input_shape = get_input_shape(dataset)
+    num_classes = get_num_classes(dataset)
     train_set, _ = get_dataset(
         data_set = dataset,
         data_loader = False
@@ -206,6 +211,7 @@ def main() -> None:
         architecture_index = architecture_index,
         residual = residual,
         input_shape = input_shape,
+        num_classes = num_classes,
         dropout = dropout,
         nb_workers = args.nb_workers,
         temp_dir = args.temp_dir
