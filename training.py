@@ -14,7 +14,7 @@ from model_zoo.mlp import MLP
 from model_zoo.res_net import ResNet
 from model_zoo.vgg import VGG
 from constants.constants import DEFAULT_EXPERIMENTS
-from utils.utils import get_architecture, get_dataset, get_device
+from utils.utils import get_architecture, get_dataset, get_device, get_input_shape
 
 
 def parse_args() -> Namespace:
@@ -180,13 +180,14 @@ def main() -> None:
         data_loader = True,
         data_path = args.temp_dir
     )
-    input_shape = (3, 32, 32) if dataset == 'cifar10' or dataset == 'cifar100' else (1, 28, 28)
+
     model = get_architecture(
         architecture_index = architecture_index,
         residual = residual,
-        input_shape = input_shape,
+        input_shape = get_input_shape(dataset),
         dropout = dropout
     ).to(device)
+
     criterion = nn.CrossEntropyLoss()
     if optimizer_name == "sgd":
         optimizer = optim.SGD(
