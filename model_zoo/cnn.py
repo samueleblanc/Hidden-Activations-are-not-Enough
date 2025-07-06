@@ -32,6 +32,7 @@ class CNN_2D(nn.Module):
         padding:tuple[(int,int)] = ((1,1),(1,1)),
         fc:tuple[int] = (500), 
         kernel_size:tuple[(int,int)] = ((3, 3),(3, 3)), 
+        kernel_pooling:tuple[(int,int)] = (4,4),
         bias:bool = False, 
         residual:list[(int,int)] = [],
         batch_norm:bool = False,
@@ -103,13 +104,12 @@ class CNN_2D(nn.Module):
         if self.dropout: self.conv_layers.append(nn.Dropout(0.25))
         self.conv_layers.append(self.get_activation_fn())
 
-        ker_size = 4
-        stride = ker_size
+        stride = kernel_pooling
         pad = 0
         if pooling == "avg":
             self.conv_layers.append(
                 nn.AvgPool2d(
-                    kernel_size = ker_size, 
+                    kernel_size = kernel_pooling, 
                     padding = pad, 
                     ceil_mode = False
                 )
@@ -117,8 +117,8 @@ class CNN_2D(nn.Module):
             self.fc_layers.append(
                 nn.Linear(
                     in_features = shape_per_layer[-1][0] *
-                                  self.round_up((shape_per_layer[-1][1]+2*pad-ker_size)/stride + 1) * 
-                                  self.round_up((shape_per_layer[-1][2]+2*pad-ker_size)/stride + 1),
+                                  self.round_up((shape_per_layer[-1][1]+2*pad-kernel_pooling[0])/stride[0] + 1) * 
+                                  self.round_up((shape_per_layer[-1][2]+2*pad-kernel_pooling[1])/stride[1] + 1),
                     # This is for no average pooling after the last convolution
                     #in_features=channels[-1] * h * w,
                     out_features = fc[0] if isinstance(fc, tuple) else fc,
@@ -128,7 +128,7 @@ class CNN_2D(nn.Module):
         elif pooling == "max":
             self.conv_layers.append(
                 nn.MaxPool2d(
-                    kernel_size = ker_size, 
+                    kernel_size = kernel_pooling, 
                     padding = pad, 
                     stride = stride, 
                     return_indices = True
@@ -137,8 +137,8 @@ class CNN_2D(nn.Module):
             self.fc_layers.append(
                 nn.Linear(
                     in_features = shape_per_layer[-1][0] * 
-                                  self.round_up((shape_per_layer[-1][1] + 2*pad - ker_size)/stride + 1) * 
-                                  self.round_up((shape_per_layer[-1][2] + 2*pad - ker_size)/stride + 1),
+                                  self.round_up((shape_per_layer[-1][1] + 2*pad - kernel_pooling[0])/stride[0] + 1) * 
+                                  self.round_up((shape_per_layer[-1][2] + 2*pad - kernel_pooling[1])/stride[1] + 1),
                     # This is for no average pooling after the last convolution
                     #in_features=channels[-1] * h * w,
                     out_features = fc[0] if isinstance(fc, tuple) else fc,
