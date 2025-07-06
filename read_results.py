@@ -172,6 +172,18 @@ def main() -> None:
     print("Top 10 values for highest absolute difference in baseline methods:")
     print(top_10_abs_diff)
 
+    # Read results of baseline methods for matrices
+    if args.temp_dir is None:
+        path_output = Path(f'experiments/{args.default_index}/grid_search/grid_search_{args.default_index}_baseline_matrices.txt')
+    else:
+        path_output = Path(f'{args.temp_dir}/experiments/{args.default_index}/grid_search/grid_search_{args.default_index}_baseline_matrices.txt')
+
+    df = pd.read_csv(path_output)
+
+    top_10_abs_diff = get_top_10_abs_difference(df, args.default_index, baseline=True)
+    print("Top 10 values for highest absolute difference in baseline methods for matrices:")
+    print(top_10_abs_diff)
+
 
 if __name__ == "__main__":
     main()
