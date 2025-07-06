@@ -1,10 +1,12 @@
 import os
 import torch
 import json
+import random
 import torchvision
 from torchvision import transforms
 import shutil
 from typing import Union
+from mnist1d.data import make_dataset, get_dataset_args
 
 from model_zoo.mlp import MLP
 from model_zoo.cnn import CNN_2D
@@ -110,6 +112,40 @@ def get_model(
             )
     model.load_state_dict(weight_path)
     return model
+
+
+def get_input_shape(
+        data_set: str
+    ) -> tuple[int]:
+    """
+        Args:
+            data_set: The dataset to use.
+        Returns:
+            The input shape.
+    """
+    if data_set == 'mnist' or data_set == 'fashion':
+        return (1, 28, 28)
+    elif data_set == 'mnist1d':
+        return (1, 1, 40)
+    elif data_set == 'cifar10' or data_set == 'cifar100':
+        return (3, 32, 32)
+    else:
+        raise ValueError("Unsupported dataset.")
+
+
+def get_num_classes(
+        data_set: str
+    ) -> int:
+    """
+        Args:
+            data_set: The dataset to use.
+        Returns:
+            The number of classes.
+    """
+    if data_set == 'cifar100':
+        return 100
+    else:
+        return 10
 
 
 def get_dataset(
@@ -227,6 +263,13 @@ def get_dataset(
             transform = preprocess, 
             download = True
         )
+    elif data_set == "mnist1d":
+        defaults = get_dataset_args()
+        data = make_dataset(defaults)
+        train_set = torch.from_numpy(data['x']).reshape(-1, 1, 1, 40).float()
+        test_set = torch.from_numpy(data['x_test']).reshape(-1, 1, 1, 40).float()
+        train_set = list(zip(train_set, torch.from_numpy(data['y'])))
+        test_set = list(zip(test_set, torch.from_numpy(data['y_test'])))
     else:
         print(f"Dataset {data_set} not supported...")
         exit(1)
@@ -386,6 +429,9 @@ def subset(
         input_shape: tuple[int] = (1, 28, 28)
     ) -> tuple[torch.Tensor]:
     """
+        Make a random subset of the training set of the given length. 
+        If the length is greater or equal to the length of the training set, 
+        this function will shuffle the training set.
         Args:
             train_set: the training set (MNIST, CIFAR-10, etc.).
             length: the length of the subset.
@@ -393,12 +439,14 @@ def subset(
         Returns:
             A random subset of the training set of the given length.
     """
-    idx = torch.randint(low=0, high=len(train_set), size=[length], generator=torch.Generator("cpu"))
+    if length > len(train_set):
+        length = len(train_set)
+    idx = random.sample(range(len(train_set)), length)
     exp_dataset = torch.zeros([length, input_shape[0], input_shape[1], input_shape[2]])
     exp_labels = torch.zeros([length], dtype=torch.long)
     for i, j in enumerate(idx):
         exp_dataset[i] = train_set[j][0]
-        exp_labels[i] = train_set.targets[j]
+        exp_labels[i] = train_set[j][1]
     return exp_dataset, exp_labels
 
 
