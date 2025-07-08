@@ -77,21 +77,21 @@ DEFAULT_EXPERIMENTS = {
         'dataset': 'cifar100',
         'batch_size': 512,
         'lr': 0.017380615684942945,
-        'epochs': 100,
+        'epochs': 150,
         'optimizer': 'sgd',
         'momentum': 0.10773147737028008,
         'weight_decay': 0.021924018744206505,
     },
     'resnet_cifar10': {# accuracy: 0.8178
+        'pretrained': False,
         'dataset': 'cifar10',
         'batch_size': 32,
         'lr': 0.009230996304925737,
         'epochs': 150,
         'optimizer': 'sgd',
         'momentum': 0.8231700796140718,
-        'weight_decay': 0.0007273616737214423
+        'weight_decay': 0.0007273616737214423,
     },
-
     'alexnet_cifar10': {# accuracy: 0.7646
         'batch_size': 256,
         'lr': 0.03058559341951366,
@@ -101,28 +101,15 @@ DEFAULT_EXPERIMENTS = {
         'weight_decay': 0.0010466427910952487,
         'dataset': 'cifar10',
     },
-
     'alexnet_imagenet': {
         'pretrained': True,
         'dataset': 'imagenet',
     },
     'mlp_mnist': { # accuracy 0.98
-        '''
-        model = MLP(
-                input_shape=(1, 28, 28),
-                num_classes=10,
-                hidden_sizes=(512, 512, 512),
-                activation="relu",
-                bias=False,
-                dropout=0,
-                residual=False,
-                save=False,
-                batch_norm=False
-                )
-        '''
         'pretrained': False,
         'dataset': 'mnist',
-        'layers': (512, 512, 512, 512, 512),
+        'epochs': 5,
+        'layers': (512, 512, 512),
         'batch_size': 32,
         'lr': 0.06941109118141582,
         'optimizer': 'sgd',
@@ -130,6 +117,7 @@ DEFAULT_EXPERIMENTS = {
         'weight_decay': 6.914150600886057e-05,
     },
     'vgg_cifar100': {# accuracy: 0.5478
+        'epochs': 120,
         'dataset': 'cifar100',
         'batch_size': 64,
         'lr': 0.05296389074830272,

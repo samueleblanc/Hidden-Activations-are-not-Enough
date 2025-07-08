@@ -176,11 +176,12 @@ def main() -> None:
     else:
         raise ValueError("Unsupported optimizer. Add it manually at line 221 on training.py")
 
-    #scheduler = StepLR(
-    #    optimizer = optimizer,
-    #    step_size = reduce_lr_each,
-    #    gamma = 0.1
-    #)
+    step_size = epochs-10 if epochs-10>0 else 10
+    scheduler = StepLR(
+        optimizer = optimizer,
+        step_size = step_size,
+        gamma = 0.1
+    )
 
     start_epoch = 0
     if args.from_checkpoint:
@@ -228,7 +229,7 @@ def main() -> None:
         print(f"Epoch {epoch}/{epochs}, Train Loss: {train_loss:.4f}, Test Loss: {test_loss:.4f}, "
               f"Train Accuracy: {train_accuracy:.4f}, Test Accuracy: {test_accuracy:.4f}", flush=True)
 
-        #scheduler.step()
+        scheduler.step()
 
         #if epoch % save_every_epochs == 0 or epoch == epochs - 1:
         #    os.makedirs(f'experiments/{args.default_index}/weights/', exist_ok=True)

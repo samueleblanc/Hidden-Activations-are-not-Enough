@@ -17,17 +17,18 @@ class ResNet(nn.Module):
         max_pool (bool): Whether to use max pooling.
         save (bool): Whether to save activations and preactivations.
     """
+
     def __init__(
-            self, 
-            input_shape:tuple[int,int,int], 
-            num_classes:int, 
-            pretrained:bool = True, 
-            max_pool:bool = True, 
-            save:bool = False
+            self,
+            input_shape,
+            num_classes: int,
+            pretrained: bool = True,
+            max_pool: bool = True,
+            save: bool = False
     ) -> None:
         super().__init__()
         self.input_shape = input_shape
-        c,h,w = input_shape
+        c, h, w = input_shape
         self.num_classes = num_classes
         # Dictionary to store the residual connections {start_index: (end_index, downsample_layers)}
         self.residual = {}
@@ -36,11 +37,11 @@ class ResNet(nn.Module):
 
         # Initialize the model
         self.weights = ResNet18_Weights.DEFAULT if pretrained else None
-        #self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        # self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.model = resnet18(weights=self.weights, progress=False)
         self.model.eval()
-        #self.model.to(self.device)
-        self.matrix_input_dim = c*w*h + 1
+        # self.model.to(self.device)
+        self.matrix_input_dim = c * w * h + 1
 
         if num_classes != 1000:
             in_features = self.model.fc.in_features
@@ -53,16 +54,16 @@ class ResNet(nn.Module):
                 transforms.CenterCrop(224),
                 transforms.ToTensor(),
                 transforms.Normalize(
-                    mean = [0.485, 0.456, 0.406], 
-                    std = [0.229, 0.224, 0.225]
+                    mean=[0.485, 0.456, 0.406],
+                    std=[0.229, 0.224, 0.225]
                 )
             ])
         else:
             self.transform = transforms.Compose([
                 transforms.ToTensor(),
                 transforms.Normalize(
-                    mean = [0.485, 0.456, 0.406], 
-                    std = [0.229, 0.224, 0.225]
+                    mean=[0.485, 0.456, 0.406],
+                    std=[0.229, 0.224, 0.225]
                 )
             ])
 
@@ -70,13 +71,13 @@ class ResNet(nn.Module):
             for param in self.model.parameters():
                 param.requires_grad = False
 
-        self.conv_layers: list[nn.Module] = []
-        self.fc_layers: list[nn.Module] = []
-        
+        self.conv_layers = []
+        self.fc_layers = []
+
         cnt = 0  # Counter for the number of layers
         # Used to identify the start and end of the residual connections
         first_conv = True  # Set to False once the first conv layer is added
-        
+
         # Iterate through the model layers and add them to the conv_layers and fc_layers lists
         for module in self.model.children():
             if isinstance(module, nn.MaxPool2d):
@@ -84,20 +85,20 @@ class ResNet(nn.Module):
                     if regular_input:
                         self.conv_layers.append(
                             nn.MaxPool2d(
-                                kernel_size = module.kernel_size, 
-                                padding = module.padding, 
-                                stride = module.stride, 
-                                return_indices = True
+                                kernel_size=module.kernel_size,
+                                padding=module.padding,
+                                stride=module.stride,
+                                return_indices=True
                             )
                         )
                         cnt += 1
                     else:
                         self.conv_layers.append(
                             nn.MaxPool2d(
-                                kernel_size = 2, 
-                                padding = 0, 
-                                stride = 2, 
-                                return_indices = True
+                                kernel_size=2,
+                                padding=0,
+                                stride=2,
+                                return_indices=True
                             )
                         )
                         cnt += 1
@@ -105,9 +106,9 @@ class ResNet(nn.Module):
                 for basic_block in module:
                     start = cnt
                     downsample_layers = []
-                    for layer in basic_block.children():    
+                    for layer in basic_block.children():
                         if isinstance(layer, nn.Sequential):
-                            # Downsample layers are stored in a list 
+                            # Downsample layers are stored in a list
                             # and added to the self.residual dictionary
                             for ds_layer in layer.children():
                                 downsample_layers.append(ds_layer)
@@ -124,9 +125,9 @@ class ResNet(nn.Module):
                 if num_classes != 1000:  # Can't use original module if that's the case
                     self.fc_layers.append(
                         nn.Linear(
-                            in_features = module.in_features, 
-                            out_features = num_classes, 
-                            bias = True
+                            in_features=module.in_features,
+                            out_features=num_classes,
+                            bias=True
                         )
                     )
                 else:
@@ -139,12 +140,12 @@ class ResNet(nn.Module):
                     else:
                         self.conv_layers.append(
                             nn.Conv2d(
-                                in_channels = c, 
-                                out_channels = 64, 
-                                kernel_size = 3, 
-                                stride = 1, 
-                                padding = 1,
-                                bias = False
+                                in_channels=c,
+                                out_channels=64,
+                                kernel_size=3,
+                                stride=1,
+                                padding=1,
+                                bias=False
                             )
                         )
                     first_conv = False
@@ -156,7 +157,7 @@ class ResNet(nn.Module):
         self.conv_layers = nn.ModuleList(self.conv_layers)
         self.fc_layers = nn.ModuleList(self.fc_layers)
 
-    def forward(self, x: torch.Tensor, rep:bool=False, return_penultimate:bool=False) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, rep: bool = False, return_penultimate: bool = False) -> torch.Tensor:
         """
         Forward pass through the model.
 
@@ -199,8 +200,8 @@ class ResNet(nn.Module):
 
         # Forward pass for matrix computation
         # Save activations and preactivations
-        self.pre_acts: list[torch.Tensor] = []
-        self.acts: list[torch.Tensor] = []
+        self.pre_acts = []
+        self.acts = []
         cnt = 0
         x_res = {}
 
@@ -270,7 +271,7 @@ class ResNet(nn.Module):
                 if self.save:
                     self.acts.append(x.detach().clone())
         return x
-    
+
     def get_activation_fn(self) -> nn.ReLU:
         """
         Returns the activation function used in the model.
