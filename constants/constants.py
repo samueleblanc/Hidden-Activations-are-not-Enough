@@ -74,6 +74,7 @@ ATTACKS = [
 DEFAULT_EXPERIMENTS = {
     'resnet_cifar100': { # accuracy: 0.5017
         'pretrained': False,
+        'dataset': 'cifar100',
         'batch_size': 512,
         'lr': 0.017380615684942945,
         'epochs': 100,
@@ -82,6 +83,7 @@ DEFAULT_EXPERIMENTS = {
         'weight_decay': 0.021924018744206505,
     },
     'resnet_cifar10': {# accuracy: 0.8178
+        'dataset': 'cifar10',
         'batch_size': 32,
         'learning_rate': 0.009230996304925737,
         'epochs': 150,
@@ -128,6 +130,7 @@ DEFAULT_EXPERIMENTS = {
         'weight_decay': 6.914150600886057e-05,
     },
     'vgg_cifar100': {# accuracy: 0.5478
+        'dataset': 'cifar100',
         'batch_size': 64,
         'learning_rate': 0.05296389074830272,
         'optimizer': 'sgd',
