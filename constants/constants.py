@@ -85,7 +85,7 @@ DEFAULT_EXPERIMENTS = {
     'resnet_cifar10': {# accuracy: 0.8178
         'dataset': 'cifar10',
         'batch_size': 32,
-        'learning_rate': 0.009230996304925737,
+        'lr': 0.009230996304925737,
         'epochs': 150,
         'optimizer': 'sgd',
         'momentum': 0.8231700796140718,
@@ -132,7 +132,7 @@ DEFAULT_EXPERIMENTS = {
     'vgg_cifar100': {# accuracy: 0.5478
         'dataset': 'cifar100',
         'batch_size': 64,
-        'learning_rate': 0.05296389074830272,
+        'lr': 0.05296389074830272,
         'optimizer': 'sgd',
         'momentum': 0.31219518385411765,
         'weight_decay': 0.002428263299304838},
