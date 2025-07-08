@@ -75,51 +75,65 @@ DEFAULT_EXPERIMENTS = {
     'resnet_cifar100': { # accuracy: 0.5017
         'pretrained': False,
         'batch_size': 512,
-        'learning_rate': 0.017380615684942945,
+        'lr': 0.017380615684942945,
         'epochs': 100,
         'optimizer': 'sgd',
         'momentum': 0.10773147737028008,
         'weight_decay': 0.021924018744206505,
     },
-    'resnet_cifar10': { # accuracy: 0.8387
-        'pretrained': False,
-        'batch_size': 64,
-        'learning_rate': 0.027315390782816647,
-        'epochs': 90,
+    'resnet_cifar10': {# accuracy: 0.8178
+        'batch_size': 32,
+        'learning_rate': 0.009230996304925737,
+        'epochs': 150,
         'optimizer': 'sgd',
-        'momentum': 0.5229419637778813,
-        'weight_decay': 8.133119487251539e-05,
+        'momentum': 0.8231700796140718,
+        'weight_decay': 0.0007273616737214423
     },
-    'alexnet_cifar10': { # accuracy: 0.7988
-        'pretrained': False,
-        'batch_size': 512,
-        'learning_rate': 0.015137692417364314,
+
+    'alexnet_cifar10': {# accuracy: 0.7646
+        'batch_size': 256,
+        'lr': 0.03058559341951366,
         'epochs': 100,
         'optimizer': 'sgd',
-        'momentum': 0.469341294558207,
-        'weight_decay': 0.00124098034087792
+        'momentum': 0.9603418928294722,
+        'weight_decay': 0.0010466427910952487,
+        'dataset': 'cifar10',
     },
+
     'alexnet_imagenet': {
-        'pretrained':True
+        'pretrained': True,
+        'dataset': 'imagenet',
     },
-    'mlp_mnist':{
-        'layers': (512, 512, 512, 512, 512)
+    'mlp_mnist': { # accuracy 0.98
+        '''
+        model = MLP(
+                input_shape=(1, 28, 28),
+                num_classes=10,
+                hidden_sizes=(512, 512, 512),
+                activation="relu",
+                bias=False,
+                dropout=0,
+                residual=False,
+                save=False,
+                batch_norm=False
+                )
+        '''
+        'pretrained': False,
+        'dataset': 'mnist',
+        'layers': (512, 512, 512, 512, 512),
+        'batch_size': 32,
+        'lr': 0.06941109118141582,
+        'optimizer': 'sgd',
+        'momentum': 0.6215073814724885,
+        'weight_decay': 6.914150600886057e-05,
     },
-    'lenet_mnist':{
-        'input_shape':(3, 224, 224),
-        'num_classes':1000,
-        'channels':(6, 16),
-        'kernel_size':((5, 5), (5, 5)),
-        'padding':((0, 0), (0, 0)),
-        'fc':(120, 84),
-        'bias':True,
-        'residual':[],
-        'batch_norm':False,
-        'dropout':False,
-        'activation':"relu",
-        'pooling':"avg",
-        'save':False,
-    },
+    'vgg_cifar100': {# accuracy: 0.5478
+        'batch_size': 64,
+        'learning_rate': 0.05296389074830272,
+        'optimizer': 'sgd',
+        'momentum': 0.31219518385411765,
+        'weight_decay': 0.002428263299304838},
+
 
     'experiment_0': {
         'architecture_index': 0,

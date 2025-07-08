@@ -18,7 +18,7 @@ class AlexNet(nn.Module):
     """
     def __init__(
             self, 
-            input_shape: tuple[int,int,int], 
+            input_shape,
             num_classes: int, 
             pretrained:bool = True, 
             max_pool:bool = True, 
@@ -65,8 +65,8 @@ class AlexNet(nn.Module):
             for param in self.model.parameters():
                 param.requires_grad = False
 
-        self.conv_layers: list[nn.Module] = []
-        self.fc_layers: list[nn.Module] = []
+        self.conv_layers = []
+        self.fc_layers = []
         
         # Iterate through model layers and build conv_layers and fc_layers lists
         # Handles MaxPool2d, Linear, Dropout, Conv2d and other layer types
@@ -98,14 +98,23 @@ class AlexNet(nn.Module):
                                 )
 
                     elif isinstance(layer, nn.Linear):
-                        if fc == 4 and num_classes != 1000:
-                            self.fc_layers.append(
-                                nn.Linear(
-                                    in_features = layer.in_features, 
-                                    out_features = num_classes, 
-                                    bias = True
+                        if num_classes != 1000:
+                            if layer.out_features != num_classes:
+                                self.fc_layers.append(
+                                    nn.Linear(
+                                        in_features = layer.in_features,
+                                        out_features = layer.out_features,
+                                        bias = True
+                                    )
                                 )
-                            )
+                            else:
+                                self.fc_layers.append(
+                                    nn.Linear(
+                                        in_features=layer.in_features,
+                                        out_features=num_classes,
+                                        bias=True
+                                    )
+                                )
                         else:
                             self.fc_layers.append(layer)
                         fc += 1
@@ -159,6 +168,7 @@ class AlexNet(nn.Module):
         if not rep:
             # Regular forward pass
             if len(x.shape) == 3: x = x.unsqueeze(0)
+
             for layer in self.conv_layers:
                 if isinstance(layer, nn.MaxPool2d):
                     x, _ = layer(x)
@@ -168,8 +178,10 @@ class AlexNet(nn.Module):
                 x = x.view(x.size(0), -1)
             else:
                 x = torch.flatten(x)
+
             for layer in self.fc_layers[:-1]:
                 x = layer(x)
+
             if return_penultimate: 
                 return x
             x = self.fc_layers[-1](x)
@@ -177,8 +189,8 @@ class AlexNet(nn.Module):
 
         # Forward pass for matrix computation
         # Save activations and preactivations
-        self.pre_acts: list[torch.Tensor] = []
-        self.acts: list[torch.Tensor] = []
+        self.pre_acts = []
+        self.acts = []
 
         x = x.unsqueeze(0)
         x = self.conv_layers[0](x)  # Conv

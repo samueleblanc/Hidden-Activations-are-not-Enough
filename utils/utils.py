@@ -31,7 +31,7 @@ def get_device() -> torch.device:
 
 
 def get_architecture(
-        input_shape:tuple[int] = (1, 28, 28),
+        input_shape = (1, 28, 28),
         num_classes:int = 10,
         architecture_index:int = 0,
         residual:bool = False,
@@ -85,7 +85,7 @@ def get_model(
         path: str, 
         architecture_index: int, 
         residual: bool, 
-        input_shape: tuple[int], 
+        input_shape,
         num_classes: int, 
         dropout: bool
     ) -> Union[MLP, CNN_2D, ResNet, AlexNet, VGG]:
@@ -164,6 +164,10 @@ def get_dataset(
         )
     elif data_set == 'cifar10':
         # Use data augmentation for CIFAR-10
+        normalize = transforms.Normalize(
+            mean=[0.4914, 0.4822, 0.4465],
+            std=[0.2470, 0.2435, 0.2616]
+        )
         transform_train = transforms.Compose([
             transforms.Resize((32,32)),
             transforms.RandomHorizontalFlip(),
@@ -171,7 +175,7 @@ def get_dataset(
             transforms.RandomAffine(0, shear=6, scale=(0.9,1.1)),
             transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1),
             transforms.ToTensor(),
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+            normalize
         ])
         train_set = torchvision.datasets.CIFAR10(
             root = data_path, 
@@ -179,14 +183,22 @@ def get_dataset(
             transform = transform_train, 
             download = True
         )
+        test_transforms = transforms.Compose([
+            transforms.ToTensor(),
+            normalize
+        ])
         test_set = torchvision.datasets.CIFAR10(
             root = data_path, 
             train = False, 
-            transform = transform, 
+            transform = test_transforms,
             download = True
         )
     elif data_set == 'cifar100':
         # Use data augmentation for CIFAR-100
+        normalize = transforms.Normalize(
+            mean=[0.5071, 0.4867, 0.4408],
+            std=[0.2675, 0.2565, 0.2761]
+        )
         transform_train = transforms.Compose([
             transforms.Resize((32,32)),
             transforms.RandomHorizontalFlip(),
@@ -194,7 +206,7 @@ def get_dataset(
             transforms.RandomAffine(0, shear=6, scale=(0.9,1.1)),
             transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1),
             transforms.ToTensor(),
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+            normalize
         ])
         train_set = torchvision.datasets.CIFAR100(
             root = data_path, 
@@ -247,7 +259,7 @@ def get_dataset(
         return train_set, test_set
 
 
-def find_matrices(base_dir: str) -> dict[int, list[str]]:
+def find_matrices(base_dir: str):
     """
         Finds the matrices for the given base directory.
 
@@ -272,8 +284,8 @@ def find_matrices(base_dir: str) -> dict[int, list[str]]:
 
 
 def compute_statistics(
-        matrix_paths: dict[int, list[str]]
-    ) -> dict[int, dict[str, torch.Tensor]]:
+        matrix_paths
+    ):
     """
         Computes the statistics for the given matrix paths.
 
@@ -383,8 +395,8 @@ def zero_std(
 def subset(
         train_set, 
         length: int, 
-        input_shape: tuple[int] = (1, 28, 28)
-    ) -> tuple[torch.Tensor]:
+        input_shape = (1, 28, 28)
+    ):
     """
         Args:
             train_set: the training set (MNIST, CIFAR-10, etc.).
