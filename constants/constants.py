@@ -100,6 +100,7 @@ DEFAULT_EXPERIMENTS = {
         'momentum': 0.9603418928294722,
         'weight_decay': 0.0010466427910952487,
         'dataset': 'cifar10',
+        'architecture_index':-3,
     },
     'alexnet_imagenet': {
         'pretrained': True,
