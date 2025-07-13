@@ -4,7 +4,6 @@
 import os
 import torch
 from argparse import ArgumentParser, Namespace
-from multiprocessing import Pool
 
 from matrix_construction.parallel import ParallelMatrixConstruction
 from constants.constants import DEFAULT_EXPERIMENTS
@@ -44,9 +43,9 @@ def main() -> None:
         weights_path = f'experiments/{experiment}/weights/'
 
     if not os.path.exists(weights_path):
-        ValueError(f"Model needs to be trained first")
+        raise ValueError(f"Model needs to be trained first")
 
-    save_path = f'experiments/{experiment}/matrices'
+    save_path = f'{args.temp_dir}/experiments/{experiment}/matrices'
 
     dict_exp = {
         "epochs": epochs,
@@ -66,6 +65,12 @@ def main() -> None:
 
     mat_constructer = ParallelMatrixConstruction(dict_exp)
     mat_constructer.values_on_epoch(chunk_id=chunk_id)
+
+    done_file = os.path.join(save_path, f"done_chunk_{args.chunk_id}.txt")
+    with open(done_file, 'w') as f:
+        f.write("done")
+
+    print(f"Chunk {args.chunk_id} completed and saved to {save_path}")
     print(f"Chunk {chunk_id} completed!", flush=True)
 
 

@@ -31,8 +31,6 @@ class ParallelMatrixConstruction:
             - chunk_size: Size of parallel processing chunks
             - save_path: Where to save computed matrices
             - architecture_index: Index of model architecture
-            - residual: Whether to use residual connections
-            - dropout: Whether to have dropout layers
     """
     def __init__(self, dict_exp: dict) -> None:
         self.epoch: int = dict_exp["epochs"]
@@ -42,8 +40,6 @@ class ParallelMatrixConstruction:
         self.chunk_size: int = dict_exp['chunk_size']
         self.save_path: str = dict_exp['save_path']
         self.architecture_index: int = dict_exp['architecture_index']
-        self.residual: bool = dict_exp['residual']
-        self.dropout: bool = dict_exp['dropout']
         self.device = 'cuda'
 
         self.num_classes: int = 10  # TODO: This should not be fixed
@@ -97,9 +93,7 @@ class ParallelMatrixConstruction:
         input_shape = (3, 32, 32) if self.dataname == 'cifar10' or self.dataname == 'cifar100' else (1, 28, 28)
         model = get_architecture(
                     architecture_index = self.architecture_index,
-                    residual = self.residual,
                     input_shape = input_shape,
-                    dropout = self.dropout
                 )
         model.to(self.device)
         model.load_state_dict(state_dict)
