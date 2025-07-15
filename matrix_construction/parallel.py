@@ -13,7 +13,7 @@ from model_zoo.alex_net import AlexNet
 from model_zoo.res_net import ResNet
 from model_zoo.vgg import VGG
 from matrix_construction.matrix_computation import MlpRepresentation, ConvRepresentation_2D
-from utils.utils import get_architecture, get_dataset
+from utils.utils import get_architecture, get_dataset, get_num_classes, get_input_shape
 
 
 class ParallelMatrixConstruction:
@@ -41,9 +41,9 @@ class ParallelMatrixConstruction:
         self.save_path: str = dict_exp['save_path']
         self.architecture_index: int = dict_exp['architecture_index']
         self.device = 'cuda'
+        self.batch_size = dict_exp['batch_size']
+        self.num_classes: int = get_num_classes(self.dataname)
 
-        self.num_classes: int = 10  # TODO: This should not be fixed
-        self.batch_size = dict_exp['batch_size']  # TODO: This should not be fixed
         self.data = get_dataset(self.dataname, data_loader=False)[0]
 
     def compute_matrices_on_dataset(
@@ -62,14 +62,17 @@ class ParallelMatrixConstruction:
             raise ValueError(f"Architecture not supported: {model}. Expects MLP, CNN_2D, AlexNet, ResNet, or VGG.")
 
         for i in range(self.num_classes):
-            train_indices = [idx for idx, target in enumerate(self.data.targets) if target in [i]]
-            sub_train_dataloader = DataLoader(
-                                        Subset(self.data, train_indices),
-                                        batch_size=int(self.num_samples),
-                                        drop_last=True
-                                    )
+            if self.dataname == 'mnist1d':
+                x_train = [self.data[idx][0] for idx, (_, target) in enumerate(self.data) if target in [i]]
+            else:
+                train_indices = [idx for idx, target in enumerate(self.data.targets) if target in [i]]
+                sub_train_dataloader = DataLoader(
+                                            Subset(self.data, train_indices),
+                                            batch_size=int(self.num_samples),
+                                            drop_last=True
+                                        )
 
-            x_train = next(iter(sub_train_dataloader))[0] # 0 for input and 1 for label
+                x_train = next(iter(sub_train_dataloader))[0] # 0 for input and 1 for label
 
             self.compute_chunk_of_matrices(
                 data = x_train,
@@ -89,11 +92,12 @@ class ParallelMatrixConstruction:
         model_path = os.path.join(new_path, model_file)
         state_dict = torch.load(model_path, map_location=self.device)
 
-        # TODO: input_shape should be more general than that.
-        input_shape = (3, 32, 32) if self.dataname == 'cifar10' or self.dataname == 'cifar100' else (1, 28, 28)
         model = get_architecture(
+                    input_shape = get_input_shape(self.dataname),
+                    num_classes = self.num_classes,
                     architecture_index = self.architecture_index,
-                    input_shape = input_shape,
+                    residual = self.residual,
+                    dropout = self.dropout
                 )
         model.to(self.device)
         model.load_state_dict(state_dict)

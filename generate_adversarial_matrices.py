@@ -10,9 +10,8 @@ from model_zoo.alex_net import AlexNet
 from model_zoo.res_net import ResNet
 from model_zoo.vgg import VGG
 from matrix_construction.matrix_computation import MlpRepresentation, ConvRepresentation_2D
-from utils.utils import get_model
+from utils.utils import get_model, get_num_classes, get_input_shape, zip_and_cleanup
 from constants.constants import DEFAULT_EXPERIMENTS, ATTACKS
-from utils.utils import zip_and_cleanup
 
 
 def parse_args(
@@ -107,6 +106,7 @@ def generate_matrices_for_attacks(
         architecture_index: int,
         residual: bool,
         input_shape: tuple[int,int,int],
+        num_classes: int,
         dropout: bool,
         nb_workers: int
     ) -> None:
@@ -134,8 +134,7 @@ def generate_matrices_for_attacks(
         attacked_dataset = torch.load(path_adv_examples)
 
         print(f"Generating matrices for attack {attack}.", flush=True)
-        num_classes = 10  # TODO: this should not be hardcoded
-        arguments = [(attacked_dataset[i],
+        arguments = [(attacked_dataset[i].detach(),
                       attack,
                       i,
                       default_index,
@@ -150,6 +149,7 @@ def generate_matrices_for_attacks(
 
         with Pool(processes=nb_workers) as pool:
             pool.starmap(save_one_matrix, arguments)
+
 
 def main() -> None:
     """
@@ -184,8 +184,8 @@ def main() -> None:
     if not weights_path.exists():
         raise ValueError(f"Experiment needs to be trained")
 
-    # TODO: Should take input as argument
-    input_shape = (3, 32, 32) if dataset == 'cifar10' or dataset == 'cifar100' else (1, 28, 28)
+    input_shape = get_input_shape(dataset)
+    num_classes = get_num_classes(dataset)
 
     generate_matrices_for_attacks(
         default_index = args.default_index,
@@ -194,6 +194,7 @@ def main() -> None:
         architecture_index = architecture_index,
         residual = residual,
         input_shape = input_shape,
+        num_classes = num_classes,
         dropout = dropout,
         nb_workers = args.nb_workers
     )

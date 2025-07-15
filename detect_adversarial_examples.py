@@ -12,7 +12,7 @@ from argparse import Namespace
 from pathlib import Path
 from typing import Union
 
-from utils.utils import get_ellipsoid_data, zero_std, get_model, get_dataset, subset
+from utils.utils import get_ellipsoid_data, zero_std, get_model, get_dataset, subset, get_num_classes, get_input_shape
 from constants.constants import DEFAULT_EXPERIMENTS, ATTACKS
 
 
@@ -265,15 +265,15 @@ def reject_predicted_attacks_baseline(
 
     # Get features from training data
     print("Extracting features from training data...", flush=True)
-    train_data, train_labels = subset(train_data, 10000)  # The rejection level is computed on 10000 examples
+    train_data, train_labels = subset(train_data, 10000, input_shape)  # The rejection level is computed on 10000 examples
     train_features = get_features(train_data, model)
 
     # TODO: Adjust parameters depending on the dataset
     knn_parameters = [3, 5, 7]
-    kde_parameters = [0.1, 0.5, 1]
-    gmm_parameters = [5, 10, 15]
+    kde_parameters = [0.5, 1, 1.5]
+    gmm_parameters =  [1,3,5] # [5, 10, 15]
     ocsvm_parameters = [0.01, 0.05, 0.1]
-    iforest_parameters = [100, 150, 200]
+    iforest_parameters = [50, 100, 150] # [100, 150, 200]
     softmax_parameters = [0.85, 0.9, 0.95]
     mahalanobis_parameters = [0.9, 0.95, 0.99]
 
@@ -449,6 +449,234 @@ def reject_predicted_attacks_baseline(
             json.dump([test_acc[method]], f, indent=4)
 
 
+def reject_predicted_attacks_baseline_matrices(        
+        default_index: int,
+        num_classes: int,
+        verbose:bool = True,
+        temp_dir:Union[str, None] = None
+    ) -> None:
+    """
+        Goes over the dataset and predicts if it is an adversarial example or not using baseline methods.
+        Uses K-nearest neighbors, Gaussian Mixture Model, and One-Class SVM for detection.
+        Models are trained on training data and a subset of adversarial examples.
+
+        Args:
+            default_index: experiment index (See constants/constants.py).
+            weights_path: the path to the weights.
+            architecture_index: the index of the architecture (See constants/constants.py).
+            residual: whether the model has residual connections.
+            input_shape: the shape of the input.
+            num_classes: the number of classes.
+            dropout: whether the model has dropout layers.
+            verbose: whether to print the results.
+            temp_dir: the temporary directory.
+    """
+    output_file = f'experiments/{default_index}/grid_search/grid_search_{default_index}_baseline_matrices.txt'
+    with open(output_file, 'w') as f:
+        f.write("method,parameter,default_index,good_defence,wrong_rejection\n")
+
+    # TODO: The range in the loop should be easily adjustable.
+    num_train_examples = 10000
+    num_train_examples_per_class = num_train_examples // num_classes
+    train_data = torch.Tensor()
+    train_labels = torch.Tensor()
+    for i in range(num_classes):
+        for j in range(num_train_examples_per_class):
+            if temp_dir is not None:
+                train_data = torch.cat((train_data, torch.load(f'{temp_dir}/experiments/{default_index}/matrices/{i}/{j}/matrix.pt').unsqueeze(0)), dim=0)
+                train_labels = torch.cat((train_labels, torch.Tensor([i])), dim=0)
+            else:
+                train_data = torch.cat((train_data, torch.load(f'experiments/{default_index}/matrices/{i}/{j}/matrix.pt').unsqueeze(0)), dim=0)
+                train_labels = torch.cat((train_labels, torch.Tensor([i])), dim=0)
+
+    train_data = train_data.reshape(train_data.shape[0], -1).detach().cpu().numpy()
+
+    # TODO: Adjust parameters depending on the dataset
+    knn_parameters = [8, 12, 17]
+    kde_parameters = [1.5, 2, 2.5]
+    gmm_parameters = [1,3,5]
+    ocsvm_parameters = [0.01, 0.05, 0.1]
+    iforest_parameters = [150, 200, 250]
+    mahalanobis_parameters = [0.9, 0.95, 0.99]
+
+    parameters = {
+        'knn': knn_parameters,
+        'kde': kde_parameters,
+        'gmm': gmm_parameters,
+        'ocsvm': ocsvm_parameters,
+        'iforest': iforest_parameters,
+        'mahalanobis': mahalanobis_parameters
+    }
+    methods = list(parameters.keys())
+
+    # Initialize results dictionaries for each method
+    counts = {
+        method: {
+            parameters[method][parameter]: {
+                attack: {
+                    'not_rejected_and_attacked': 0,
+                    'not_rejected_and_not_attacked': 0,
+                    'rejected_and_attacked': 0,
+                    'rejected_and_not_attacked': 0
+                } for attack in ["test"] + ATTACKS
+            } for parameter in range(len(parameters[method]))
+        } for method in methods
+    }
+
+    test_acc = {
+        method: {
+            parameters[method][parameter]: 0
+                for parameter in range(len(parameters[method]))
+        } for method in methods
+    }
+
+    # For mahalanobis, we need class means and covariances
+    class_means = {}
+    class_covariances = {}
+    for class_idx in range(num_classes):
+        class_data = train_data[train_labels == class_idx]
+        class_means[class_idx] = np.mean(class_data, axis=0)
+        class_covariances[class_idx] = np.cov(class_data, rowvar=False)
+    
+    def get_min_mahalanobis_distances(features: torch.Tensor) -> np.ndarray:
+        min_distances = np.array([])
+        for feature in features:
+            distances = [
+                mahalanobis(feature, class_means[class_idx], class_covariances[class_idx])
+                for class_idx in range(num_classes)
+            ]
+            min_distances = np.append(min_distances, min(distances))
+        return min_distances
+
+    if temp_dir is not None:
+        test_labels = torch.load(f'{temp_dir}/experiments/{default_index}/adversarial_examples/test/labels.pth')
+    else:
+        test_labels = torch.load(f'experiments/{default_index}/adversarial_examples/test/labels.pth')
+
+    for param in range(len(knn_parameters)):
+        print("Initializing detectors...", flush=True)
+        knn = NearestNeighbors(n_neighbors=knn_parameters[param], metric="euclidean")
+        kde = KernelDensity(bandwidth=kde_parameters[param])
+        gmm = GaussianMixture(n_components=gmm_parameters[param])
+        ocsvm = OneClassSVM(kernel='rbf', nu=ocsvm_parameters[param])
+        iforest = IsolationForest(n_estimators=iforest_parameters[param])
+
+        print("Training detection models...", flush=True)
+        knn.fit(train_data)
+        kde.fit(train_data)
+        gmm.fit(train_data)
+        ocsvm.fit(train_data)
+        iforest.fit(train_data)
+        mahalanobis_threshold = np.percentile(
+            get_min_mahalanobis_distances(train_data), 
+            mahalanobis_parameters[param]
+        )
+
+        for method in methods:
+            # Test on both clean and adversarial data
+            results = []
+            for a in ["test"] + ATTACKS:
+                attack_found = True
+                print(f"\n\nEvaluating {a} examples", flush=True)
+                attacked_dataset = torch.Tensor()
+                for i in range(len(train_data)):
+                    try:
+                        if temp_dir is not None:
+                            attacked_dataset = torch.cat((attacked_dataset, torch.load(f'{temp_dir}/experiments/{default_index}/adversarial_matrices/{a}/{i}/matrix.pth').unsqueeze(0)), dim=0)
+                        else:
+                            attacked_dataset = torch.cat((attacked_dataset, torch.load(f'experiments/{default_index}/adversarial_matrices/{a}/{i}/matrix.pth').unsqueeze(0)), dim=0)
+                    except:
+                        if i == 0:
+                            print(f"Attack {a} not found.", flush=True)
+                            attack_found = False
+                            break
+                
+                if not attack_found:
+                    continue
+                
+                attacked_dataset = attacked_dataset.reshape(attacked_dataset.shape[0], -1)
+
+                if method == 'knn':
+                    distances, _ = knn.kneighbors(attacked_dataset)
+                    average_distance = distances.mean(axis=1)
+                    predictions = average_distance < np.percentile(average_distance, 10)
+                elif method == 'kde':
+                    scores = kde.score_samples(attacked_dataset)
+                    predictions = scores < np.percentile(scores, 10)
+                elif method == 'gmm':
+                    scores = gmm.score_samples(attacked_dataset)
+                    predictions = scores < np.percentile(scores, 10)
+                elif method == 'ocsvm':
+                    predictions = ocsvm.predict(attacked_dataset) == -1
+                elif method == 'iforest':
+                    predictions = iforest.predict(attacked_dataset) == -1
+                elif method == 'mahalanobis':
+                    predictions = get_min_mahalanobis_distances(attacked_dataset) < mahalanobis_threshold
+                else:
+                    raise ValueError(f"Method {method} not found.")
+
+                for i, is_adversarial in enumerate(predictions):
+                    results.append((is_adversarial, a != "test"))
+                    if a == "test":
+                        if not is_adversarial:
+                            counts[method][parameters[method][param]][a]['not_rejected_and_not_attacked'] += 1
+                            pred = torch.argmax(attacked_dataset[i].sum(dim=0))
+                            if pred == test_labels[i]:
+                                test_acc[method][parameters[method][param]] += 1
+                        else:
+                            counts[method][parameters[method][param]][a]['rejected_and_not_attacked'] += 1
+                    else:
+                        if is_adversarial:
+                            counts[method][parameters[method][param]][a]['rejected_and_attacked'] += 1
+                        else:
+                            counts[method][parameters[method][param]][a]['not_rejected_and_attacked'] += 1
+                    
+                # Print results
+                if verbose:
+                    print(f"\nResults for {method.upper()}:")
+                    if a == 'test':
+                        print(f'Wrongly rejected test data: {counts[method][parameters[method][param]][a]["rejected_and_not_attacked"]}')
+                        print(f'Trusted test data: {counts[method][parameters[method][param]][a]["not_rejected_and_not_attacked"]}')
+                        
+                        if counts[method][parameters[method][param]][a]['not_rejected_and_not_attacked'] > 0:
+                            test_acc[method][parameters[method][param]] = test_acc[method][parameters[method][param]] / counts[method][parameters[method][param]][a]['not_rejected_and_not_attacked']
+                        else:
+                            test_acc[method][parameters[method][param]] = 0
+                        print(f"Accuracy on trusted test data: {test_acc[method][parameters[method][param]]}")
+                    else:
+                        print(f'Detected adversarial examples: {counts[method][parameters[method][param]][a]["rejected_and_attacked"]}')
+                        print(f'Missed adversarial examples: {counts[method][parameters[method][param]][a]["not_rejected_and_attacked"]}')
+
+            good_defence = 0
+            wrongly_rejected = 0
+            num_att = 0
+            for rej, att in results:
+                if att:
+                    good_defence += int(rej)
+                    num_att += 1
+                else:
+                    wrongly_rejected += int(rej)
+
+            result_line = f"{method},{parameters[method][param]},{default_index},{good_defence/num_att},{wrongly_rejected/(len(results)-num_att)}\n"
+
+            # Write the result to the file
+            with open(output_file, 'a') as f:
+                f.write(result_line)
+
+    # Save results
+    for method in methods:
+        counts_file = f'experiments/{default_index}/counts_per_attack/baseline_matrices_{method}_counts.json'
+        test_accuracy_file = f'experiments/{default_index}/counts_per_attack/baseline_matrices_{method}_accuracy.json'
+        
+        Path(f'experiments/{default_index}/counts_per_attack/').mkdir(parents=True, exist_ok=True)
+        
+        with open(counts_file, 'w') as f:
+            json.dump(counts[method], f, indent=4)
+        
+        with open(test_accuracy_file, 'w') as f:
+            json.dump([test_acc[method]], f, indent=4)
+
+
 def main(
         default_index:Union[int, None] = None,
         t_epsilon:Union[float, None] = None,
@@ -494,8 +722,8 @@ def main(
 
     print("Detecting adversarial examples for Experiment: ", args.default_index, flush=True)
 
-    input_shape = (3, 32, 32) if dataset == 'cifar10' or dataset == 'cifar100' else (1, 28, 28)
-    num_classes = 10  # TODO: This should be easily changed
+    input_shape = get_input_shape(dataset)
+    num_classes = get_num_classes(dataset)
 
     if args.temp_dir is not None:
         weights_path = Path(f'{args.temp_dir}/experiments/{args.default_index}/weights') / f'epoch_{epoch}.pth'
@@ -523,6 +751,12 @@ def main(
             input_shape = input_shape,
             num_classes = num_classes,
             dropout = dropout,
+            verbose = True,
+            temp_dir = args.temp_dir
+        )
+        reject_predicted_attacks_baseline_matrices(
+            default_index = args.default_index,
+            num_classes = num_classes,
             verbose = True,
             temp_dir = args.temp_dir
         )
