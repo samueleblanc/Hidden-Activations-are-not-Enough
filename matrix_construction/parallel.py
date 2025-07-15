@@ -31,8 +31,6 @@ class ParallelMatrixConstruction:
             - chunk_size: Size of parallel processing chunks
             - save_path: Where to save computed matrices
             - architecture_index: Index of model architecture
-            - residual: Whether to use residual connections
-            - dropout: Whether to have dropout layers
     """
     def __init__(self, dict_exp: dict) -> None:
         self.epoch: int = dict_exp["epochs"]
@@ -42,11 +40,10 @@ class ParallelMatrixConstruction:
         self.chunk_size: int = dict_exp['chunk_size']
         self.save_path: str = dict_exp['save_path']
         self.architecture_index: int = dict_exp['architecture_index']
-        self.residual: bool = dict_exp['residual']
-        self.dropout: bool = dict_exp['dropout']
-
+        self.device = 'cuda'
+        self.batch_size = dict_exp['batch_size']
         self.num_classes: int = get_num_classes(self.dataname)
-        self.batch_size: int = 16  # TODO: This should not be fixed
+
         self.data = get_dataset(self.dataname, data_loader=False)[0]
 
     def compute_matrices_on_dataset(
@@ -93,7 +90,7 @@ class ParallelMatrixConstruction:
         new_path = os.path.join(path, directory)
         model_file = f"epoch_{self.epoch}.pth"
         model_path = os.path.join(new_path, model_file)
-        state_dict = torch.load(model_path, map_location=torch.device('cpu'))
+        state_dict = torch.load(model_path, map_location=self.device)
 
         model = get_architecture(
                     input_shape = get_input_shape(self.dataname),
@@ -102,6 +99,7 @@ class ParallelMatrixConstruction:
                     residual = self.residual,
                     dropout = self.dropout
                 )
+        model.to(self.device)
         model.load_state_dict(state_dict)
         self.compute_matrices_on_dataset(model, chunk_id=chunk_id)
     
@@ -128,20 +126,26 @@ class ParallelMatrixConstruction:
         directory = f"{self.save_path if self.save_path is not None else ''}/{out_class}/"
         os.makedirs(directory, exist_ok=True)
 
-        data = data[chunk_id*self.chunk_size:(chunk_id+1)*self.chunk_size]
+        data = data[chunk_id*self.chunk_size:(chunk_id+1)*self.chunk_size].to(self.device)
 
         for i, d in enumerate(data):
             idx = chunk_id*self.chunk_size+i
+            root = os.path.join(directory, f"{idx}")
+            matrix_path = os.path.join(root, "matrix.pt")
             
-            if os.path.exists(f"{directory}{idx}/matrix.pt"):
+            if os.path.exists(matrix_path):
                 # if matrix was already computed, pass to next sample of data
                 continue
-            if not os.path.exists(f"{directory}{idx}/"):
+
+            '''
+            if not os.path.exists(root):
                 # if the path has not been created, then no one is working on this sample
-                os.makedirs(f"{directory}{idx}/")
+                os.makedirs(root)
             else:
                 # if the path has been created, someone else is already computing the matrix
                 continue
+            '''
 
             matrix = matrix_computer.forward(d)
-            torch.save(matrix, f"{directory}{idx}/matrix.pt")
+            os.makedirs(root)
+            torch.save(matrix, matrix_path)

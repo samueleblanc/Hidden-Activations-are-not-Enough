@@ -73,6 +73,61 @@ ATTACKS = [
 ]
 
 DEFAULT_EXPERIMENTS = {
+    'resnet_cifar100': { # accuracy: 0.5017
+        'pretrained': False,
+        'dataset': 'cifar100',
+        'batch_size': 512,
+        'lr': 0.017380615684942945,
+        'epochs': 300,
+        'optimizer': 'sgd',
+        'momentum': 0.10773147737028008,
+        'weight_decay': 0.021924018744206505,
+    },
+    'resnet_cifar10': {# accuracy: 0.8178
+        'pretrained': False,
+        'dataset': 'cifar10',
+        'batch_size': 32,
+        'lr': 0.009230996304925737,
+        'epochs': 300,
+        'optimizer': 'sgd',
+        'momentum': 0.8231700796140718,
+        'weight_decay': 0.0007273616737214423,
+    },
+    'alexnet_cifar10': {# Train Accuracy: 0.8196, Test Accuracy: 0.8005
+        'batch_size': 256,
+        'lr': 0.03058559341951366,
+        'epochs': 300,
+        'optimizer': 'sgd',
+        'momentum': 0.9603418928294722,
+        'weight_decay': 0.0010466427910952487,
+        'dataset': 'cifar10',
+        'architecture_index':-3,
+    },
+    'alexnet_imagenet': {
+        'pretrained': True,
+        'dataset': 'imagenet',
+    },
+    'mlp_mnist': { # accuracy 0.98
+        'pretrained': False,
+        'dataset': 'mnist',
+        'epochs': 5,
+        'layers': (512, 512, 512),
+        'batch_size': 32,
+        'lr': 0.06941109118141582,
+        'optimizer': 'sgd',
+        'momentum': 0.6215073814724885,
+        'weight_decay': 6.914150600886057e-05,
+    },
+    'vgg_cifar100': {# accuracy: 0.5478
+        'epochs': 300,
+        'dataset': 'cifar100',
+        'batch_size': 64,
+        'lr': 0.05296389074830272,
+        'optimizer': 'sgd',
+        'momentum': 0.31219518385411765,
+        'weight_decay': 0.002428263299304838},
+
+
     'experiment_0': {
         'architecture_index': 0,
         'dataset': 'mnist',
