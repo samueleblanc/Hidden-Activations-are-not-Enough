@@ -95,9 +95,7 @@ class ParallelMatrixConstruction:
         model = get_architecture(
                     input_shape = get_input_shape(self.dataname),
                     num_classes = self.num_classes,
-                    architecture_index = self.architecture_index,
-                    residual = self.residual,
-                    dropout = self.dropout
+                    architecture_index = self.architecture_index
                 )
         model.to(self.device)
         model.load_state_dict(state_dict)

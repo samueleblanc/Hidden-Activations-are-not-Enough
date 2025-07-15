@@ -14,7 +14,7 @@ from model_zoo.mlp import MLP
 from model_zoo.res_net import ResNet
 from model_zoo.vgg import VGG
 from constants.constants import DEFAULT_EXPERIMENTS
-from utils.utils import get_architecture, get_dataset, get_device, get_input_shape
+from utils.utils import get_architecture, get_dataset, get_device, get_input_shape, get_num_classes
 
 
 def parse_args() -> Namespace:
@@ -133,9 +133,8 @@ def main() -> None:
     )
 
     input_shape = get_input_shape(dataset)
-
+    num_classes = get_num_classes(dataset)
     architecture_index = 0
-    num_classes = 0
 
     if experiment[:7] == 'alexnet':
         architecture_index = -3
@@ -144,22 +143,10 @@ def main() -> None:
     elif experiment[:3] == 'vgg':
         architecture_index = -1
 
-    if experiment[-7:] == 'cifar10':
-        num_classes = 10
-    elif experiment[-5:] == 'mnist':
-        num_classes = 10
-    elif experiment[-8:] == 'cifar100':
-        num_classes = 100
-    elif experiment[-9:] == 'imagenet':
-        num_classes = 1000
-
     model = get_architecture(
         architecture_index = architecture_index,
         input_shape = input_shape,
-        num_classes = num_classes,
-        residual = residual,
-        input_shape = get_input_shape(dataset),
-        dropout = dropout
+        num_classes = num_classes
     ).to(device)
 
     criterion = nn.CrossEntropyLoss()

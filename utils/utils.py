@@ -33,7 +33,7 @@ def get_device() -> torch.device:
 
 
 def get_architecture(
-        input_shape = (1, 28, 28),
+        input_shape:tuple[int] = (1, 28, 28),
         num_classes:int = 10,
         architecture_index:int = 0,
         residual:bool = False,
@@ -87,7 +87,7 @@ def get_model(
         path: str, 
         architecture_index: int, 
         residual: bool, 
-        input_shape,
+        input_shape: tuple[int], 
         num_classes: int, 
         dropout: bool
     ) -> Union[MLP, CNN_2D, ResNet, AlexNet, VGG]:
@@ -129,6 +129,8 @@ def get_input_shape(
         return (1, 1, 40)
     elif data_set == 'cifar10' or data_set == 'cifar100':
         return (3, 32, 32)
+    elif data_set == 'imagenet':
+        return (3, 224, 224)
     else:
         raise ValueError("Unsupported dataset.")
 
@@ -144,6 +146,8 @@ def get_num_classes(
     """
     if data_set == 'cifar100':
         return 100
+    elif data_set == 'imagenet':
+        return 1000
     else:
         return 10
 
@@ -200,43 +204,6 @@ def get_dataset(
         )
     elif data_set == 'cifar10':
         # Use data augmentation for CIFAR-10
-        normalize = transforms.Normalize(
-            (0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)
-            # mean=[0.4914, 0.4822, 0.4465],
-            # std=[0.2470, 0.2435, 0.2616]
-        )
-        transform_train = transforms.Compose([
-            transforms.RandomCrop(32, padding=4),
-            # transforms.Resize((32,32)),
-            transforms.RandomHorizontalFlip(),
-            # transforms.RandomRotation(7),
-            # transforms.RandomAffine(0, shear=6, scale=(0.9,1.1)),
-            # transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1),
-            transforms.ToTensor(),
-            normalize
-        ])
-        train_set = torchvision.datasets.CIFAR10(
-            root=data_path,
-            train=True,
-            transform=transform_train,
-            download=False
-        )
-        test_transforms = transforms.Compose([
-            transforms.ToTensor(),
-            normalize
-        ])
-        test_set = torchvision.datasets.CIFAR10(
-            root=data_path,
-            train=False,
-            transform=test_transforms,
-            download=False
-        )
-    elif data_set == 'cifar100':
-        # Use data augmentation for CIFAR-100
-        normalize = transforms.Normalize(
-            mean=[0.5071, 0.4867, 0.4408],
-            std=[0.2675, 0.2565, 0.2761]
-        )
         transform_train = transforms.Compose([
             transforms.Resize((32,32)),
             transforms.RandomHorizontalFlip(),
@@ -244,7 +211,30 @@ def get_dataset(
             transforms.RandomAffine(0, shear=6, scale=(0.9,1.1)),
             transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1),
             transforms.ToTensor(),
-            normalize
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+        ])
+        train_set = torchvision.datasets.CIFAR10(
+            root = data_path, 
+            train = True, 
+            transform = transform_train, 
+            download = True
+        )
+        test_set = torchvision.datasets.CIFAR10(
+            root = data_path, 
+            train = False, 
+            transform = transform, 
+            download = True
+        )
+    elif data_set == 'cifar100':
+        # Use data augmentation for CIFAR-100
+        transform_train = transforms.Compose([
+            transforms.Resize((32,32)),
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomRotation(7),
+            transforms.RandomAffine(0, shear=6, scale=(0.9,1.1)),
+            transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1),
+            transforms.ToTensor(),
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
         ])
         train_set = torchvision.datasets.CIFAR100(
             root = data_path, 
@@ -304,7 +294,7 @@ def get_dataset(
         return train_set, test_set
 
 
-def find_matrices(base_dir: str):
+def find_matrices(base_dir: str) -> dict[int, list[str]]:
     """
         Finds the matrices for the given base directory.
 
@@ -329,8 +319,8 @@ def find_matrices(base_dir: str):
 
 
 def compute_statistics(
-        matrix_paths
-    ):
+        matrix_paths: dict[int, list[str]]
+    ) -> dict[int, dict[str, torch.Tensor]]:
     """
         Computes the statistics for the given matrix paths.
 
@@ -440,8 +430,8 @@ def zero_std(
 def subset(
         train_set, 
         length: int, 
-        input_shape = (1, 28, 28)
-    ):
+        input_shape: tuple[int] = (1, 28, 28)
+    ) -> tuple[torch.Tensor]:
     """
         Make a random subset of the training set of the given length. 
         If the length is greater or equal to the length of the training set, 
