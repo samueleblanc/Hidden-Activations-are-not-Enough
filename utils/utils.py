@@ -33,7 +33,7 @@ def get_device() -> torch.device:
 
 
 def get_architecture(
-        input_shape:tuple[int] = (1, 28, 28),
+        input_shape = (1, 28, 28),
         num_classes:int = 10,
         architecture_index:int = 0,
         residual:bool = False,
@@ -87,7 +87,7 @@ def get_model(
         path: str, 
         architecture_index: int, 
         residual: bool, 
-        input_shape: tuple[int], 
+        input_shape,
         num_classes: int, 
         dropout: bool
     ) -> Union[MLP, CNN_2D, ResNet, AlexNet, VGG]:
@@ -116,7 +116,7 @@ def get_model(
 
 def get_input_shape(
         data_set: str
-    ) -> tuple[int]:
+    ):
     """
         Args:
             data_set: The dataset to use.
@@ -294,7 +294,7 @@ def get_dataset(
         return train_set, test_set
 
 
-def find_matrices(base_dir: str) -> dict[int, list[str]]:
+def find_matrices(base_dir: str):
     """
         Finds the matrices for the given base directory.
 
@@ -319,8 +319,8 @@ def find_matrices(base_dir: str) -> dict[int, list[str]]:
 
 
 def compute_statistics(
-        matrix_paths: dict[int, list[str]]
-    ) -> dict[int, dict[str, torch.Tensor]]:
+        matrix_paths
+    ):
     """
         Computes the statistics for the given matrix paths.
 
@@ -347,7 +347,7 @@ def compute_statistics(
 
 def compute_train_statistics(
         default_index:int = 0, 
-        path:Union[str, None] = None
+        path = None
     ) -> None:
     """
         Computes the statistics for the given path.
@@ -430,8 +430,8 @@ def zero_std(
 def subset(
         train_set, 
         length: int, 
-        input_shape: tuple[int] = (1, 28, 28)
-    ) -> tuple[torch.Tensor]:
+        input_shape = (1, 28, 28)
+    ):
     """
         Make a random subset of the training set of the given length. 
         If the length is greater or equal to the length of the training set, 

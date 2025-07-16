@@ -21,10 +21,10 @@ def parse_args(
     if parser is None:
         parser = ArgumentParser()
     parser.add_argument(
-        "--default_index",
-        type = int,
+        "--experiment_name",
+        type = str,
         default = 0,
-        help = "Index of default trained network."
+        help = "Name of experiment <<network>>_<<dataset>>"
     )
     parser.add_argument(
         "--test_size",
@@ -32,12 +32,6 @@ def parse_args(
         default = -1,
         help = "Size of subset of test data from where to generate adversarial examples."
               "As default -1 takes 10k test samples"
-    )
-    parser.add_argument(
-        "--nb_workers",
-        type = int,
-        default = 8,
-        help = "How many processes in parallel for adversarial examples computations and their matrices."
     )
     parser.add_argument(
         "--temp_dir",
@@ -53,12 +47,12 @@ def apply_attack(
         labels: torch.Tensor, 
         weights_path: str, 
         architecture_index: int, 
-        path_adv_examples: str, 
+        path_adv_examples: Path,
         residual: bool, 
-        input_shape: tuple[int,int,int], 
+        input_shape,
         num_classes: int, 
         dropout: bool
-    ) -> tuple[str, torch.Tensor]:
+    ):
     """
         Applies an attack to the data and saves the adversarial examples.
 
@@ -76,6 +70,9 @@ def apply_attack(
         Returns:
             The name of the attack and the adversarial examples (that are misclassified).
     """
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"Using device: {device}", flush=True)
+
     attack_save_path = path_adv_examples / f'{attack_name}/adversarial_examples.pth'
 
     if attack_save_path.exists():
@@ -91,7 +88,10 @@ def apply_attack(
         input_shape = input_shape,
         num_classes = num_classes,
         dropout = dropout
-    )
+    ).to(device)
+
+    data = data.to(device)
+    labels = labels.to(device)
 
     attacks_classes = dict(
         zip(
@@ -165,7 +165,7 @@ def generate_adversarial_examples(
         default_index: int,
         nb_workers: int,
         residual: bool,
-        input_shape: tuple[int,int,int],
+        input_shape,
         num_classes: int,
         dropout: bool
     ) -> None:
@@ -211,26 +211,15 @@ def main() -> None:
         Main function to generate adversarial examples.
     """
     args = parse_args()
-    if args.default_index is not None:
-        try:
-            experiment = DEFAULT_EXPERIMENTS[f'experiment_{args.default_index}']
-
-            architecture_index = experiment['architecture_index']
-            residual = experiment['residual']
-            dropout = experiment['dropout']
-            dataset = experiment['dataset']
-            epoch = experiment['epoch'] - 1
-
-        except KeyError:
-            print(f"Error: Default index {args.default_index} does not exist.")
-            print(f"When computing adversarial examples of new model, add the experiment to constants.constants.py inside DEFAULT_EXPERIMENTS"
-                  f"and provide the corresponding --default_index when running this script.")
-            return -1
-
-    else:
+    if args.experiment_name is None:
         raise ValueError("Default index not specified in constants/constants.py")
 
-    print("Experiment: ", args.default_index)
+    experiment = args.experiment_name
+    dataset = DEFAULT_EXPERIMENTS[experiment]['dataset']
+    architecture_index = DEFAULT_EXPERIMENTS[experiment]['architecture_index']
+    epoch = DEFAULT_EXPERIMENTS[experiment]['epochs']-1
+
+    print("Experiment: ", experiment)
 
     if args.temp_dir is not None:
         weights_path = Path(f'{args.temp_dir}/experiments/{args.default_index}/weights/epoch_{epoch}.pth')
