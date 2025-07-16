@@ -1,11 +1,15 @@
 #!/bin/bash
 
 #SBATCH --account=def-bruestle #account to charge the calculation
-#SBATCH --time=2:00:00 #hour:minutes:seconds
+#SBATCH --time=00:20:00 #hour:minutes:seconds
 #SBATCH --gres=gpu:1
-#SBATCH --mem=16G #memory requested
-#SBATCH --output=adv_examples_gpu_%j.out
-#SBATCH --error=adv_examples_gpu_%j.err
+#SBATCH --mem=10G #memory requested
+#SBATCH --output=slurm_out/adv_examples_gpu_%j.out
+#SBATCH --error=slurm_err/adv_examples_gpu_%j.err
+
+# Create output and error directories if they don't exist
+mkdir -p $PWD/slurm_out
+mkdir -p $PWD/slurm_err
 
 # Set variables
 EXPERIMENT="alexnet_cifar10"
