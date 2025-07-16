@@ -5,6 +5,7 @@ import random
 import torchvision
 from torchvision import transforms
 import shutil
+from pathlib import Path
 from typing import Union
 from mnist1d.data import make_dataset, get_dataset_args
 
@@ -84,12 +85,11 @@ def get_architecture(
 
 
 def get_model(
-        path: str, 
-        architecture_index: int, 
-        residual: bool, 
+        path: Path,
+        architecture_index: int,
         input_shape,
-        num_classes: int, 
-        dropout: bool
+        num_classes: int,
+        device: str,
     ) -> Union[MLP, CNN_2D, ResNet, AlexNet, VGG]:
     """ 
         Args:
@@ -102,14 +102,12 @@ def get_model(
         Returns:
             The model to use.
     """
-    weight_path = torch.load(str(path), map_location=torch.device('cpu'))
+    weight_path = torch.load(str(path), map_location=torch.device(device))
     model = get_architecture(
                 architecture_index = architecture_index,
-                residual = residual,
                 input_shape = input_shape,
                 num_classes = num_classes,
-                dropout = dropout
-            )
+            ).to(device)
     model.load_state_dict(weight_path)
     return model
 

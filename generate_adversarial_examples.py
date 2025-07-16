@@ -1,7 +1,6 @@
 import torch
 import torchattacks
 from argparse import ArgumentParser, Namespace
-from multiprocessing import Pool
 from pathlib import Path
 from typing import Union
 
@@ -45,13 +44,11 @@ def apply_attack(
         attack_name: str, 
         data: torch.Tensor, 
         labels: torch.Tensor, 
-        weights_path: str, 
+        weights_path: Path,
         architecture_index: int, 
         path_adv_examples: Path,
-        residual: bool, 
         input_shape,
-        num_classes: int, 
-        dropout: bool
+        num_classes: int,
     ):
     """
         Applies an attack to the data and saves the adversarial examples.
@@ -63,32 +60,30 @@ def apply_attack(
             weights_path: the path to the weights.
             architecture_index: the index of the architecture (See constants/constants.py).
             path_adv_examples: the path to save the adversarial examples.
-            residual: whether the model has residual connections.
             input_shape: the shape of the input.
             num_classes: the number of classes.
-            dropout: whether the model has dropout layers.
         Returns:
             The name of the attack and the adversarial examples (that are misclassified).
     """
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print(f"Using device: {device}", flush=True)
 
     attack_save_path = path_adv_examples / f'{attack_name}/adversarial_examples.pth'
+    wrong_pred_save_path = path_adv_examples / f'{attack_name}/wrong_predictions.pth'
+    attack_save_path.parent.mkdir(parents=True, exist_ok=True)
 
     if attack_save_path.exists():
-        print(f"Loading attack {attack_name}")
-        misclassified_images = torch.load(attack_save_path)
-        return attack_name, misclassified_images
+        print(f"Attack {attack_name} exists.")
+        return
 
     print(f"Attacking with {attack_name}", flush=True)
     model = get_model(
         path = weights_path,
         architecture_index = architecture_index,
-        residual = residual,
         input_shape = input_shape,
         num_classes = num_classes,
-        dropout = dropout
-    ).to(device)
+        device = device
+    )
 
     data = data.to(device)
     labels = labels.to(device)
@@ -132,42 +127,39 @@ def apply_attack(
     )
     try:
         attacked_data = attacks_classes[attack_name](data, labels)
-    except:
-        return None, None
-
-    attack_save_path.parent.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        print(f"Error applying attack {attack_name}: {e}")
+        return
 
     if attack_name == "test":
-        torch.save(attacked_data, attack_save_path)
-        torch.save(labels, path_adv_examples / f'{attack_name}/labels.pth')
-        return attack_name, attacked_data
+        torch.save(attacked_data.cpu(), attack_save_path)
+        torch.save(labels.cpu(), path_adv_examples / f'{attack_name}/labels.pth')
+        return
 
-    attacked_predictions = torch.argmax(model(attacked_data), dim=1)
-    misclassified = (labels != attacked_predictions).sum().item()
+    with torch.no_grad():
+        predictions = torch.argmax(model(attacked_data), dim=1)
+
+    misclassified = (labels != predictions).sum().item()
     total = data.size(0)
 
     print(f"Attack: {attack_name}. Misclassified after attack: {misclassified} out of {total}.", flush=True)
 
     # Filter only the attacked images where labels != attacked_predictions
-    misclassified_indexes = labels != attacked_predictions
+    misclassified_indexes = labels != predictions
     misclassified_images = attacked_data[misclassified_indexes]
 
-    torch.save(misclassified_images, attack_save_path)
-
-    return attack_name, misclassified_images
+    torch.save(misclassified_images.cpu(), attack_save_path)
+    torch.save(predictions.cpu(), wrong_pred_save_path)
 
 
 def generate_adversarial_examples(
         exp_dataset_test: torch.Tensor,
         exp_labels_test: torch.Tensor,
-        weights_path: str,
+        weights_path: Path,
         architecture_index: int,
-        default_index: int,
-        nb_workers: int,
-        residual: bool,
+        experiment_name: str,
         input_shape,
         num_classes: int,
-        dropout: bool
     ) -> None:
     """
         Args:
@@ -175,14 +167,11 @@ def generate_adversarial_examples(
             exp_labels_test: the labels of the test set.
             weights_path: the path to the weights.
             architecture_index: the index of the architecture (See constants/constants.py).
-            default_index: the index of the default experiment (See constants/constants.py).
-            nb_workers: the number of workers.
-            residual: whether the model has residual connections.
+            experiment_name: the name of the experiment (See constants/constants.py).
             input_shape: the shape of the input.
-            dropout: whether the model has dropout layers.
     """
 
-    experiment_dir = Path(f'experiments/{default_index}/adversarial_examples')
+    experiment_dir = Path(f'experiments/{experiment_name}/adversarial_examples')
     experiment_dir.mkdir(parents=True, exist_ok=True)
 
     print("Generating adversarial examples...", flush=True)
@@ -190,20 +179,15 @@ def generate_adversarial_examples(
     exp_dataset_test = exp_dataset_test.detach().clone()
     exp_labels_test = exp_labels_test.detach().clone()
 
-    arguments = [(attack_name,
-                  exp_dataset_test,
-                  exp_labels_test,
-                  weights_path,
-                  architecture_index,
-                  experiment_dir,
-                  residual,
-                  input_shape,
-                  num_classes,
-                  dropout)
-                 for attack_name in ["test"] + ATTACKS]
-
-    with Pool(processes=nb_workers) as pool:
-        pool.starmap(apply_attack, arguments)
+    for attack_name in ["test"] + ATTACKS:
+        apply_attack(attack_name,
+                     exp_dataset_test,
+                     exp_labels_test,
+                     weights_path,
+                     architecture_index,
+                     experiment_dir,
+                     input_shape,
+                     num_classes)
 
 
 def main() -> None:
@@ -215,8 +199,8 @@ def main() -> None:
         raise ValueError("Default index not specified in constants/constants.py")
 
     experiment = args.experiment_name
-    dataset = DEFAULT_EXPERIMENTS[experiment]['dataset']
     architecture_index = DEFAULT_EXPERIMENTS[experiment]['architecture_index']
+    dataset = DEFAULT_EXPERIMENTS[experiment]['dataset']
     epoch = DEFAULT_EXPERIMENTS[experiment]['epochs']-1
 
     print("Experiment: ", experiment)
@@ -240,12 +224,9 @@ def main() -> None:
         exp_labels_test = exp_labels_test,
         weights_path = weights_path,
         architecture_index = architecture_index,
-        default_index = args.default_index,
-        nb_workers = args.nb_workers,
-        residual = residual,
+        experiment_name = experiment,
         input_shape = input_shape,
         num_classes = num_classes,
-        dropout = dropout
     )
 
 
