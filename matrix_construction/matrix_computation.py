@@ -118,9 +118,10 @@ class ConvRepresentation_2D:
     def __init__(
             self,
             model: Union[CNN_2D, ResNet, AlexNet, VGG],
-            batch_size:int = 1
+            batch_size:int = 1,
+            device: str = 'cpu'
         ) -> None:
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = device
         self.model = model
         self.batch_size = batch_size
         self.act_fn = model.get_activation_fn()

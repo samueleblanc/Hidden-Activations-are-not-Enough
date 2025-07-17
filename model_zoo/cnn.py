@@ -26,15 +26,15 @@ class CNN_2D(nn.Module):
     """
     def __init__(
         self, 
-        input_shape: tuple[int,int,int], 
+        input_shape,
         num_classes: int, 
-        channels:tuple[int] = (8, 16), 
-        padding:tuple[(int,int)] = ((1,1),(1,1)),
-        fc:tuple[int] = (500), 
-        kernel_size:tuple[(int,int)] = ((3, 3),(3, 3)), 
-        kernel_pooling:tuple[(int,int)] = (4,4),
+        channels = (8, 16),
+        padding = ((1,1),(1,1)),
+        fc = (500),
+        kernel_size = ((3, 3),(3, 3)),
+        kernel_pooling = (4,4),
         bias:bool = False, 
-        residual:list[(int,int)] = [],
+        residual = [],
         batch_norm:bool = False,
         dropout:bool = False,
         activation:str = "relu",
@@ -227,8 +227,8 @@ class CNN_2D(nn.Module):
 
         # Forward pass for matrix computation
         # Save activations and preactivations
-        self.pre_acts: list[torch.Tensor] = []
-        self.acts: list[torch.Tensor] = []
+        self.pre_acts= []
+        self.acts = []
         cnt = 0
         x_res = {}
 
@@ -331,14 +331,14 @@ class CNN_2D(nn.Module):
                     self.acts.append(x.detach().clone())
         return x
 
-    def get_biases(self) -> list[torch.Tensor]:
+    def get_biases(self):
         """
         Get the biases of the linear layers.
 
         Returns:
             list[torch.Tensor]: List of biases
         """
-        b: list[torch.Tensor] = []
+        b = []
         for m in self.modules():
             if isinstance(m, nn.Linear):
                 b.append(m.bias.data)

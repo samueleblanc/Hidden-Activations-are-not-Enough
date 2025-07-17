@@ -1,38 +1,45 @@
 #!/bin/bash
 
-#SBATCH --account=<ACCOUNT_NAME> #account to charge the calculation
+#SBATCH --account=def-bruestle #account to charge the calculation
 #SBATCH --time=0:20:00 #hour:minutes:seconds
-#SBATCH --cpus-per-task=5 #number of CPU requested
-#SBATCH --mem-per-cpu=1G #memory requested
-#SBATCH --array=0
+#SBATCH --gres=gpu:1
+#SBATCH --mem=16G #memory requested
+#SBATCH --output=slurm_out/mats_rej_lev_gpu_%j.out
+#SBATCH --error=slurm_err/mats_rej_lev_gpu_%j.err
 
-module load StdEnv/2020 python/3.9.6 scipy-stack/2023a #load the required module
-source ENV/bin/activate #load the virtualenv (absolute or relative path to where the script is submitted)
-export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
+EXPERIMENT="alexnet_cifar10"
 
-mkdir -p $SLURM_TMPDIR/experiments/$SLURM_ARRAY_TASK_ID/weights/
+# Create output and error directories if they don't exist
+mkdir -p $PWD/slurm_out
+mkdir -p $PWD/slurm_err
+
+module load StdEnv/2023 python/3.10.13 scipy-stack/2025a #load the required module
+source env_nibi/bin/activate #load the virtualenv (absolute or relative path to where the script is submitted)
+
+mkdir -p $SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
 echo "Copying weights..."
-cp experiments/$SLURM_ARRAY_TASK_ID/weights/* $SLURM_TMPDIR/experiments/$SLURM_ARRAY_TASK_ID/weights/
+cp experiments/$EXPERIMENT/weights/* $SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
 echo "Weights copied to temp directory..."
 
-mkdir -p $SLURM_TMPDIR/data/MNIST/
-mkdir -p $SLURM_TMPDIR/data/FashionMNIST/
-mkdir -p $SLURM_TMPDIR/data/CIFAR10/
-mkdir -p $SLURM_TMPDIR/data/CIFAR100/
-mkdir -p $SLURM_TMPDIR/data/Imagenette/
+EXPERIMENT_DATA_TRAIN = "$PWD/experiments/$EXPERIMENT/rejection_levels/exp_dataset_train.pth"
+EXPERIMENT_DATA_LABELS = "$PWD/experiments/$EXPERIMENT/rejection_levels/exp_dataset_labels.pth"
+mkdir -p "$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/"
+
+mkdir -p "$SLURM_TMPDIR/data/cifar-10-batches-py/"
 echo "Copying datasets..."
-cp -r data/MNIST/* $SLURM_TMPDIR/data/MNIST/
-echo "MNIST ready"
-cp -r data/FashionMNIST/* $SLURM_TMPDIR/data/FashionMNIST/
-echo "Fashion ready"
-cp -r data/CIFAR10/* $SLURM_TMPDIR/data/CIFAR10/
+cp -r data/cifar-10-batches-py/* "$SLURM_TMPDIR/data/cifar-10-batches-py/" || { echo "Failed to copy dataset"; exit 1; }
 echo "CIFAR10 ready"
-cp -r data/CIFAR100/* $SLURM_TMPDIR/data/CIFAR100/
-echo "CIFAR100 ready"
-cp -r data/Imagenette/* $SLURM_TMPDIR/data/Imagenette/
-echo "Imagenette ready"
 
-python compute_matrices_for_rejection_level.py --nb_workers $SLURM_CPUS_PER_TASK --default_index $SLURM_ARRAY_TASK_ID --temp_dir $SLURM_TMPDIR
+if [ -f "$EXPERIMENT_DATA_TRAIN" ]; then
+    echo "Found existing experiment data train file: $EXPERIMENT_DATA_TRAIN"
+    cp "$EXPERIMENT_DATA_TRAIN" "$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/exp_dataset_train.pth" || { echo "Failed to copy file"; exit 1; }
+fi
 
-echo "Done!"
+if [ -f "$EXPERIMENT_DATA_LABELS" ]; then
+    echo "Found existing experiment data labels file: $EXPERIMENT_DATA_LABELS"
+    cp "$EXPERIMENT_DATA_LABELS" "$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/exp_dataset_labels.pth" || {echo "Failed to copy file."; exit 1;}
+fi
 
+python compute_matrices_for_rejection_level.py --experiment_name $EXPERIMENT --temp_dir $SLURM_TMPDIR --batch_size 512
+
+echo "Matrices for rejection level computed!"

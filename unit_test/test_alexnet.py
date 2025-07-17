@@ -26,7 +26,7 @@ def get_memory_usage() -> float:
 
 
 class TestAlexNetRepresentation(unittest.TestCase):
-    def generate_random_params(self) -> tuple[int, int]:
+    def generate_random_params(self):
         """
             Returns:
                 w: width of the input image
@@ -36,7 +36,7 @@ class TestAlexNetRepresentation(unittest.TestCase):
         num_classes = random.randint(10,20)
         return w, num_classes
 
-    def create_random_model(self) -> tuple[AlexNet, torch.Tensor, torch.Tensor, int]:
+    def create_random_model(self):
         """
             Returns:
                 model: the AlexNet model
@@ -51,10 +51,10 @@ class TestAlexNetRepresentation(unittest.TestCase):
         model = AlexNet(
             input_shape = input_shape,
             num_classes = num_classes,
-            pretrained = False,
+            pretrained = True,
             # TODO: Currently doesn't work if max_pool=True and pretrained=True. 
             # Should work otherwise.
-            max_pool = True
+            max_pool = False
         ).to(DEVICE)
         model.eval()
         model.save = True
