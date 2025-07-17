@@ -31,7 +31,12 @@ class AlexNet(nn.Module):
         self.bias = True
         self.save = save
 
-        self.weights = AlexNet_Weights.DEFAULT if pretrained else None
+        if pretrained:
+            self.input_shape = (3, 224, 224)
+            self.num_classes = 1000
+            self.weights = AlexNet_Weights.DEFAULT
+        else:
+            self.weights = None
 
         #self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.model = alexnet(weights=self.weights, progress=False)
