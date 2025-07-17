@@ -1,9 +1,9 @@
 #!/bin/bash
 
 #SBATCH --account=def-bruestle #account to charge the calculation
-#SBATCH --time=00:20:00 #hour:minutes:seconds
+#SBATCH --time=06:00:00 #hour:minutes:seconds
 #SBATCH --gres=gpu:1
-#SBATCH --mem=10G #memory requested
+#SBATCH --mem=17G #memory requested
 #SBATCH --output=slurm_out/adv_examples_gpu_%j.out
 #SBATCH --error=slurm_err/adv_examples_gpu_%j.err
 

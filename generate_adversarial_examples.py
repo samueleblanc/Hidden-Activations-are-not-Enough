@@ -206,9 +206,9 @@ def main() -> None:
     print("Experiment: ", experiment)
 
     if args.temp_dir is not None:
-        weights_path = Path(f'{args.temp_dir}/experiments/{args.default_index}/weights/epoch_{epoch}.pth')
+        weights_path = Path(f'{args.temp_dir}/experiments/{experiment}/weights/epoch_{epoch}.pth')
     else:
-        weights_path = Path(f'experiments/{args.default_index}/weights/epoch_{epoch}.pth')
+        weights_path = Path(f'experiments/{experiment}/weights/epoch_{epoch}.pth')
 
     if not weights_path.exists():
         raise ValueError(f"Experiment needs to be trained")
