@@ -1,27 +1,29 @@
 #!/bin/bash
 
-#SBATCH --account=<ACCOUNT_NAME> #account to charge the calculation
-#SBATCH --time=0:30:00 #hour:minutes:seconds
-#SBATCH --cpus-per-task=10 #number of CPU requested
-#SBATCH --mem-per-cpu=1G #memory requested
-#SBATCH --array=0
+#SBATCH --account=def-assem #account to charge the calculation
+#SBATCH --time=0:20:00 #hour:minutes:seconds
+#SBATCH --gres=gpu:1
+#SBATCH --mem=17G #memory requested
+#SBATCH --output=slurm_out/adv_mats_%j.out
+#SBATCH --error=slurm_err/adv_mats_%j.err
 
-module load StdEnv/2020 python/3.9.6 scipy-stack/2023a #load the required module
-source ENV/bin/activate #load the virtualenv (absolute or relative path to where the script is submitted)
-export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
+EXPERIMENT="alexnet_cifar10"
 
-mkdir -p $SLURM_TMPDIR/experiments/$SLURM_ARRAY_TASK_ID/weights/
+module load StdEnv/2023 python/3.10.13 scipy-stack/2025a #load the required module
+source env_nibi/bin/activate #load the virtualenv (absolute or relative path to where the script is submitted)
+
+mkdir -p $SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
 echo "Copying weights..."
-cp experiments/$SLURM_ARRAY_TASK_ID/weights/* $SLURM_TMPDIR/experiments/$SLURM_ARRAY_TASK_ID/weights/
+cp experiments/$EXPERIMENT/weights/* $SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
 echo "Weights copied to temp directory..."
 
-mkdir -p $SLURM_TMPDIR/experiments/$SLURM_ARRAY_TASK_ID/adversarial_examples/
+mkdir -p $SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_examples/
 echo "Copying adversarial examples..."
-cp -r experiments/$SLURM_ARRAY_TASK_ID/adversarial_examples/* $SLURM_TMPDIR/experiments/$SLURM_ARRAY_TASK_ID/adversarial_examples/
+cp -r experiments/$EXPERIMENT/adversarial_examples/* $SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_examples/
 echo "Adv examples ready."
 
-mkdir -p experiments/$SLURM_ARRAY_TASK_ID/adversarial_matrices/
+mkdir -p experiments/$EXPERIMENT/adversarial_matrices/
 
-python generate_adversarial_matrices.py --nb_workers $SLURM_CPUS_PER_TASK --default_index $SLURM_ARRAY_TASK_ID --temp_dir $SLURM_TMPDIR
+python generate_adversarial_matrices.py --experiment_name $EXPERIMENT --temp_dir $SLURM_TMPDIR --batch_size 256
 
 echo "Done!"
