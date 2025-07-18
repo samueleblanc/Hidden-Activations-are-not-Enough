@@ -3,7 +3,7 @@
 #SBATCH --account=def-assem #account to charge the calculation
 #SBATCH --time=0:20:00 #hour:minutes:seconds
 #SBATCH --gres=gpu:1
-#SBATCH --mem=17G #memory requested
+#SBATCH --mem=20G #memory requested
 #SBATCH --output=slurm_out/adv_mats_%j.out
 #SBATCH --error=slurm_err/adv_mats_%j.err
 

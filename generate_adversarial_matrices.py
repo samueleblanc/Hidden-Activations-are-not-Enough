@@ -53,7 +53,8 @@ def save_one_matrix(
         i: int, 
         experiment_name: str,
         representation,
-        temp_dir: Union[str, None]
+        temp_dir: Union[str, None],
+        device
     ) -> None:
     """
         Args:
@@ -71,6 +72,7 @@ def save_one_matrix(
 
     matrix_save_path.parent.mkdir(parents=True, exist_ok=True)
     if not matrix_save_path.exists():
+        im = im.to(device)
         mat = representation.forward(im)
         torch.save(mat, matrix_save_path)
 
@@ -122,7 +124,7 @@ def generate_matrices_for_attacks(
         if isinstance(model, MLP):
             representation = MlpRepresentation(model)
         elif isinstance(model, (CNN_2D, AlexNet, VGG, ResNet)):
-            representation = ConvRepresentation_2D(model, batch_size=batch_size)
+            representation = ConvRepresentation_2D(model, batch_size=batch_size, device=device)
         else:
             raise NotImplementedError(f"Model {type(model)} not implemented.")
 
@@ -132,7 +134,7 @@ def generate_matrices_for_attacks(
                             i,
                             experiment_name,
                             representation,
-                            temp_dir)
+                            temp_dir, device)
 
 
 def main() -> None:
@@ -149,12 +151,12 @@ def main() -> None:
     else:
         raise ValueError("Default experiment not specified.")
 
-    print("Experiment: ", experiment, flush=True)
+    print("Experiment: ", args.experiment_name, flush=True)
 
     if args.temp_dir is not None:
-        weights_path = Path(f'{args.temp_dir}/experiments/{experiment}/weights/epoch_{epoch}.pth')
+        weights_path = Path(f'{args.temp_dir}/experiments/{args.experiment_name}/weights/epoch_{epoch}.pth')
     else:
-        weights_path = Path(f'experiments/{experiment}/weights/epoch_{epoch}.pth')
+        weights_path = Path(f'experiments/{args.experiment_name}/weights/epoch_{epoch}.pth')
 
     if not weights_path.exists():
         raise ValueError(f"Experiment needs to be trained")
@@ -175,8 +177,8 @@ def main() -> None:
     )
 
     if args.temp_dir is not None:
-        zip_and_cleanup(f'{args.temp_dir}/experiments/{experiment}/adversarial_matrices/',
-                        f'experiments/{experiment}/adversarial_matrices/adversarial_matrices',
+        zip_and_cleanup(f'{args.temp_dir}/experiments/{args.experiment_name}/adversarial_matrices/',
+                        f'experiments/{args.experiment_name}/adversarial_matrices/adversarial_matrices',
                         clean = False)
 
 
