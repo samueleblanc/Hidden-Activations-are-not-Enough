@@ -210,6 +210,18 @@ class ConvRepresentation_2D:
                         B = B * (layer.weight.data/torch.sqrt(layer.running_var+layer.eps)).view(1,-1,1,1)
                         i += 1
                     elif isinstance(layer, nn.MaxPool2d):
+                        #In this case vertices is a vector of ones, so no need to operate on B.
+                        max_pool = i
+                        # Skip multiplication by vertices since it’s a tensor of ones and shapes don’t match
+                        pool = self.model.acts[i]  # indices
+                        batch_indices = torch.arange(current_batch_size).view(-1, 1, 1, 1)
+                        channel_indices = torch.arange(pool.shape[1]).view(1, -1, 1, 1)
+                        row_indices = pool // B.shape[2]
+                        col_indices = pool % B.shape[3]
+                        B = B[batch_indices, channel_indices, row_indices, col_indices]
+                        i += 1
+                    '''
+                    elif isinstance(layer, nn.MaxPool2d):
                         max_pool = i
                         B = B * vertices.repeat(current_batch_size,1,1,1)
                         pool = self.model.acts[i]
@@ -219,6 +231,7 @@ class ConvRepresentation_2D:
                         col_indices = pool % B.shape[3]
                         B = B[batch_indices, channel_indices, row_indices, col_indices]
                         i += 1
+                    '''
 
                 # Cat the vector produced to the matrix M(W,f)(x)
                 A = torch.cat((A,B.T),dim=-1) if A.numel() else B.T

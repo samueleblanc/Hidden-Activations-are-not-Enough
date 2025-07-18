@@ -38,7 +38,8 @@ def get_architecture(
         num_classes:int = 10,
         architecture_index:int = 0,
         residual:bool = False,
-        dropout:bool = False
+        dropout:bool = False,
+        pretrained:bool = False
     ) -> Union[MLP, CNN_2D, ResNet, AlexNet, VGG]:
     """
         Args:
@@ -62,17 +63,20 @@ def get_architecture(
     elif architecture_index == -3:
         model = AlexNet(
             input_shape = input_shape,
-            num_classes = num_classes
+            num_classes = num_classes,
+            pretrained = pretrained
         )
     elif architecture_index == -2:
         model = ResNet(
             input_shape = input_shape,
-            num_classes = num_classes
+            num_classes = num_classes,
+            pretrained=pretrained
         )
     elif architecture_index == -1:
         model = VGG(
             input_shape = input_shape,
-            num_classes = num_classes
+            num_classes = num_classes,
+            pretrained = pretrained
         )
     else:
         model = CNN_2D(

@@ -81,6 +81,7 @@ def compute_one_matrix(args: tuple) -> None:
         num_classes = num_classes,
         device = device
     )
+
     if isinstance(model, MLP):
         matrix_computer = MlpRepresentation(model)
     elif isinstance(model, (CNN_2D, AlexNet, VGG, ResNet)):
