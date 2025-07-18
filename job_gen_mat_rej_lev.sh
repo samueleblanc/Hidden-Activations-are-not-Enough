@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --account=def-bruestle #account to charge the calculation
+#SBATCH --account=def-assem #account to charge the calculation
 #SBATCH --time=0:20:00 #hour:minutes:seconds
 #SBATCH --gres=gpu:1
 #SBATCH --mem=16G #memory requested
@@ -21,8 +21,8 @@ echo "Copying weights..."
 cp experiments/$EXPERIMENT/weights/* $SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
 echo "Weights copied to temp directory..."
 
-EXPERIMENT_DATA_TRAIN = "$PWD/experiments/$EXPERIMENT/rejection_levels/exp_dataset_train.pth"
-EXPERIMENT_DATA_LABELS = "$PWD/experiments/$EXPERIMENT/rejection_levels/exp_dataset_labels.pth"
+EXPERIMENT_DATA_TRAIN="$PWD/experiments/$EXPERIMENT/rejection_levels/exp_dataset_train.pth"
+EXPERIMENT_DATA_LABELS="$PWD/experiments/$EXPERIMENT/rejection_levels/exp_dataset_labels.pth"
 mkdir -p "$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/"
 
 mkdir -p "$SLURM_TMPDIR/data/cifar-10-batches-py/"
@@ -37,7 +37,7 @@ fi
 
 if [ -f "$EXPERIMENT_DATA_LABELS" ]; then
     echo "Found existing experiment data labels file: $EXPERIMENT_DATA_LABELS"
-    cp "$EXPERIMENT_DATA_LABELS" "$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/exp_dataset_labels.pth" || {echo "Failed to copy file."; exit 1;}
+    cp "$EXPERIMENT_DATA_LABELS" "$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/exp_dataset_labels.pth" || { echo "Failed to copy file"; exit 1; }
 fi
 
 python compute_matrices_for_rejection_level.py --experiment_name $EXPERIMENT --temp_dir $SLURM_TMPDIR --batch_size 512

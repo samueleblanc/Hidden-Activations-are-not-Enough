@@ -164,7 +164,7 @@ def main() -> None:
         experiment = DEFAULT_EXPERIMENTS[f'{args.experiment_name}']
         architecture_index = experiment['architecture_index']
         dataset = experiment['dataset']
-        epoch = experiment['epoch'] - 1
+        epoch = experiment['epochs'] - 1
 
     else:
         raise ValueError("Default index not specified in constants/constants.py")
@@ -207,7 +207,7 @@ def main() -> None:
         )
         torch.save(
             obj = exp_dataset_labels,
-            f = f''
+            f = f'experiments/{args.experiment_name}/rejection_levels/exp_dataset_labels.pth'
         )
 
     compute_matrices_for_rejection_level(
@@ -222,12 +222,12 @@ def main() -> None:
         batch_size = args.batch_size
     )
 
-    if args.temp_dir is not None:
-        zip_and_cleanup(
-            src_directory = f'{args.temp_dir}/experiments/{args.default_index}/rejection_levels/matrices/',
-            zip_filename = f'experiments/{args.default_index}/rejection_levels/matrices/matrices',
-            clean = False
-        )
+#    if args.temp_dir is not None:
+#        zip_and_cleanup(
+#            src_directory = f'{args.temp_dir}/experiments/{args.default_index}/rejection_levels/matrices/',
+#            zip_filename = f'experiments/{args.default_index}/rejection_levels/matrices/matrices',
+#            clean = False
+#        )
 
 
 if __name__ == '__main__':
