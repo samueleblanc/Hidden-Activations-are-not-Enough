@@ -348,7 +348,7 @@ def compute_statistics(
 
 
 def compute_train_statistics(
-        default_index:int = 0, 
+        experiment_name:str = None,
         path = None
     ) -> None:
     """
@@ -359,9 +359,9 @@ def compute_train_statistics(
             path: The path to the matrices.
     """
     if path is not None:
-        original_matrices_path = f'{path}/experiments/{default_index}/matrices/'
+        original_matrices_path = f'{path}/experiments/{experiment_name}/matrices/'
     else:
-        original_matrices_path = f'experiments/{default_index}/matrices/'
+        original_matrices_path = f'experiments/{experiment_name}/matrices/'
     original_matrices_paths = find_matrices(original_matrices_path)
 
     statistics = compute_statistics(original_matrices_paths)
@@ -374,7 +374,7 @@ def compute_train_statistics(
             else:  # Otherwise, convert to a list
                 stats[key] = tensor.tolist()
 
-    with open(f'experiments/{default_index}/matrices/matrix_statistics.json', 'w') as json_file:
+    with open(f'experiments/{experiment_name}/matrices/matrix_statistics.json', 'w') as json_file:
         json.dump(statistics, json_file, indent=4)
 
 

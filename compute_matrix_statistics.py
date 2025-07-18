@@ -12,10 +12,10 @@ def parse_args():
     """
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--default_index", 
-        type = int, 
-        default = 0, 
-        help = "Default index experiment"
+        "--experiment_name",
+        type = str,
+        default = None,
+        help = "Experiment name"
     )
     parser.add_argument(
         "--temp_dir", 
@@ -33,7 +33,7 @@ def main():
     args = parse_args()
     print('Computing matrix statistics', flush=True)
     compute_train_statistics(
-        default_index = args.default_index,
+        experiment_name = args.experiment_name,
         path = args.temp_dir
     )
 
