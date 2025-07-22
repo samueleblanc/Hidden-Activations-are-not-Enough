@@ -169,10 +169,10 @@ def get_dataset(
             std=[0.2470, 0.2435, 0.2616]
         )
         transform_train = transforms.Compose([
-            transforms.Resize((32,32)),
+            transforms.RandomCrop(32, padding=4),
             transforms.RandomHorizontalFlip(),
             transforms.RandomRotation(7),
-            transforms.RandomAffine(0, shear=6, scale=(0.9,1.1)),
+            transforms.RandomAffine(0, shear=6, scale=(0.9, 1.1), translate=(0.1, 0.1)),
             transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1),
             transforms.ToTensor(),
             normalize

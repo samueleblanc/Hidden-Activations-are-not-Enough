@@ -23,7 +23,7 @@ class MLP(nn.Module):
             self,
             input_shape,
             num_classes,
-            hidden_sizes:tuple[int] = (10,10),
+            hidden_sizes = (10,10),
             activation:str = "relu",
             bias:bool = False,
             dropout:float = -1,
@@ -116,27 +116,27 @@ class MLP(nn.Module):
         x = self.layers[-1](x)
         return x
 
-    def get_weights(self) -> list[torch.Tensor]:
+    def get_weights(self):
         """
         Get the weights of the model.
 
         Returns:
             list[torch.Tensor]: List of weights
         """
-        w: list[torch.Tensor] = []
+        w = []
         for m in self.modules():
             if isinstance(m, nn.Linear):
                 w.append(m.weight.data)
         return w
 
-    def get_biases(self) -> list[torch.Tensor]:
+    def get_biases(self):
         """
         Get the biases of the model.
 
         Returns:
             list[torch.Tensor]: List of biases
         """
-        b: list[torch.Tensor] = []
+        b = []
         for m in self.modules():
             if isinstance(m, nn.Linear):
                 b.append(m.bias.data)

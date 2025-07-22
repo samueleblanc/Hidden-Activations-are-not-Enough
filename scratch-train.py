@@ -2,85 +2,104 @@ import optuna
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torchvision import datasets, transforms
-from model_zoo.res_net import ResNet
+from model_zoo.cnn import CNN_2D
+from utils.utils import get_dataset, get_device
+from torch.optim.lr_scheduler import StepLR
 import joblib
-#import certifi
 import os
-#from optuna.storages import JournalStorage, JournalFileBackend
 os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 from optuna.storages import JournalStorage
 from optuna.storages.journal import JournalFileBackend
-#os.environ['SSL_CERT_FILE'] = certifi.where()
-device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
-device = 'cuda' if torch.cuda.is_available() else device
-print("Device: ", device, flush=True)
-num_gpus = torch.cuda.device_count()
+
+MODEL = 'lenet'
+DATASET = 'cifar10'
+VERSION = '02'
+
 
 def train_model(trial):
     # Define hyperparameters to tune
-    batch_size = trial.suggest_categorical("batch_size", [32, 64, 128, 256, 512])
+    if MODEL == 'lenet':
+        batch_size = trial.suggest_categorical("batch_size", [32, 64, 128, 256, 512])
+    else:
+        batch_size = trial.suggest_categorical("batch_size", [32, 64, 128])
     learning_rate = trial.suggest_float("learning_rate", 1e-4, 0.1)
-    epochs = trial.suggest_categorical("epochs", [90, 100, 150])
     opt = trial.suggest_categorical("optimizer",['adam','sgd'])
     mom = trial.suggest_float('momentum',0,0.99)
     wd = trial.suggest_float('weight_decay',0,0.99)
-    # Define data transforms
-    #transform = transforms.Compose([
-    #    transforms.RandomCrop(32, padding=4),  # Random crop with padding
-    #    transforms.RandomHorizontalFlip(),     # Random horizontal flip (50% chance)
-    #    transforms.ToTensor(),                 # Convert PIL Image to tensor
-    #    transforms.Normalize(
-    #        mean=[0.4914, 0.4822, 0.4465],    # CIFAR-10 dataset-specific mean
-    #        std=[0.2023, 0.1994, 0.2010]      # CIFAR-10 dataset-specific std
-    #        )
-    #])
-
-    # Define data transforms
-    #transform = transforms.Compose([
-    #    transforms.ToTensor(),
-    #    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    #])
 
     data_dir = os.path.join(os.getcwd(), 'data')
 
     if not os.path.exists(data_dir):
         os.makedirs(data_dir)
 
-    # cifar10
-    #normalize = transforms.Normalize(
-    #    mean=[0.4914, 0.4822, 0.4465],
-    #    std=[0.2470, 0.2435, 0.2616]
-    #)
-
-    # cifar100
-    normalize = transforms.Normalize(
-        mean=[0.5071, 0.4867, 0.4408],
-        std=[0.2675, 0.2565, 0.2761]
+    train_loader, test_loader = get_dataset(
+        data_set=DATASET,
+        batch_size=batch_size,
+        data_loader=True,
+        data_path=None
     )
 
-    # Cifar100
-    train_transforms = transforms.Compose([
-        transforms.RandomCrop(32, padding=4),
-        transforms.RandomHorizontalFlip(),
-        transforms.RandomRotation(15),
-        transforms.ToTensor(),
-        normalize
-    ])
+    device = get_device()
+    print("Device: ", device, flush=True)
 
-    test_transforms = transforms.Compose([
-        transforms.ToTensor(),
-        normalize
-    ])
+    if MODEL == 'lenet':
 
-    trainset = datasets.CIFAR100(data_dir, download=False, train=True, transform=train_transforms)
-    trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=True, pin_memory=True)
+        model = CNN_2D(input_shape=(3, 32, 32),
+                        num_classes=10,
+                        channels = (6, 16),
+                        padding = ((2,2),(0,0)),
+                        fc = (784, 84),
+                        kernel_size = ((5, 5),(5, 5)),
+                        bias= False,
+                        activation = "relu",
+                        pooling= "avg").to(device)
+        epochs = 200
 
-    testset = datasets.CIFAR100(data_dir, download=False, train=False, transform=test_transforms)
-    testloader = torch.utils.data.DataLoader(testset, batch_size=batch_size, shuffle=True, pin_memory=True)
+    elif MODEL == 'resnet':
 
-    # Initialize model
-    model = ResNet(input_shape=(3, 32, 32), num_classes=100, pretrained=False).to(device)
+        # Define the ResNet18-like architecture
+        #           1    2   3   4  5    6   7    8    9    10   11   12   13   14   15   16   17   18   19    20
+        channels = [64, 64, 64, 64, 64, 128, 128, 128, 128, 128, 256, 256, 256, 256, 256, 512, 512, 512, 512, 512, 512]  # 20 conv layers
+        residual = [(1, 3), (3, 5), (6, 8), (8, 10), (11, 13), (13, 15), (16, 18), (18, 20)]  # Residual connections within blocks where channels match
+        epochs = 100
+        # Instantiate the CNN_2D model
+        model = CNN_2D(
+            input_shape=(3, 32, 32),  # CIFAR-10 input shape
+            num_classes=10,  # 10 classes in CIFAR-10
+            channels=tuple(channels),  # Conv layer output channels
+            kernel_size=((3, 3),) * 17,  # 3x3 kernels for all conv layers
+            padding=((1, 1),) * 17,  # Padding to maintain 32x32 spatial size
+            fc=(100,),
+            residual=residual,  # Residual connections
+            batch_norm=True,  # Use batch normalization as in ResNet
+            dropout=False,  # No dropout in standard ResNet
+            activation="relu",  # ReLU activation
+            pooling="max",  # Average pooling (4x4, stride 4) reduces 32x32 to 8x8
+            bias=False,  # No bias in conv layers; FC layers may use bias
+            save=False  # No intermediate outputs saved
+        ).to(device)
+
+    elif MODEL == 'vgg':
+
+        model = CNN_2D(
+            input_shape=(3, 32, 32),  # CIFAR-10: 3 channels, 32x32 images
+            num_classes=10,  # 10 classes in CIFAR-10
+            channels=(64, 128, 256, 256, 512, 512, 512, 512),  # VGG11 conv layers
+            padding=((1, 1),) * 8,  # Padding 1 to maintain spatial size
+            fc=(4096, 4096),  # Two FC layers as in VGG11
+            kernel_size=((3, 3),) * 8,  # 3x3 filters for all conv layers
+            bias=True,  # Bias for FC layers
+            residual=[],  # No residual connections in VGG11
+            batch_norm=False,  # VGG11 doesn't use batch norm
+            dropout=True,  # Dropout as in VGG11
+            activation="relu",  # ReLU activation as in VGG11
+            pooling="max",  # Max pooling (single layer in base class)
+            save=False  # No need to save activations
+        ).to(device)
+        epochs = 120
+
+    else:
+        raise ValueError(f'Model {MODEL} is not supported.')
 
     # Define loss function and optimizer
     criterion = nn.CrossEntropyLoss().to(device)
@@ -90,12 +109,17 @@ def train_model(trial):
     else:
         optimizer = optim.SGD(model.parameters(), lr=learning_rate, weight_decay=wd, momentum=mom)
 
+    scheduler = StepLR(
+        optimizer = optimizer,
+        step_size = 90,
+        gamma = 0.1
+    )
 
     model.train()
     # Train the model
     for epoch in range(epochs):
-        #print("Epoch: ", epoch)
-        for i, data in enumerate(trainloader, 0):
+        print("Epoch: ", epoch)
+        for i, data in enumerate(train_loader, 0):
             inputs, labels = data
             inputs, labels = inputs.to(device, non_blocking=True), labels.to(device, non_blocking=True)
             optimizer.zero_grad()
@@ -103,14 +127,15 @@ def train_model(trial):
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
-            torch.cuda.synchronize()
+            #torch.cuda.synchronize()
+            scheduler.step()
 
     # Evaluate the model on the validation set
     model.eval()
     correct = 0
     total = 0
     with torch.no_grad():
-        for data in testloader:
+        for data in test_loader:
             images, labels = data
             images, labels = images.to(device, non_blocking=True), labels.to(device, non_blocking=True)
             outputs = model(images)
@@ -119,29 +144,29 @@ def train_model(trial):
             correct += (predicted == labels).sum().item()
 
     accuracy = correct / total
-    #print("Accuracy: ", accuracy)
     return accuracy
+
 
 def save_study(study, trial):
     # /lustre07/ -> narval
     # /lustre04/ -> beluga
     # /          -> graham
-    study_dir = "/lustre07/scratch/armenta"
-    if not os.path.exists(study_dir):
-        os.makedirs(study_dir)
-    joblib.dump(study, "resnet_cifar100_hyperparameter_tuning_study_01.pkl")
+    #study_dir = "/lustre07/scratch/armenta"
+    #if not os.path.exists(study_dir):
+    #    os.makedirs(study_dir)
+    joblib.dump(study, f"{MODEL}_{DATASET}_hypersearch_{VERSION}.pkl")
+
 
 if __name__ == '__main__':
     # Create a study object and specify the direction
-    storage = JournalStorage(JournalFileBackend('/lustre04/scratch/armenta/vgg_journal_01.log'))
+    storage = JournalStorage(JournalFileBackend(f'{MODEL}_{DATASET}_journal_{VERSION}.log'))
     study = optuna.create_study(direction="maximize",
-                                study_name="vgg_journal_01",
+                                study_name=f"{MODEL}_{DATASET}_{VERSION}",
                                 storage=storage,
                                 load_if_exists=True)
 
     study.optimize(train_model,
                    n_trials=100,
-                   n_jobs=num_gpus,
                    callbacks=[save_study])
 
     # Print the best hyperparameters and accuracy
