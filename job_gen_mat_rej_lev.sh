@@ -71,13 +71,20 @@ if ps -p $PYTHON_PID > /dev/null; then
 fi
 
 # Zip the matrices
-echo "Zipping matrices..."
-cd $SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels
-zip -r matrices.zip matrices
+cd $SLURM_TMPDIR/experiments/alexnet_cifar10/rejection_levels
+if [ -d "matrices" ]; then
+    echo "Zipping matrices..."
+    zip -r matrices.zip matrices
+else
+    echo "No matrices directory found, skipping zipping"
+fi
 
 # Copy the zip file to $PWD
-echo "Copying zip file to $PWD/experiments/$EXPERIMENT/rejection_levels/..."
-mkdir -p $PWD/experiments/$EXPERIMENT/rejection_levels
-cp matrices.zip $PWD/experiments/$EXPERIMENT/rejection_levels/
+if [ -f "matrices.zip" ]; then
+    echo "Copying zip file to $PWD/experiments/alexnet_cifar10/rejection_levels/..."
+    cp matrices.zip $PWD/experiments/alexnet_cifar10/rejection_levels/
+else
+    echo "No zip file to copy"
+fi
 
 echo "Job completed"
