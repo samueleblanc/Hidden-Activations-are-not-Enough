@@ -59,35 +59,14 @@ def compute_one_matrix(args: tuple) -> None:
     """
     (
         im, 
-        label, 
-        weights_path, 
-        architecture_index, 
-        input_shape,
-        num_classes,
+        label,
         experiment_name,
         i,
         temp_dir,
-        device,
-        batch_size
+        batch_size,
+        matrix_computer,
+        pred
     ) = args
-
-    im = im.to(device)
-    label = label.to(device)
-
-    model = get_model(
-        path = weights_path,
-        architecture_index = architecture_index,
-        input_shape = input_shape,
-        num_classes = num_classes,
-        device = device
-    )
-
-    if isinstance(model, MLP):
-        matrix_computer = MlpRepresentation(model)
-    elif isinstance(model, (CNN_2D, AlexNet, VGG, ResNet)):
-        matrix_computer = ConvRepresentation_2D(model, batch_size=batch_size, device=device)
-    else:
-        raise NotImplementedError(f"Model {type(model)} not supported")
 
     if temp_dir is not None:
         path_experiment_matrix = Path(f'{temp_dir}/experiments/{experiment_name}/rejection_levels/matrices/{i}/matrix.pth')
@@ -98,7 +77,6 @@ def compute_one_matrix(args: tuple) -> None:
         path_prediction = Path(f'experiments/{experiment_name}/rejection_levels/matrices/{i}/prediction.pth')
         Path(f'experiments/{experiment_name}/rejection_levels/matrices/{i}/').mkdir(parents=True, exist_ok=True)
 
-    pred = torch.argmax(model.forward(im))
     # if it is not correctly classified, do not use it for rejection level
     if pred != label:
         return
@@ -140,19 +118,34 @@ def compute_matrices_for_rejection_level(
     Path(f'experiments/{experiment_name}/rejection_levels/').mkdir(parents=True, exist_ok=True)
     print("Computing matrices for rejection level...", flush=True)
 
+    model = get_model(path=weights_path,
+                      architecture_index=architecture_index,
+                      input_shape=input_shape,
+                      num_classes=num_classes,
+                      device=device)
+
+    if isinstance(model, MLP):
+        matrix_computer = MlpRepresentation(model)
+    elif isinstance(model, (CNN_2D, AlexNet, VGG, ResNet)):
+        matrix_computer = ConvRepresentation_2D(model, batch_size=batch_size, device=device)
+    else:
+        raise NotImplementedError(f"Model {type(model)} not supported")
+
+    exp_dataset_train = exp_dataset_train.to(device)
+    exp_dataset_labels = exp_dataset_labels.to(device)
+
     for i in range(len(exp_dataset_train)):
-        print(f'{i}/{len(exp_dataset_train)}', flush=True)
+        pred = torch.argmax(model.forward(exp_dataset_train[i]))
+
         args = (exp_dataset_train[i],
                 exp_dataset_labels[i],
-                weights_path,
-                architecture_index,
-                input_shape,
-                num_classes,
                 experiment_name,
                 i,
                 temp_dir,
-                device,
-                batch_size)
+                batch_size,
+                matrix_computer,
+                pred
+                )
 
         compute_one_matrix(args)
 
