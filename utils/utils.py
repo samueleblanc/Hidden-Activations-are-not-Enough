@@ -93,7 +93,7 @@ def get_model(
         architecture_index: int,
         input_shape,
         num_classes: int,
-        device: str,
+        device: torch.device,
     ) -> Union[MLP, CNN_2D, ResNet, AlexNet, VGG]:
     """ 
         Args:

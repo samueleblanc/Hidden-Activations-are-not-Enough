@@ -10,7 +10,7 @@ from model_zoo.alex_net import AlexNet
 from model_zoo.res_net import ResNet
 from model_zoo.vgg import VGG
 from constants.constants import DEFAULT_EXPERIMENTS
-from utils.utils import get_model, subset, get_dataset, zip_and_cleanup, get_num_classes, get_input_shape
+from utils.utils import get_model, subset, get_dataset, get_num_classes, get_input_shape, get_device
 from matrix_construction.matrix_computation import MlpRepresentation, ConvRepresentation_2D
 
 
@@ -99,7 +99,7 @@ def compute_matrices_for_rejection_level(
         input_shape,
         num_classes: int,
         temp_dir:Union[str, None] = None,
-        device: str = 'cpu',
+        device: torch.device = 'cpu',
         batch_size: int = 16,
     ) -> None:
     """
@@ -166,6 +166,8 @@ def main() -> None:
 
     print("Computing matrices for rejection level for Experiment: ", args.experiment_name,flush=True)
 
+    device = get_device()
+
     if args.temp_dir is not None:
         weights_path = Path(f'{args.temp_dir}/experiments/{args.experiment_name}/weights') / f'epoch_{epoch}.pth'
     else:
@@ -214,7 +216,8 @@ def main() -> None:
         input_shape = input_shape,
         num_classes = num_classes,
         temp_dir = args.temp_dir,
-        batch_size = args.batch_size
+        device=device,
+        batch_size = args.batch_size,
     )
 
     #if args.temp_dir is not None:

@@ -1,9 +1,9 @@
 #!/bin/bash
 
 #SBATCH --account=def-assem #account to charge the calculation
-#SBATCH --time=06:00:00 #hour:minutes:seconds
+#SBATCH --time=00:30:00 #hour:minutes:seconds
 #SBATCH --gres=gpu:1
-#SBATCH --mem=13G #memory requested
+#SBATCH --mem=18G #memory requested
 #SBATCH --output=slurm_out/mats_rej_lev_gpu_%j.out
 #SBATCH --error=slurm_err/mats_rej_lev_gpu_%j.err
 
@@ -53,12 +53,13 @@ fi
 python compute_matrices_for_rejection_level.py --experiment_name $EXPERIMENT --temp_dir $SLURM_TMPDIR --batch_size 512 &
 PYTHON_PID=$!
 
-# Calculate sleep time (total job time - 15 minutes)
 time_limit=$(scontrol show job $SLURM_JOB_ID | grep TimeLimit | awk '{print $2}' | cut -d= -f2)
 IFS=':' read -r hours minutes seconds <<< "$time_limit"
 total_seconds=$((hours*3600 + minutes*60 + seconds))
-sleep_time=$((total_seconds - 900))  # 900 seconds = 15 minutes
-
+sleep_time=$((total_seconds - 900))  # Reserve 15 minutes for cleanup
+if [ $sleep_time -lt 0 ]; then
+    sleep_time=0
+fi
 echo "Sleeping for $sleep_time seconds"
 sleep $sleep_time
 

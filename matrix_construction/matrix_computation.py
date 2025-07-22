@@ -119,7 +119,7 @@ class ConvRepresentation_2D:
             self,
             model: Union[CNN_2D, ResNet, AlexNet, VGG],
             batch_size:int = 1,
-            device: str = 'cpu'
+            device: torch.device = torch.device('cpu')
         ) -> None:
         self.device = device
         self.model = model
