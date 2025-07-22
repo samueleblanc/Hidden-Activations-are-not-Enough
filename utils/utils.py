@@ -335,7 +335,8 @@ def compute_statistics(
     """
     statistics = {}
     for j, paths in matrix_paths.items():
-        matrices = [torch.load(path) for path in paths]
+        matrices = [torch.load(path, map_location=torch.device('cpu')) for path in paths]
+        #matrices = [torch.load(path).cpu() for path in paths]
         # Stack all matrices to compute statistics across all matrices in a subfolder
         stacked_matrices = torch.stack(matrices)
         # Compute mean and std across the stacked matrices

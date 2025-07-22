@@ -1,9 +1,9 @@
 #!/bin/bash
 
 #SBATCH --account=def-assem #account to charge the calculation
-#SBATCH --time=0:20:00 #hour:minutes:seconds
+#SBATCH --time=06:00:00 #hour:minutes:seconds
 #SBATCH --gres=gpu:1
-#SBATCH --mem=16G #memory requested
+#SBATCH --mem=13G #memory requested
 #SBATCH --output=slurm_out/mats_rej_lev_gpu_%j.out
 #SBATCH --error=slurm_err/mats_rej_lev_gpu_%j.err
 

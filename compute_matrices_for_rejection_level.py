@@ -141,6 +141,7 @@ def compute_matrices_for_rejection_level(
     print("Computing matrices for rejection level...", flush=True)
 
     for i in range(len(exp_dataset_train)):
+        print(f'{i}/{len(exp_dataset_train)}', flush=True)
         args = (exp_dataset_train[i],
                 exp_dataset_labels[i],
                 weights_path,
