@@ -217,12 +217,12 @@ def main() -> None:
         batch_size = args.batch_size
     )
 
-    if args.temp_dir is not None:
-        zip_and_cleanup(
-            src_directory = f'{args.temp_dir}/experiments/{experiment}/rejection_levels/matrices/',
-            zip_filename = f'experiments/{experiment}/rejection_levels/matrices/matrices',
-            clean = False
-        )
+    #if args.temp_dir is not None:
+    #    zip_and_cleanup(
+    #        src_directory = f'{args.temp_dir}/experiments/{experiment}/rejection_levels/matrices/',
+    #        zip_filename = f'experiments/{experiment}/rejection_levels/matrices/matrices',
+    #        clean = False
+    #    )
 
 
 if __name__ == '__main__':

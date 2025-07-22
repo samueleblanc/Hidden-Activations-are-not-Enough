@@ -8,6 +8,7 @@
 #SBATCH --error=slurm_err/mats_rej_lev_gpu_%j.err
 
 EXPERIMENT="alexnet_cifar10"
+ZIP_FILE="$PWD/experiments/$EXPERIMENT/rejection_levels/matrices.zip"
 
 # Create output and error directories if they don't exist
 mkdir -p $PWD/slurm_out
@@ -40,6 +41,42 @@ if [ -f "$EXPERIMENT_DATA_LABELS" ]; then
     cp "$EXPERIMENT_DATA_LABELS" "$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/exp_dataset_labels.pth" || { echo "Failed to copy file"; exit 1; }
 fi
 
-python compute_matrices_for_rejection_level.py --experiment_name $EXPERIMENT --temp_dir $SLURM_TMPDIR --batch_size 512
+# Check for existing zip file and unzip if it exists
+if [ -f "$ZIP_FILE" ]; then
+    echo "Found existing zip file: $ZIP_FILE"
+    cp "$ZIP_FILE" "$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/"
+    cd "$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/"
+    unzip -o matrices.zip
+    echo "Unzipped existing matrices"
+fi
 
-echo "Matrices for rejection level computed!"
+python compute_matrices_for_rejection_level.py --experiment_name $EXPERIMENT --temp_dir $SLURM_TMPDIR --batch_size 512 &
+PYTHON_PID=$!
+
+# Calculate sleep time (total job time - 15 minutes)
+time_limit=$(scontrol show job $SLURM_JOB_ID | grep TimeLimit | awk '{print $2}' | cut -d= -f2)
+IFS=':' read -r hours minutes seconds <<< "$time_limit"
+total_seconds=$((hours*3600 + minutes*60 + seconds))
+sleep_time=$((total_seconds - 900))  # 900 seconds = 15 minutes
+
+echo "Sleeping for $sleep_time seconds"
+sleep $sleep_time
+
+# Kill Python script if still running
+if ps -p $PYTHON_PID > /dev/null; then
+    echo "Killing Python process $PYTHON_PID"
+    kill $PYTHON_PID
+    wait $PYTHON_PID 2>/dev/null
+fi
+
+# Zip the matrices
+echo "Zipping matrices..."
+cd $SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels
+zip -r matrices.zip matrices
+
+# Copy the zip file to $PWD
+echo "Copying zip file to $PWD/experiments/$EXPERIMENT/rejection_levels/..."
+mkdir -p $PWD/experiments/$EXPERIMENT/rejection_levels
+cp matrices.zip $PWD/experiments/$EXPERIMENT/rejection_levels/
+
+echo "Job completed"
