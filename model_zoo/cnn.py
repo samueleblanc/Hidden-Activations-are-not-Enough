@@ -336,10 +336,12 @@ class CNN_2D(nn.Module):
                 x = layer(x)
                 if self.save:
                     self.acts.append(x.detach().clone())
-        return x
 
         self.fc_layers = nn.ModuleList(self.fc_layers)
         self.conv_layers = nn.ModuleList(self.conv_layers)
+
+        return x
+
 
     def get_biases(self):
         """
