@@ -60,6 +60,16 @@ def get_architecture(
             bias = True,
             dropout = dropout,
         )
+    elif architecture_index == -4:
+        model = CNN_2D(input_shape=input_shape,
+                       num_classes=num_classes,
+                       channels=(6, 16),
+                       padding=((2, 2), (0, 0)),
+                       fc=(784, 84),
+                       kernel_size=((5, 5), (5, 5)),
+                       bias=False,
+                       activation="relu",
+                       pooling="avg")
     elif architecture_index == -3:
         model = AlexNet(
             input_shape = input_shape,

@@ -126,6 +126,16 @@ DEFAULT_EXPERIMENTS = {
         'optimizer': 'sgd',
         'momentum': 0.31219518385411765,
         'weight_decay': 0.002428263299304838},
+    'lenet_cifar10': {
+        'epochs': 507,
+        'dataset': 'cifar10',
+        'batch_size': 256,
+        'lr': 0.09997332160161512,
+        'optimizer': 'sgd',
+        'momentum': 0.356455066927686,
+        'weight_decay': 0.0039547952367518496,
+        'reduce_lr': 500,
+    },
 
 
     'experiment_0': {
