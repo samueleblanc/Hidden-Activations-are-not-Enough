@@ -74,7 +74,7 @@ def save_one_matrix(
     if not matrix_save_path.exists():
         im = im.to(device)
         mat = representation.forward(im)
-        torch.save(mat, matrix_save_path)
+        torch.save(mat.cpu(), matrix_save_path)
 
 
 def generate_matrices_for_attacks(
@@ -100,6 +100,13 @@ def generate_matrices_for_attacks(
             dropout: whether the model has dropout layers.
             nb_workers: the number of workers.
     """
+    model = get_model(
+        path=weights_path,
+        architecture_index=architecture_index,
+        input_shape=input_shape,
+        num_classes=num_classes,
+        device=device
+    ).to(device)
     for attack in ['test'] + ATTACKS:
         if temp_dir is not None:
             path_adv_examples = Path(temp_dir) / f'experiments/{experiment_name}/adversarial_examples' / f"{attack}/adversarial_examples.pth"
@@ -113,13 +120,13 @@ def generate_matrices_for_attacks(
 
         print(f"Generating matrices for attack {attack}.", flush=True)
 
-        model = get_model(
-            path=weights_path,
-            architecture_index=architecture_index,
-            input_shape=input_shape,
-            num_classes=num_classes,
-            device=device
-        )
+        #model = get_model(
+        #    path=weights_path,
+        #    architecture_index=architecture_index,
+        #    input_shape=input_shape,
+        #    num_classes=num_classes,
+        #    device=device
+        #)
 
         if isinstance(model, MLP):
             representation = MlpRepresentation(model)
@@ -129,7 +136,7 @@ def generate_matrices_for_attacks(
             raise NotImplementedError(f"Model {type(model)} not implemented.")
 
         for i in range(len(attacked_dataset)):
-            save_one_matrix(attacked_dataset[i].detach(),
+            save_one_matrix(attacked_dataset[i],
                             attack,
                             i,
                             experiment_name,
@@ -176,10 +183,10 @@ def main() -> None:
         device=device
     )
 
-    if args.temp_dir is not None:
-        zip_and_cleanup(f'{args.temp_dir}/experiments/{args.experiment_name}/adversarial_matrices/',
-                        f'experiments/{args.experiment_name}/adversarial_matrices/adversarial_matrices',
-                        clean = False)
+    #if args.temp_dir is not None:
+    #    zip_and_cleanup(f'{args.temp_dir}/experiments/{args.experiment_name}/adversarial_matrices/',
+    #                    f'experiments/{args.experiment_name}/adversarial_matrices/adversarial_matrices',
+    #                    clean = False)
 
 
 if __name__ == "__main__":

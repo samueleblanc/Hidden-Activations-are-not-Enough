@@ -1,9 +1,9 @@
 #!/bin/bash
 
 #SBATCH --account=def-assem #account to charge the calculation
-#SBATCH --time=08:00:00 #hour:minutes:seconds
+#SBATCH --time=00:20:00 #hour:minutes:seconds
 #SBATCH --gres=gpu:1
-#SBATCH --mem=15G #memory requested
+#SBATCH --mem=8G #memory requested
 #SBATCH --output=slurm_out/adv_mats_%j.out
 #SBATCH --error=slurm_err/adv_mats_%j.err
 
@@ -24,6 +24,6 @@ echo "Adv examples ready."
 
 mkdir -p experiments/$EXPERIMENT/adversarial_matrices/
 
-python generate_adversarial_matrices.py --experiment_name $EXPERIMENT --temp_dir $SLURM_TMPDIR --batch_size 256
+python generate_adversarial_matrices.py --experiment_name $EXPERIMENT --temp_dir $SLURM_TMPDIR --batch_size 512
 
 echo "Done!"
