@@ -219,7 +219,7 @@ def main() -> None:
         device=device,
         batch_size = args.batch_size,
     )
-
+    print("---ALL MATRICES COMPUTED----",flush=True)
     #if args.temp_dir is not None:
     #    zip_and_cleanup(
     #        src_directory = f'{args.temp_dir}/experiments/{experiment}/rejection_levels/matrices/',

@@ -1,17 +1,23 @@
 #!/bin/bash
 
-#SBATCH --account=def-assem #account to charge the calculation
-#SBATCH --time=00:20:00 #hour:minutes:seconds
+#SBATCH --account=def-ko1 #account to charge the calculation
+#SBATCH --time=08:00:00 #hour:minutes:seconds
 #SBATCH --gres=gpu:1
-#SBATCH --mem=8G #memory requested
+#SBATCH --mem=18G #memory requested
 #SBATCH --output=slurm_out/adv_mats_%j.out
 #SBATCH --error=slurm_err/adv_mats_%j.err
 
 EXPERIMENT="alexnet_cifar10"
-ZIP_TIME=15 # in minutes
+ZIP_TIME=30 # in minutes
+hours=8
+minutes=0
+seconds=0
+
 
 module load StdEnv/2023 python/3.10.13 scipy-stack/2025a #load the required module
 source env_nibi/bin/activate #load the virtualenv (absolute or relative path to where the script is submitted)
+
+HOME_DIR="/home/armenta/scratch/KnowledgeMatrices/Hidden-Activations-are-not-Enough"
 
 mkdir -p $SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
 echo "Copying weights..."
@@ -35,14 +41,12 @@ if [ -f "$ZIP_FILE" ]; then
 fi
 
 # Run Python script in background and capture its PID
-python generate_adversarial_matrices.py --experiment_name $EXPERIMENT --temp_dir $SLURM_TMPDIR --batch_size 512 &
+python generate_adversarial_matrices.py --experiment_name $EXPERIMENT --temp_dir $SLURM_TMPDIR --batch_size 3072 &
 PYTHON_PID=$!
 
 # Calculate sleep time (total time - 15 minutes)
-TIME_LIMIT=$(scontrol show job $SLURM_JOB_ID | grep "TimeLimit" | awk '{print $1}' | cut -d'=' -f2)
-IFS=':' read -r hours minutes seconds <<< "$TIME_LIMIT"
 total_seconds=$((hours*3600 + minutes*60 + seconds))
-sleep_time=$((total_seconds - ZIP_TIME*60))  # 900 seconds = 15 minutes
+sleep_time=$((total_seconds - 60*ZIP_TIME))  # 900=15*60 seconds = 15 minutes
 
 # Ensure sleep_time is not negative
 if [ $sleep_time -lt 0 ]; then
@@ -63,10 +67,12 @@ fi
 echo "Zipping matrices..."
 cd $SLURM_TMPDIR/experiments/$EXPERIMENT
 zip -r adversarial_matrices.zip adversarial_matrices
-
+cd -
 # Copy the zip file to the permanent directory
-echo "Copying zip file to $PWD/experiments/$EXPERIMENT/adversarial_matrices/..."
-mkdir -p $PWD/experiments/$EXPERIMENT/adversarial_matrices
-cp adversarial_matrices.zip $PWD/experiments/$EXPERIMENT/adversarial_matrices/
+#echo "Zip file: $SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_matrices.zip"
+echo "Copying zip file $SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_matrices.zip to $PWD/experiments/$EXPERIMENT/adversarial_matrices/"
+mkdir -p $PWD/experiments/$EXPERIMENT/adversarial_matrices/
+cp $SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_matrices.zip $PWD/experiments/$EXPERIMENT/adversarial_matrices/ || { echo "Failed to copy zip file"; exit 1; }
+#cp adversarial_matrices.zip $PWD/experiments/$EXPERIMENT/adversarial_matrices/
 
 echo "Done!"

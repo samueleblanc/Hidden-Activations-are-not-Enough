@@ -1,15 +1,20 @@
 #!/bin/bash
 
-#SBATCH --account=def-bruestle #account to charge the calculation
-#SBATCH --time=00:30:00 #hour:minutes:seconds
+#SBATCH --account=def-ko1 #account to charge the calculation
+#SBATCH --time=06:00:00 #hour:minutes:seconds
 #SBATCH --gres=gpu:1
-#SBATCH --mem=10G #memory requested
+#SBATCH --mem=13G #memory requested
 #SBATCH --output=slurm_out/mats_rej_lev_gpu_%j.out
 #SBATCH --error=slurm_err/mats_rej_lev_gpu_%j.err
 
+hours=6
+minutes=0
+seconds=0
+zip_time=20
+
 EXPERIMENT="alexnet_cifar10"
 ZIP_FILE="$PWD/experiments/$EXPERIMENT/rejection_levels/matrices.zip"
-ZIP_TIME = 15 # in minutes
+HOME_DIR="/scratch/armenta"
 
 # Create output and error directories if they don't exist
 mkdir -p $PWD/slurm_out
@@ -48,17 +53,16 @@ if [ -f "$ZIP_FILE" ]; then
     cp "$ZIP_FILE" "$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/"
     cd "$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/"
     unzip -o matrices.zip
-    cd ../../../../
     echo "Unzipped existing matrices"
 fi
 
-python compute_matrices_for_rejection_level.py --experiment_name $EXPERIMENT --temp_dir $SLURM_TMPDIR --batch_size 512 &
+python compute_matrices_for_rejection_level.py --experiment_name $EXPERIMENT --temp_dir $SLURM_TMPDIR --batch_size 3072 &
 PYTHON_PID=$!
 
-time_limit=$(scontrol show job $SLURM_JOB_ID | grep TimeLimit | awk '{print $2}' | cut -d= -f2)
-IFS=':' read -r hours minutes seconds <<< "$time_limit"
+#time_limit=$(scontrol show job $SLURM_JOB_ID | grep TimeLimit | awk '{print $2}' | cut -d= -f2)
+#IFS=':' read -r hours minutes seconds <<< "$time_limit"
 total_seconds=$((hours*3600 + minutes*60 + seconds))
-sleep_time=$((total_seconds - $ZIP_TIME*60))  # Reserve 15 minutes for cleanup
+sleep_time=$((total_seconds - zip_time*60))
 if [ $sleep_time -lt 0 ]; then
     sleep_time=0
 fi
@@ -73,6 +77,7 @@ if ps -p $PYTHON_PID > /dev/null; then
 fi
 
 # Zip the matrices
+#cd $SLURM_TMPDIR/experiments/alexnet_cifar10/rejection_levels
 if [ -d "matrices" ]; then
     echo "Zipping matrices..."
     cd $SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels
@@ -83,9 +88,10 @@ else
 fi
 
 # Copy the zip file to $PWD
-if [ -f "$SLURM_TMPDIR/experiments/alexnet_cifar10/rejection_levels/matrices.zip" ]; then
-    echo "Copying zip file to $PWD/experiments/alexnet_cifar10/rejection_levels/..."
-    cp $SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/matrices.zip $PWD/experiments/$EXPERIMENT/rejection_levels/
+if [ -f "$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/matrices.zip" ]; then
+    echo "Copying zip file $SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/matrices.zip to $HOME_DIR/experiments/$EXPERIMENT/rejection_levels/"
+    mkdir -p $HOME_DIR/experiments/$EXPERIMENT/rejection_levels/
+    cp $SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/matrices.zip $HOME_DIR/experiments/$EXPERIMENT/rejection_levels/ || { echo "Failed to copy zip file"; exit 1; }
 else
     echo "No zip file to copy"
 fi
