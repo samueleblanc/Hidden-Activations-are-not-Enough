@@ -17,19 +17,22 @@ from model_zoo.vgg import VGG
 from constants.constants import ARCHITECTURES
 
 
-def get_device() -> torch.device:
+def get_device(verbose=False) -> torch.device:
     """
         Returns:
             The device to use.
     """
     if torch.cuda.is_available():
-        print("DEVICE: cuda")
+        if verbose:
+            print("DEVICE: cuda")
         return torch.device("cuda")
     elif torch.backends.mps.is_available():
-        print("DEVICE: mps")
+        if verbose:
+            print("DEVICE: mps")
         return torch.device("mps")
     else:
-        print("DEVICE: cpu")
+        if verbose:
+            print("DEVICE: cpu")
         return torch.device("cpu")
 
 
@@ -93,7 +96,7 @@ def get_model(
         architecture_index: int,
         input_shape,
         num_classes: int,
-        device: torch.device,
+        device: torch.device = torch.device('cpu'),
     ) -> Union[MLP, CNN_2D, ResNet, AlexNet, VGG]:
     """ 
         Args:
@@ -428,7 +431,7 @@ def zero_std(
         Returns:
             The number of elements in the ellipsoid.
     """
-    return torch.count_nonzero(torch.logical_and((ellipsoid_std <= epsilon), (matrix > epsilon)))
+    return torch.count_nonzero(torch.logical_and((ellipsoid_std.detach().cpu() <= epsilon), (matrix.detach().cpu() > epsilon)))
 
 def subset(
         train_set, 
@@ -480,3 +483,36 @@ def zip_and_cleanup(
                 os.remove(os.path.join(root, name))
             for name in dirs:
                 os.rmdir(os.path.join(root, name))
+
+def get_parameters_baseline(dataset):
+    param_sets = {
+        'mnist': {
+            'knn': [3, 5, 7],
+            'kde': [0.5, 1, 1.5],
+            'gmm': [10, 20, 30],
+            'ocsvm': [0.01, 0.05, 0.1],
+            'iforest': [50, 100, 150],
+            'softmax': [0.9, 0.95, 0.99],
+            'mahalanobis': [0.9, 0.95, 0.99]
+        },
+        'cifar10': {
+            'knn': [5, 10, 15],
+            'kde': [1, 2, 3],
+            'gmm': [10, 20, 30],
+            'ocsvm': [0.01, 0.05, 0.1],
+            'iforest': [100, 150, 200],
+            'softmax': [0.5, 0.7, 0.9],
+            'mahalanobis': [0.9, 0.95, 0.99]
+        },
+        'cifar100': {
+            'knn': [10, 15, 20],
+            'kde': [1.5, 2.5, 3.5],
+            'gmm': [50, 100, 150],
+            'ocsvm': [0.05, 0.1, 0.2],
+            'iforest': [150, 200, 250],
+            'softmax': [0.3, 0.5, 0.7],
+            'mahalanobis': [0.9, 0.95, 0.99]
+        }
+    }
+
+    return param_sets[dataset]

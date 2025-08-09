@@ -13,7 +13,7 @@ from model_zoo.alex_net import AlexNet
 from model_zoo.res_net import ResNet
 from model_zoo.vgg import VGG
 from matrix_construction.matrix_computation import MlpRepresentation, ConvRepresentation_2D
-from utils.utils import get_architecture, get_dataset, get_num_classes, get_input_shape
+from utils.utils import get_architecture, get_dataset, get_num_classes, get_input_shape, get_device
 
 
 class ParallelMatrixConstruction:
@@ -40,7 +40,7 @@ class ParallelMatrixConstruction:
         self.chunk_size: int = dict_exp['chunk_size']
         self.save_path: str = dict_exp['save_path']
         self.architecture_index: int = dict_exp['architecture_index']
-        self.device = 'cuda'
+        self.device = get_device()
         self.batch_size = dict_exp['batch_size']
         self.num_classes: int = get_num_classes(self.dataname)
 
@@ -57,7 +57,7 @@ class ParallelMatrixConstruction:
         if isinstance(model, MLP):
             matrix_computer = MlpRepresentation(model=model)
         elif isinstance(model, (CNN_2D, AlexNet, ResNet, VGG)):
-            matrix_computer = ConvRepresentation_2D(model=model, batch_size=self.batch_size)
+            matrix_computer = ConvRepresentation_2D(model=model, batch_size=self.batch_size, device=get_device())
         else:
             raise ValueError(f"Architecture not supported: {model}. Expects MLP, CNN_2D, AlexNet, ResNet, or VGG.")
 
@@ -143,7 +143,7 @@ class ParallelMatrixConstruction:
                 # if the path has been created, someone else is already computing the matrix
                 continue
             '''
-
+            print(f"Chunk: {chunk_id}. Class {out_class}. Matrix {i}/{len(data)}")
             matrix = matrix_computer.forward(d)
             os.makedirs(root)
             torch.save(matrix, matrix_path)

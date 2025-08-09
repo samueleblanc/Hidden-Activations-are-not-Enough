@@ -4,7 +4,7 @@ from argparse import ArgumentParser, Namespace
 from pathlib import Path
 from typing import Union
 
-from utils.utils import get_model, get_dataset, subset, get_num_classes, get_input_shape
+from utils.utils import get_model, get_dataset, subset, get_num_classes, get_input_shape, get_device
 from constants.constants import DEFAULT_EXPERIMENTS, ATTACKS
 
 
@@ -65,7 +65,7 @@ def apply_attack(
         Returns:
             The name of the attack and the adversarial examples (that are misclassified).
     """
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    device = get_device()
     print(f"Using device: {device}", flush=True)
 
     attack_save_path = path_adv_examples / f'{attack_name}/adversarial_examples.pth'

@@ -12,14 +12,15 @@ os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 from optuna.storages import JournalStorage
 from optuna.storages.journal import JournalFileBackend
 
-MODEL = 'resnet'
+MODEL = 'vgg'
 DATASET = 'cifar10'
-VERSION = '01'
+VERSION = '02'
 
 
 def train_model(trial):
     # Define hyperparameters to tune
-    batch_size = trial.suggest_categorical("batch_size", [32, 64, 128, 256, 512])
+    #batch_size = trial.suggest_categorical("batch_size", [32, 64, 128, 256, 512])
+    batch_size = trial.suggest_categorical("batch_size", [32, 64, 128])
     learning_rate = trial.suggest_float("learning_rate", 1e-4, 0.1)
     opt = trial.suggest_categorical("optimizer", ['adam', 'sgd'])
     mom = trial.suggest_float('momentum', 0, 0.99)
@@ -37,11 +38,10 @@ def train_model(trial):
         data_path=None
     )
 
-    device = 'cpu'#get_device()
+    device = get_device()
     num_classes = get_num_classes(DATASET)
 
     if MODEL == 'lenet':
-
         model = CNN_2D(input_shape=(3, 32, 32),
                        num_classes=num_classes,
                        channels=(6, 16),
@@ -54,7 +54,6 @@ def train_model(trial):
         epochs = 200
 
     elif MODEL == 'resnet':
-
         # Define the ResNet18-like architecture
         #           1    2   3   4  5    6   7    8    9    10   11   12   13   14   15   16   17   18   19    20
         channels = [64, 64, 64, 64, 64, 128, 128, 128, 128, 128, 256, 256, 256, 256, 256, 512, 512, 512, 512, 512,
@@ -80,7 +79,6 @@ def train_model(trial):
         ).to(device)
 
     elif MODEL == 'vgg':
-
         model = CNN_2D(
             input_shape=(3, 32, 32),  # CIFAR-10: 3 channels, 32x32 images
             num_classes=num_classes,  # 10 classes in CIFAR-10
@@ -127,7 +125,7 @@ def train_model(trial):
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
-            torch.cuda.synchronize()
+            #torch.cuda.synchronize()
             scheduler.step()
 
     # Evaluate the model on the validation set
@@ -151,15 +149,15 @@ def save_study(study, trial):
     # /lustre07/ -> narval
     # /lustre04/ -> beluga
     # /          -> graham & nibi
-    study_dir = "/scratch/armenta/"
-    if not os.path.exists(study_dir):
-        os.makedirs(study_dir)
-    joblib.dump(study, f"/scratch/armenta/{MODEL}_{DATASET}_hypersearch_{VERSION}.pkl")
+    #study_dir = "/scratch/armenta/"
+    #if not os.path.exists(study_dir):
+    #    os.makedirs(study_dir)
+    joblib.dump(study, f"{MODEL}_{DATASET}_hypersearch_{VERSION}.pkl")
 
 
 if __name__ == '__main__':
     # Create a study object and specify the direction
-    storage = JournalStorage(JournalFileBackend(f'/scratch/armenta/{MODEL}_{DATASET}_journal_{VERSION}.log'))
+    storage = JournalStorage(JournalFileBackend(f'{MODEL}_{DATASET}_journal_{VERSION}.log'))
     study = optuna.create_study(direction="maximize",
                                 study_name=f"{MODEL}_{DATASET}_{VERSION}",
                                 storage=storage,
@@ -167,7 +165,7 @@ if __name__ == '__main__':
 
     study.optimize(train_model,
                    n_trials=100,
-                   n_jobs=torch.cuda.device_count(),
+                   #n_jobs=torch.cuda.device_count(),
                    callbacks=[save_study])
 
     # Print the best hyperparameters and accuracy

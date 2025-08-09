@@ -13,7 +13,7 @@ def parse_args() -> Namespace:
     parser = ArgumentParser()
     parser.add_argument("--experiment_name", type=str, default=None, help="The index for default experiment")
     parser.add_argument("--num_samples_per_class", type=int, default=1000, help="Number of data samples per class")
-    parser.add_argument("--temp_dir", type=str, help="Temporary directory for data")
+    parser.add_argument("--temp_dir", default=None, type=str, help="Temporary directory for data")
     parser.add_argument("--chunk_id", type=int, default=None, help="Chunk ID to process (set by Slurm task ID)")
     parser.add_argument("--total_chunks", type=int, default=1, help="Total number of chunks")
     parser.add_argument("--batch_size", type=int, default=16, help="Number of samples to process at a time per GPU")
@@ -39,13 +39,15 @@ def main() -> None:
 
     if args.temp_dir is not None:
         weights_path = f'{args.temp_dir}/experiments/{experiment}/weights/'
+        save_path = f'{args.temp_dir}/experiments/{experiment}/matrices'
     else:
         weights_path = f'experiments/{experiment}/weights/'
+        save_path = f'experiments/{experiment}/matrices'
 
     if not os.path.exists(weights_path):
         raise ValueError(f"Model needs to be trained first")
 
-    save_path = f'{args.temp_dir}/experiments/{experiment}/matrices'
+
 
     dict_exp = {
         "epochs": epochs,
@@ -59,8 +61,8 @@ def main() -> None:
     }
 
     # Set device to the GPU assigned to this task
-    gpu_id = chunk_id % torch.cuda.device_count()  # Cycle through available GPUs
-    torch.cuda.set_device(gpu_id)
+    gpu_id = 1#chunk_id % torch.cuda.device_count()  # Cycle through available GPUs
+    #torch.cuda.set_device(gpu_id)
     print(f"Processing chunk {chunk_id} on GPU {gpu_id}", flush=True)
 
     mat_constructer = ParallelMatrixConstruction(dict_exp)
