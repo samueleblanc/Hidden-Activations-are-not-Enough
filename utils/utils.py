@@ -53,7 +53,7 @@ def get_architecture(
             dropout: Whether to use dropout.
         Returns:
             The architecture to use.
-    """
+
     if architecture_index <= 7 and architecture_index >= 0:
         model = MLP(
             input_shape = input_shape,
@@ -63,6 +63,18 @@ def get_architecture(
             bias = True,
             dropout = dropout,
         )
+    """
+    if architecture_index == -4:
+        print("Lenet LOADED", flush=True)
+        model = CNN_2D(input_shape=input_shape,
+                       num_classes=num_classes,
+                       channels=(6, 16),
+                       padding=((2, 2), (0, 0)),
+                       fc=(784, 84),
+                       kernel_size=((5, 5), (5, 5)),
+                       bias=False,
+                       activation="relu",
+                       pooling="avg")
     elif architecture_index == -3:
         model = AlexNet(
             input_shape = input_shape,

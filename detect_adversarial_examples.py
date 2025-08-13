@@ -292,7 +292,7 @@ def reject_predicted_attacks_baseline(
     # Initialize results dictionaries for each method
     counts = {
         method: {
-            parameters[method][parameter]: {
+            str(parameters[method][parameter]): {
                 attack: {
                     'not_rejected_and_attacked': 0,
                     'not_rejected_and_not_attacked': 0,
@@ -366,12 +366,12 @@ def reject_predicted_attacks_baseline(
                         counts = counts_current
 
                     else:
-                        print(f'Found and load method: {method}, parameter: {param}, attack: {a}', flush=True)
+                        print(f'Found and loaded method: {method}, parameter: {str(parameters[method][param])}, attack: {a}', flush=True)
                         continue
 
                 if test_accuracy_file.exists():
                     with open(test_accuracy_file, 'r') as file:
-                        current_acc = json.load(file)
+                        test_acc = json.load(file)
 
                     #if all(value == 0 for value in current_acc[method][str(parameters[method][param])].values()):
                     #    test_acc = current_acc
@@ -406,16 +406,18 @@ def reject_predicted_attacks_baseline(
                 elif method == 'iforest':
                     predictions = iforest.predict(current_features) == -1
                 elif method == 'softmax':
-                    logits = [model.forward(att.unsqueeze(0)) for att in attacked_dataset]
+                    logits = [model.forward(att.unsqueeze(0).to(get_device())) for att in attacked_dataset]
                     probs = [torch.nn.functional.softmax(log, dim=1) for log in logits]
                     confidences = [p.max(dim=1).values for p in probs]
-                    predictions = [conf < parameters['softmax'] for conf in confidences]
+                    predictions = [conf.cpu().detach().numpy() < np.array(parameters['softmax']) for conf in confidences]
                 elif method == 'mahalanobis':
                     predictions = get_min_mahalanobis_distances(current_features) < mahalanobis_threshold
                 else:
                     raise ValueError(f"Method {method} not found.")
 
                 for i, is_adversarial in enumerate(predictions):
+                    if method == 'softmax':
+                        is_adversarial = is_adversarial[0]
                     results.append((is_adversarial, a != "test"))
                     if a == "test":
                         if not is_adversarial:
@@ -507,16 +509,16 @@ def reject_predicted_attacks_baseline_matrices(
     # TODO: The range in the loop should be easily adjustable.
     num_train_examples = 10000
     num_train_examples_per_class = num_train_examples // num_classes
-    train_data = torch.Tensor()
-    train_labels = torch.Tensor()
+    train_data = torch.Tensor().to(get_device())
+    train_labels = torch.Tensor().to(get_device())
     for i in range(num_classes):
         for j in range(num_train_examples_per_class):
             if temp_dir is not None:
                 train_data = torch.cat((train_data, torch.load(f'{temp_dir}/experiments/{experiment_name}/matrices/{i}/{j}/matrix.pt').unsqueeze(0)), dim=0)
-                train_labels = torch.cat((train_labels, torch.Tensor([i])), dim=0)
+                train_labels = torch.cat((train_labels, torch.Tensor([i]).to(get_device())), dim=0)
             else:
-                train_data = torch.cat((train_data, torch.load(f'experiments/{experiment_name}/matrices/{i}/{j}/matrix.pt').unsqueeze(0)), dim=0)
-                train_labels = torch.cat((train_labels, torch.Tensor([i])), dim=0)
+                train_data = torch.cat((train_data, torch.load(f'experiments/{experiment_name}/matrices/{i}/{j}/matrix.pt').unsqueeze(0).to(get_device())), dim=0)
+                train_labels = torch.cat((train_labels, torch.Tensor([i]).to(get_device())), dim=0)
 
     train_data = train_data.reshape(train_data.shape[0], -1).detach().cpu().numpy()
 
@@ -526,7 +528,7 @@ def reject_predicted_attacks_baseline_matrices(
     # Initialize results dictionaries for each method
     counts = {
         method: {
-            parameters[method][parameter]: {
+            str(parameters[method][parameter]): {
                 attack: {
                     'not_rejected_and_attacked': 0,
                     'not_rejected_and_not_attacked': 0,
@@ -539,7 +541,7 @@ def reject_predicted_attacks_baseline_matrices(
 
     test_acc = {
         method: {
-            parameters[method][parameter]: 0
+            str(parameters[method][parameter]): 0
                 for parameter in range(len(parameters[method]))
         } for method in methods
     }
@@ -548,7 +550,7 @@ def reject_predicted_attacks_baseline_matrices(
     class_means = {}
     class_covariances = {}
     for class_idx in range(num_classes):
-        class_data = train_data[train_labels == class_idx]
+        class_data = train_data[train_labels.detach().cpu() == class_idx]
         class_means[class_idx] = np.mean(class_data, axis=0)
         class_covariances[class_idx] = np.cov(class_data, rowvar=False)
     
@@ -592,34 +594,35 @@ def reject_predicted_attacks_baseline_matrices(
             for a in ["test"] + ATTACKS:
                 if counts_file.exists():
                     with open(counts_file, 'r') as file:
+
                         counts_current = json.load(file)
 
                     if all(value == 0 for value in counts_current[method][str(parameters[method][param])][a].values()):
                         counts = counts_current
 
                     else:
-                        print(f'Found and load method: {method}, parameter: {param}, attack: {a}', flush=True)
+                        print(f'Found and loaded method: {method}, parameter: {str(parameters[method][param])}, attack: {a}', flush=True)
                         continue
 
                 if test_accuracy_file.exists():
                     with open(test_accuracy_file, 'r') as file:
-                        current_acc = json.load(file)
+                        test_acc = json.load(file)
 
-                    if all(value == 0 for value in current_acc[method][str(parameters[method][param])].values()):
-                        test_acc = current_acc
+                    #if all(value == 0 for value in current_acc[method][str(parameters[method][param])].values()):
+                    #    test_acc = current_acc
 
-                    else:
-                        continue
+                    #else:
+                    #    continue
 
                 attack_found = True
                 print(f"\n\nEvaluating {a} examples", flush=True)
-                attacked_dataset = torch.Tensor()
+                attacked_dataset = torch.Tensor().to(get_device())
                 for i in range(len(train_data)):
                     try:
                         if temp_dir is not None:
-                            attacked_dataset = torch.cat((attacked_dataset, torch.load(f'{temp_dir}/experiments/{experiment_name}/adversarial_matrices/{a}/{i}/matrix.pth').unsqueeze(0)), dim=0)
+                            attacked_dataset = torch.cat((attacked_dataset, torch.load(f'{temp_dir}/experiments/{experiment_name}/adversarial_matrices/{a}/{i}/matrix.pth').unsqueeze(0).to(get_device())), dim=0)
                         else:
-                            attacked_dataset = torch.cat((attacked_dataset, torch.load(f'experiments/{experiment_name}/adversarial_matrices/{a}/{i}/matrix.pth').unsqueeze(0)), dim=0)
+                            attacked_dataset = torch.cat((attacked_dataset, torch.load(f'experiments/{experiment_name}/adversarial_matrices/{a}/{i}/matrix.pth').unsqueeze(0).to(get_device())), dim=0)
                     except:
                         if i == 0:
                             print(f"Attack {a} not found.", flush=True)
@@ -654,33 +657,33 @@ def reject_predicted_attacks_baseline_matrices(
                     results.append((is_adversarial, a != "test"))
                     if a == "test":
                         if not is_adversarial:
-                            counts[method][parameters[method][param]][a]['not_rejected_and_not_attacked'] += 1
+                            counts[method][str(parameters[method][param])][a]['not_rejected_and_not_attacked'] += 1
                             pred = torch.argmax(attacked_dataset[i].sum(dim=0))
                             if pred == test_labels[i]:
-                                test_acc[method][parameters[method][param]] += 1
+                                test_acc[method][str(parameters[method][param])] += 1
                         else:
-                            counts[method][parameters[method][param]][a]['rejected_and_not_attacked'] += 1
+                            counts[method][str(parameters[method][param])][a]['rejected_and_not_attacked'] += 1
                     else:
                         if is_adversarial:
-                            counts[method][parameters[method][param]][a]['rejected_and_attacked'] += 1
+                            counts[method][str(parameters[method][param])][a]['rejected_and_attacked'] += 1
                         else:
-                            counts[method][parameters[method][param]][a]['not_rejected_and_attacked'] += 1
+                            counts[method][str(parameters[method][param])][a]['not_rejected_and_attacked'] += 1
                     
                 # Print results
                 if verbose:
                     print(f"\nResults for {method.upper()}:")
                     if a == 'test':
-                        print(f'Wrongly rejected test data: {counts[method][parameters[method][param]][a]["rejected_and_not_attacked"]}')
-                        print(f'Trusted test data: {counts[method][parameters[method][param]][a]["not_rejected_and_not_attacked"]}')
+                        print(f'Wrongly rejected test data: {counts[method][str(parameters[method][param])][a]["rejected_and_not_attacked"]}')
+                        print(f'Trusted test data: {counts[method][str(parameters[method][param])][a]["not_rejected_and_not_attacked"]}')
                         
-                        if counts[method][parameters[method][param]][a]['not_rejected_and_not_attacked'] > 0:
-                            test_acc[method][parameters[method][param]] = test_acc[method][parameters[method][param]] / counts[method][parameters[method][param]][a]['not_rejected_and_not_attacked']
+                        if counts[method][str(parameters[method][param])][a]['not_rejected_and_not_attacked'] > 0:
+                            test_acc[method][str(parameters[method][param])] = test_acc[method][str(parameters[method][param])] / counts[method][str(parameters[method][param])][a]['not_rejected_and_not_attacked']
                         else:
-                            test_acc[method][parameters[method][param]] = 0
-                        print(f"Accuracy on trusted test data: {test_acc[method][parameters[method][param]]}")
+                            test_acc[method][str(parameters[method][param])] = 0
+                        print(f"Accuracy on trusted test data: {test_acc[method][str(parameters[method][param])]}")
                     else:
-                        print(f'Detected adversarial examples: {counts[method][parameters[method][param]][a]["rejected_and_attacked"]}')
-                        print(f'Missed adversarial examples: {counts[method][parameters[method][param]][a]["not_rejected_and_attacked"]}')
+                        print(f'Detected adversarial examples: {counts[method][str(parameters[method][param])][a]["rejected_and_attacked"]}')
+                        print(f'Missed adversarial examples: {counts[method][str(parameters[method][param])][a]["not_rejected_and_attacked"]}')
 
                 good_defence = 0
                 wrongly_rejected = 0
@@ -692,7 +695,7 @@ def reject_predicted_attacks_baseline_matrices(
                     else:
                         wrongly_rejected += int(rej)
 
-                result_line = f"{method},{parameters[method][param]},{a},{experiment_name},{good_defence/num_att},{wrongly_rejected/(len(results)-num_att)}\n"
+                result_line = f"{method},{str(parameters[method][param])},{a},{experiment_name},{good_defence/num_att},{wrongly_rejected/(len(results)-num_att)}\n"
 
                 # Write the result to the file
                 with open(output_file, 'a') as f:
