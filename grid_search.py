@@ -5,6 +5,7 @@ import pandas as pd
 from pathlib import Path
 from numpy import geomspace
 from multiprocessing import Pool
+import multiprocessing as mp
 from argparse import ArgumentParser, Namespace
 from typing import Union
 
@@ -146,6 +147,7 @@ def run_adv_examples_script(params: tuple) -> None:
             temp_dir = temp_dir
         )
     elif rej_lev_flag == 0:
+        print('DETECTING... \n', flush=True)
         result = detect_adversarial_examples(
             experiment_name = experiment_name,
             t_epsilon = t_epsilon,
@@ -154,7 +156,7 @@ def run_adv_examples_script(params: tuple) -> None:
             temp_dir = temp_dir,
             baseline = baseline
         )
-
+        print('DETECTION FINISHED...\n', flush=True)
         # Extract the metrics from the output
         output_lines = result.split('\n')
         good_defences = None
@@ -170,9 +172,9 @@ def run_adv_examples_script(params: tuple) -> None:
             print(result_line.strip())
 
             # Write the result to the file
-            #with lock:
-            with open(output_file, 'a') as f:
-                f.write(result_line)
+            with lock:
+                with open(output_file, 'a') as f:
+                    f.write(result_line)
 
     else:
         print("Error: Invalid rej_lev flag", flush=True)
@@ -239,23 +241,44 @@ def main() -> None:
     if not os.path.exists(output_file):
         with open(output_file, 'w') as f:
             f.write("t_epsilon,epsilon,epsilon_p,experiment_name,good_defence,wrong_rejection\n")
-    lock = None
+    lock = mp.Manager().Lock()
     # Prepare arguments
-    param_grid_with_lock = [(t_epsilon, epsilon, epsilon_p, index, lock, output_file, args.temp_dir, args.rej_lev) for t_epsilon, epsilon, epsilon_p, index, _ in param_grid]
+    param_grid_with_lock = [(t_epsilon, epsilon, epsilon_p, index, lock, output_file, args.temp_dir, args.rej_lev)
+                            for t_epsilon, epsilon, epsilon_p, index, _ in param_grid]
 
     # This case assumes rejection levels were already computed.
     if args.rej_lev == 0:
-        param_grid_filtered = [(t_epsilon, epsilon, epsilon_p, experiment_name, lock, output_file, args.temp_dir, args.rej_lev) for t_epsilon, epsilon, epsilon_p, experiment_name, lock, output_file, args.temp_dir, _ in param_grid_with_lock if f'reject_at_{t_epsilon}_{epsilon}.json' in files_to_keep]
+        param_grid_filtered = [(t_epsilon,
+                                epsilon,
+                                epsilon_p,
+                                experiment_name,
+                                lock,
+                                output_file,
+                                args.temp_dir,
+                                args.rej_lev)
+                               for t_epsilon, epsilon, epsilon_p, experiment_name, lock, output_file, args.temp_dir, _ in param_grid_with_lock
+                               if f'reject_at_{t_epsilon}_{epsilon}.json' in files_to_keep]
         for i in range(len(param_grid_filtered)):
             param_grid_filtered[i] = param_grid_filtered[i] + (i==0,)
         with Pool(processes=args.nb_workers) as pool:
             pool.map(run_adv_examples_script, param_grid_filtered)
     # This case computes rejection levels only using std and d1.
     else:
-        param_grid_with_lock_rej_lev = [(t_epsilon, epsilon, 0, experiment_name, lock, output_file, args.temp_dir, args.rej_lev, False) for t_epsilon, epsilon, epsilon_p, experiment_name, _ in param_grid]
+        param_grid_with_lock_rej_lev = [(t_epsilon,
+                                         epsilon,
+                                         0,
+                                         experiment_name,
+                                         lock,
+                                         output_file,
+                                         args.temp_dir,
+                                         args.rej_lev,
+                                         False)
+                                        for t_epsilon, epsilon, epsilon_p, experiment_name, _ in param_grid]
+
         with Pool(processes=args.nb_workers) as pool:
             pool.map(run_adv_examples_script, param_grid_with_lock_rej_lev)
 
 
 if __name__ == "__main__":
+    mp.set_start_method('spawn', force=True)
     main()

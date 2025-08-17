@@ -7,13 +7,56 @@ from sklearn.neighbors import KernelDensity
 from sklearn.mixture import GaussianMixture
 from sklearn.svm import OneClassSVM
 from sklearn.ensemble import IsolationForest
-from scipy.spatial.distance import mahalanobis
+# from scipy.spatial.distance import mahalanobis  # not used in vectorized version
 from argparse import Namespace
 from pathlib import Path
 from typing import Union
+import multiprocessing as mp
+from joblib import dump, load
 
 from utils.utils import get_ellipsoid_data, zero_std, get_model, get_dataset, subset, get_num_classes, get_input_shape, get_device, get_parameters_baseline
 from constants.constants import DEFAULT_EXPERIMENTS, ATTACKS
+
+# Optional: force-cache rebuild by setting env var REBUILD_CACHE=1
+FORCE_REBUILD_CACHE = os.environ.get('REBUILD_CACHE', '0') == '1'
+
+
+def _ensure_np(x):
+    if isinstance(x, torch.Tensor):
+        return x.detach().cpu().numpy()
+    return np.asarray(x)
+
+
+def _vectorized_min_mahalanobis(feats: np.ndarray, class_means: dict, class_covariances: dict) -> np.ndarray:
+    """
+    feats: (N, D) numpy array
+    class_means: dict{k: 1D numpy array (D,)}
+    class_covariances: dict{k: 2D numpy array (D, D)}
+    returns: (N,) min Mahalanobis distance to any class
+    """
+    feats = np.asarray(feats).reshape(feats.shape[0], -1)
+    N, D = feats.shape
+    min_dists = np.full((N,), np.inf, dtype=float)
+
+    # precompute pseudo-inverses
+    inv_covs = {}
+    for k, cov in class_covariances.items():
+        cov = np.asarray(cov)
+        # regularize small covariances
+        try:
+            inv_covs[k] = np.linalg.pinv(cov)
+        except Exception:
+            inv_covs[k] = np.linalg.pinv(cov + 1e-6 * np.eye(cov.shape[0]))
+
+    for k in class_means.keys():
+        mean_k = np.asarray(class_means[k]).ravel()
+        diff = feats - mean_k  # (N, D)
+        inv_cov = inv_covs[k]
+        # Mahalanobis squared distances via einsum
+        dists_sq = np.einsum('ij,jk,ik->i', diff, inv_cov, diff)
+        min_dists = np.minimum(min_dists, np.sqrt(np.maximum(dists_sq, 0.0)))
+
+    return min_dists
 
 
 def reject_predicted_attacks(
@@ -23,29 +66,16 @@ def reject_predicted_attacks(
         input_shape,
         num_classes: int,
         ellipsoids: dict,
-        t_epsilon:float = 2,
-        epsilon:float = 0.1,
-        epsilon_p:float = 0.1,
-        verbose:bool = True,
-        temp_dir:Union[str, None] = None
+        t_epsilon: float = 2,
+        epsilon: float = 0.1,
+        epsilon_p: float = 0.1,
+        verbose: bool = True,
+        temp_dir: Union[str, None] = None
     ) -> str:
     """
-        Goes over the dataset and predicts if it is an adversarial example or not.
-
-        Args:
-            experiment_name: experiment index (See constants/constants.py).
-            weights_path: the path to the weights.
-            architecture_index: the index of the architecture (See constants/constants.py).
-            residual: whether the model has residual connections.
-            input_shape: the shape of the input.
-            num_classes: the number of classes.
-            dropout: whether the model has dropout layers.
-            ellipsoids: the ellipsoids.
-            t_epsilon: t^epsilon from the paper.
-            epsilon: the threshold for matrix statistics.
-            epsilon_p: the threshold for detection.
-            verbose: whether to print the results.
-            temp_dir: the temporary directory.
+    Goes over the dataset and predicts if it is an adversarial example or not.
+    This function expects adversarial_matrices present (one per example).
+    It preloads matrices per-attack to avoid repeated IO and excessive .to(device) calls.
     """
     if temp_dir is not None:
         reject_path = f'{temp_dir}/experiments/{experiment_name}/rejection_levels/reject_at_{t_epsilon}_{epsilon}.json'
@@ -57,17 +87,17 @@ def reject_predicted_attacks(
     device = get_device()
 
     model = get_model(
-        path = weights_path,
-        architecture_index = architecture_index,
-        input_shape = input_shape,
-        num_classes = num_classes,
+        path=weights_path,
+        architecture_index=architecture_index,
+        input_shape=input_shape,
+        num_classes=num_classes,
         device=device
     )
 
     if os.path.exists(reject_path):
         print("Loading rejection level...", flush=True)
-        file = open(reject_path)
-        reject_at = json.load(file)[0]
+        with open(reject_path, 'r') as file:
+            reject_at = json.load(file)[0]
     else:
         print(f"File does not exists: {reject_path}", flush=True)
         return
@@ -77,15 +107,14 @@ def reject_predicted_attacks(
         return
 
     print(f"Will reject when 'zero dims' < {reject_at}.", flush=True)
-    adv_succes = {attack: [] for attack in ["test"]+ATTACKS}  # Save adversarial examples that were not detected
+    adv_succes = {attack: [] for attack in ["test"] + ATTACKS}  # Save adversarial examples that were not detected
     results = []  # (Rejected, Was attacked)
-    # For test counts how many were trusted, and for attacks how many where detected
     counts = {
         key: {
-                'not_rejected_and_attacked': 0,
-                'not_rejected_and_not_attacked': 0,
-                'rejected_and_attacked': 0,
-                'rejected_and_not_attacked': 0
+            'not_rejected_and_attacked': 0,
+            'not_rejected_and_not_attacked': 0,
+            'rejected_and_attacked': 0,
+            'rejected_and_not_attacked': 0
         } for key in ["test"] + ATTACKS
     }
 
@@ -97,68 +126,89 @@ def reject_predicted_attacks(
         test_labels = torch.load(f'experiments/{experiment_name}/adversarial_examples/test/labels.pth').to(device)
 
     test_acc = 0
-
     counts_file = Path(f'experiments/{experiment_name}/counts_per_attack/counts_per_attack_{t_epsilon}_{epsilon}_{epsilon_p}.json')
     Path(f'experiments/{experiment_name}/counts_per_attack/').mkdir(parents=True, exist_ok=True)
 
-    for a in ["test"]+ATTACKS:
+    for a in ["test"] + ATTACKS:
         print(f"Trying for {a}", flush=True)
 
         if counts_file.exists():
             with open(counts_file, 'r') as file:
                 counts_current = json.load(file)
-
             if all(value == 0 for value in counts_current[a].values()):
                 counts = counts_current
-
             else:
                 print(f"Attack {a} found and loaded.", flush=True)
                 continue
 
+        # Load attacked dataset (images) — keep on device for model inference
         try:
             if temp_dir is not None:
                 attacked_dataset = torch.load(f'{temp_dir}/experiments/{experiment_name}/adversarial_examples/{a}/adversarial_examples.pth').to(device)
             else:
                 attacked_dataset = torch.load(f'experiments/{experiment_name}/adversarial_examples/{a}/adversarial_examples.pth').to(device)
-        except:
+        except Exception:
             print(f"Attack {a} not found.", flush=True)
             continue
+
+        # Preload matrices for attack 'a' (load on CPU once, then move to device in bulk)
+        matrices_cache = []
+        i = 0
+        while True:
+            current_matrix_path = f"{path_adv_matrices}{a}/{i}/matrix.pth"
+            if not os.path.exists(current_matrix_path):
+                if i == 0:
+                    print(f"Attack {a} not found (no matrices).", flush=True)
+                    matrices_cache = []
+                break
+            try:
+                mat_cpu = torch.load(current_matrix_path, map_location='cpu')
+            except Exception as e:
+                print(f"Error loading {current_matrix_path}: {e}", flush=True)
+                break
+            matrices_cache.append(mat_cpu)
+            i += 1
+
+        if len(matrices_cache) == 0:
+            # no matrices -> skip this attack
+            continue
+
+        # Move matrices to device once if needed by zero_std
+        matrices_cache = [m.to(device) for m in matrices_cache]
+
         not_rejected_and_attacked = 0
         not_rejected_and_not_attacked = 0
         rejected_and_attacked = 0
         rejected_and_not_attacked = 0
 
-        for i in range(len(attacked_dataset)):
-            current_matrix_path = f"{path_adv_matrices}{a}/{i}/matrix.pth"
-            im = attacked_dataset[i].to(device)
-            pred = torch.argmax(model.forward(im))
-            mat = torch.load(current_matrix_path).to(device)
+        # iterate over available attacked examples (use min length to avoid index error)
+        n_examples = min(len(attacked_dataset), len(matrices_cache))
+        for i in range(n_examples):
+            im = attacked_dataset[i]  # already on device
+            # batch model inference avoided: single sample here is fine for small counts; consider batching if large
+            logits = model.forward(im.unsqueeze(0).float())
+            pred = torch.argmax(logits, dim=1).item()
 
-            b = get_ellipsoid_data(ellipsoids, pred.cpu().detach(), "std")
+            mat = matrices_cache[i]
+            b = get_ellipsoid_data(ellipsoids, torch.tensor(pred), "std")
             c = zero_std(mat, b, epsilon_p).item()
 
             res = ((reject_at > c), (a != "test"))
 
-            # if not rejected and it was an attack
-            # so detected adversarial example
             if not res[0] and a != "test":
                 not_rejected_and_attacked += 1
                 counts[a]['not_rejected_and_attacked'] += 1
                 if len(adv_succes[a]) < 10:
                     adv_succes[a].append(im)
 
-            # if rejected and it was an attack
             if res[0] and a != 'test':
                 rejected_and_attacked += 1
                 counts[a]['rejected_and_attacked'] += 1
 
-            # if rejected and it was test data
-            # so wrong rejection of natural data
             if res[0] and a == "test":
                 rejected_and_not_attacked += 1
                 counts[a]['rejected_and_not_attacked'] += 1
 
-            # if not rejected and it was test data
             if not res[0] and a == "test":
                 not_rejected_and_not_attacked += 1
                 counts[a]['not_rejected_and_not_attacked'] += 1
@@ -170,20 +220,16 @@ def reject_predicted_attacks(
         if verbose:
             print("Attack method: ", a, flush=True)
             if a == 'test':
-                print(f'Wrongly rejected test data : {rejected_and_not_attacked} out of {len(attacked_dataset)}', flush=True)
-                print(f'Trusted test data : {not_rejected_and_not_attacked} out of {len(attacked_dataset)}', flush=True)
-
+                print(f'Wrongly rejected test data : {rejected_and_not_attacked} out of {n_examples}', flush=True)
+                print(f'Trusted test data : {not_rejected_and_not_attacked} out of {n_examples}', flush=True)
                 if counts['test']['not_rejected_and_not_attacked'] == 0:
                     test_acc = 0
                 else:
                     test_acc = test_acc / counts['test']['not_rejected_and_not_attacked']
-
-                print("Accuracy on test data that was not rejected: ",
-                      test_acc, flush=True)
-
+                print("Accuracy on test data that was not rejected: ", test_acc, flush=True)
             else:
-                print(f'Detected adversarial examples : {rejected_and_attacked} out of {len(attacked_dataset)}', flush=True)
-                print(f'Successful adversarial examples : {not_rejected_and_attacked} out of {len(attacked_dataset)}', flush=True)
+                print(f'Detected adversarial examples : {rejected_and_attacked} out of {n_examples}', flush=True)
+                print(f'Successful adversarial examples : {not_rejected_and_attacked} out of {n_examples}', flush=True)
 
         with open(counts_file, 'w') as json_file:
             json.dump(counts, json_file, indent=4)
@@ -202,33 +248,40 @@ def reject_predicted_attacks(
         else:
             wrongly_rejected += int(rej)
 
-    percentage_good = good_defence/num_att if num_att != 0 else 0
+    percentage_good = good_defence / num_att if num_att != 0 else 0
     print(f"Percentage of good defences: {percentage_good}", flush=True)
 
-    percentage_bad = wrongly_rejected/(len(results)-num_att) if len(results) != num_att else 0
+    percentage_bad = wrongly_rejected / (len(results) - num_att) if len(results) != num_att else 0
     print(f"Percentage of wrong rejections: {percentage_bad}", flush=True)
 
     return f"Percentage of good defences: {percentage_good}\nPercentage of wrong rejections: {percentage_bad}"
 
 
-def get_features(data: torch.Tensor, model) -> np.ndarray:
+def get_features(data: torch.Tensor, model, batch_size: int = 256) -> np.ndarray:
     """
-        Extracts features from the data using the model's penultimate layer.
-
-        Args:
-            data: the data to extract features from.
-            model: the model to extract features from.
-        Returns:
-            The features.
+    Extracts features from the data using the model's penultimate layer (batched).
+    Returns a numpy array (N, D).
     """
     model.eval()
+    device = get_device()
+    features_list = []
     with torch.no_grad():
-        features = []
-        for img in data:
-            img = img.to(get_device())
-            feat = model.forward(img.unsqueeze(0).float(), return_penultimate=True)
-            features.append(feat.cpu().numpy().flatten())
-        return np.array(features)
+        if isinstance(data, torch.Tensor):
+            total = len(data)
+            for i in range(0, total, batch_size):
+                batch = data[i: i + batch_size].to(device).float()
+                feats = model.forward(batch, return_penultimate=True)
+                feats_np = feats.detach().cpu().numpy().reshape(feats.shape[0], -1)
+                features_list.append(feats_np)
+        else:
+            # fallback (e.g., list of tensors)
+            for i in range(0, len(data), batch_size):
+                batch_items = data[i:i + batch_size]
+                batch = torch.stack(batch_items).to(device).float()
+                feats = model.forward(batch, return_penultimate=True)
+                feats_np = feats.detach().cpu().numpy().reshape(feats.shape[0], -1)
+                features_list.append(feats_np)
+    return np.vstack(features_list) if len(features_list) > 0 else np.zeros((0,))
 
 
 def reject_predicted_attacks_baseline(
@@ -237,24 +290,12 @@ def reject_predicted_attacks_baseline(
         architecture_index: int,
         input_shape,
         num_classes: int,
-        verbose:bool = True,
-        temp_dir:Union[str, None] = None
+        verbose: bool = True,
+        temp_dir: Union[str, None] = None
     ) -> None:
     """
-        Goes over the dataset and predicts if it is an adversarial example or not using baseline methods.
-        Uses K-nearest neighbors, Gaussian Mixture Model, and One-Class SVM for detection.
-        Models are trained on training data and a subset of adversarial examples.
-
-        Args:
-            default_index: experiment index (See constants/constants.py).
-            weights_path: the path to the weights.
-            architecture_index: the index of the architecture (See constants/constants.py).
-            residual: whether the model has residual connections.
-            input_shape: the shape of the input.
-            num_classes: the number of classes.
-            dropout: whether the model has dropout layers.
-            verbose: whether to print the results.
-            temp_dir: the temporary directory.
+    Baseline detectors (operates on model features).
+    Caches train features and per-attack features, caches fitted sklearn detectors per param.
     """
     output_file = Path(f'experiments/{experiment_name}/grid_search/grid_search_{experiment_name}_baseline.txt')
 
@@ -263,16 +304,16 @@ def reject_predicted_attacks_baseline(
             f.write("method,parameter,attack,experiment_name,good_defence,wrong_rejection\n")
 
     model = get_model(
-        path = weights_path,
-        architecture_index = architecture_index,
-        input_shape = input_shape,
-        num_classes = num_classes,
+        path=weights_path,
+        architecture_index=architecture_index,
+        input_shape=input_shape,
+        num_classes=num_classes,
         device=get_device()
     )
 
     dataset = DEFAULT_EXPERIMENTS[f'{experiment_name}']['dataset']
 
-    # Load train and test data
+    # Load train and test data (train_data is dataset images)
     if temp_dir is not None:
         train_data, _ = get_dataset(dataset, data_loader=False, data_path=temp_dir)
         test_labels = torch.load(f'{temp_dir}/experiments/{experiment_name}/adversarial_examples/test/labels.pth').to(get_device())
@@ -280,16 +321,31 @@ def reject_predicted_attacks_baseline(
         train_data, _ = get_dataset(dataset, data_loader=False)
         test_labels = torch.load(f'experiments/{experiment_name}/adversarial_examples/test/labels.pth').to(get_device())
 
-    # Get features from training data
+    # Get features from training data (subset)
     print("Extracting features from training data...", flush=True)
-    train_data, train_labels = subset(train_data, 10000, input_shape)  # The rejection level is computed on 10000 examples
-    train_features = get_features(train_data, model)
+    train_data, train_labels = subset(train_data, 10000, input_shape)  # returns tensors
+    # Convert train_labels to numpy for indexing
+    train_labels_np = _ensure_np(train_labels).astype(int)
+
+    # Cache train features to avoid recomputing
+    cache_base = temp_dir if temp_dir is not None else f'experiments/{experiment_name}'
+    cache_dir = os.path.join(cache_base, 'preprocessed')
+    os.makedirs(cache_dir, exist_ok=True)
+    train_features_file = os.path.join(cache_dir, f'train_features_{dataset}_n10000.npy')
+
+    if (not FORCE_REBUILD_CACHE) and os.path.exists(train_features_file):
+        print("Loading cached train features...", flush=True)
+        train_features = np.load(train_features_file)
+    else:
+        print("Computing train features (cached)...", flush=True)
+        train_features = get_features(train_data, model)
+        np.save(train_features_file, train_features)
+
+    print("Features ready!", flush=True)
 
     parameters = get_parameters_baseline(dataset)
-
     methods = list(parameters.keys())
 
-    # Initialize results dictionaries for each method
     counts = {
         method: {
             str(parameters[method][parameter]): {
@@ -306,65 +362,84 @@ def reject_predicted_attacks_baseline(
     test_acc = {
         method: {
             str(parameters[method][parameter]): 0
-                for parameter in range(len(parameters[method]))
+            for parameter in range(len(parameters[method]))
         } for method in methods
     }
 
-    # For mahalanobis, we need class means and covariances
+    # compute class means/covariances using numpy arrays
     class_means = {}
     class_covariances = {}
     for class_idx in range(num_classes):
-        class_data = train_features[train_labels == class_idx]
-        class_means[class_idx] = np.mean(class_data, axis=0)
-        class_covariances[class_idx] = np.cov(class_data, rowvar=False)
-    
-    def get_min_mahalanobis_distances(features: torch.Tensor) -> np.ndarray:
-        min_distances = np.array([])
-        for feature in features:
-            distances = [
-                mahalanobis(feature, class_means[class_idx], class_covariances[class_idx])
-                for class_idx in range(num_classes)
-            ]
-            min_distances = np.append(min_distances, min(distances))
-        return min_distances
+        mask = (train_labels_np == class_idx)
+        class_data = train_features[mask]
+        if class_data.size == 0:
+            class_means[class_idx] = np.zeros(train_features.shape[1])
+            class_covariances[class_idx] = np.eye(train_features.shape[1])
+        else:
+            class_means[class_idx] = np.mean(class_data, axis=0)
+            class_covariances[class_idx] = np.cov(class_data, rowvar=False)
 
-    # One file for all metods, parameters and attacks
+    # vectorized mahalanobis helper (uses above _vectorized_min_mahalanobis)
+    def get_min_mahalanobis_distances(features_np: np.ndarray) -> np.ndarray:
+        return _vectorized_min_mahalanobis(np.asarray(features_np).reshape(features_np.shape[0], -1),
+                                           class_means, class_covariances)
+
     counts_file = Path(f'experiments/{experiment_name}/counts_per_attack/baseline_counts.json')
     test_accuracy_file = Path(f'experiments/{experiment_name}/counts_per_attack/baseline_accuracy.json')
 
+    lock = mp.Lock()
     for param in range(len(parameters['knn'])):
-        print("Initializing detectors...", flush=True)
-        knn = NearestNeighbors(n_neighbors=parameters['knn'][param], metric="euclidean")
-        kde = KernelDensity(bandwidth=parameters['kde'][param])
-        gmm = GaussianMixture(n_components=parameters['gmm'][param])
-        ocsvm = OneClassSVM(kernel='rbf', nu=parameters['ocsvm'][param])
-        iforest = IsolationForest(n_estimators=parameters['iforest'][param])
+        print("Training detection models (with cache)...", flush=True)
+        cache_base = temp_dir if temp_dir is not None else f'experiments/{experiment_name}'
+        cache_dir = os.path.join(cache_base, 'preprocessed')
+        os.makedirs(cache_dir, exist_ok=True)
+        cache_file = os.path.join(cache_dir, f'detectors_param{param}_features.joblib')
 
-        print("Training detection models...", flush=True)
-        knn.fit(train_features)
-        kde.fit(train_features)
-        gmm.fit(train_features)
-        ocsvm.fit(train_features)
-        iforest.fit(train_features)
-        mahalanobis_threshold = np.percentile(
-            get_min_mahalanobis_distances(train_features), 
-            parameters['mahalanobis'][param]
-        )
+        if (not FORCE_REBUILD_CACHE) and os.path.exists(cache_file):
+            print("Loading trained detectors from cache...", flush=True)
+            knn, kde, gmm, ocsvm, iforest, mahalanobis_threshold = load(cache_file)
+        else:
+            train_features_np = np.asarray(train_features)
+
+            knn = NearestNeighbors(n_neighbors=parameters['knn'][param], metric="euclidean")
+            kde = KernelDensity(bandwidth=parameters['kde'][param])
+            gmm = GaussianMixture(n_components=parameters['gmm'][param])
+            ocsvm = OneClassSVM(kernel='rbf', nu=parameters['ocsvm'][param])
+            iforest = IsolationForest(n_estimators=parameters['iforest'][param])
+
+            knn.fit(train_features_np)
+            kde.fit(train_features_np)
+            gmm.fit(train_features_np)
+            ocsvm.fit(train_features_np)
+            iforest.fit(train_features_np)
+
+            mahalanobis_threshold = np.percentile(
+                get_min_mahalanobis_distances(train_features_np),
+                parameters['mahalanobis'][param]
+            )
+
+            dump((knn, kde, gmm, ocsvm, iforest, mahalanobis_threshold), cache_file)
 
         Path(f'experiments/{experiment_name}/counts_per_attack/').mkdir(parents=True, exist_ok=True)
         for method in methods:
-            # Test on both clean and adversarial data
             results = []
             for a in ["test"] + ATTACKS:
-                print(f"\n\nEvaluating {a} examples", flush=True)
+                with lock:
+                    if output_file.exists():
+                        with open(output_file, 'r') as f:
+                            existing_lines = f.readlines()
+                        prefix = f"{method},{parameters[method][param]},{a}"
+                        if any(line.startswith(prefix) for line in existing_lines):
+                            print(f"Result already exists for method: {method}, parameter: {str(parameters[method][param])}, attack: {a}, skipping...", flush=True)
+                            continue
+
+                print(f"\n\nEvaluating {a} examples baseline", flush=True)
 
                 if counts_file.exists():
                     with open(counts_file, 'r') as file:
                         counts_current = json.load(file)
-
                     if all(value == 0 for value in counts_current[method][str(parameters[method][param])][a].values()):
                         counts = counts_current
-
                     else:
                         print(f'Found and loaded method: {method}, parameter: {str(parameters[method][param])}, attack: {a}', flush=True)
                         continue
@@ -373,23 +448,30 @@ def reject_predicted_attacks_baseline(
                     with open(test_accuracy_file, 'r') as file:
                         test_acc = json.load(file)
 
-                    #if all(value == 0 for value in current_acc[method][str(parameters[method][param])].values()):
-                    #    test_acc = current_acc
-
-                    #else:
-                    #    continue
-
                 try:
                     if temp_dir is not None:
                         attacked_dataset = torch.load(f'{temp_dir}/experiments/{experiment_name}/adversarial_examples/{a}/adversarial_examples.pth')
                     else:
                         attacked_dataset = torch.load(f'experiments/{experiment_name}/adversarial_examples/{a}/adversarial_examples.pth')
-                except:
+                except Exception:
                     print(f"Attack {a} not found.", flush=True)
                     continue
 
-                # Get features for current dataset
-                current_features = get_features(attacked_dataset, model)
+                # Cache per-attack features to disk to avoid recomputing
+                cache_base = temp_dir if temp_dir is not None else f'experiments/{experiment_name}'
+                cache_dir = os.path.join(cache_base, 'preprocessed', 'attack_features')
+                os.makedirs(cache_dir, exist_ok=True)
+                attack_feat_file = os.path.join(cache_dir, f'{a}_features.npy')
+
+                if (not FORCE_REBUILD_CACHE) and os.path.exists(attack_feat_file):
+                    current_features = np.load(attack_feat_file)
+                else:
+                    # attacked_dataset may be on cpu; get_features handles batching & device moves
+                    current_features = get_features(attacked_dataset, model)
+                    np.save(attack_feat_file, current_features)
+
+                # Ensure numpy 2D
+                current_features = np.asarray(current_features).reshape(current_features.shape[0], -1)
 
                 if method == 'knn':
                     distances, _ = knn.kneighbors(current_features)
@@ -406,10 +488,20 @@ def reject_predicted_attacks_baseline(
                 elif method == 'iforest':
                     predictions = iforest.predict(current_features) == -1
                 elif method == 'softmax':
-                    logits = [model.forward(att.unsqueeze(0).to(get_device())) for att in attacked_dataset]
-                    probs = [torch.nn.functional.softmax(log, dim=1) for log in logits]
-                    confidences = [p.max(dim=1).values for p in probs]
-                    predictions = [conf.cpu().detach().numpy() < np.array(parameters['softmax']) for conf in confidences]
+                    # batch forward for softmax predictions
+                    device = get_device()
+                    logits_list = []
+                    attacked_t = attacked_dataset if isinstance(attacked_dataset, torch.Tensor) else torch.tensor(attacked_dataset)
+                    attacked_t = attacked_t.to(device).float()
+                    B = 256
+                    with torch.no_grad():
+                        for i in range(0, len(attacked_t), B):
+                            batch = attacked_t[i:i+B]
+                            logits = model.forward(batch)
+                            probs = torch.nn.functional.softmax(logits, dim=1)
+                            confidences = probs.max(dim=1).values.detach().cpu().numpy()
+                            logits_list.extend(confidences)
+                    predictions = np.array(logits_list) < np.array(parameters['softmax'])
                 elif method == 'mahalanobis':
                     predictions = get_min_mahalanobis_distances(current_features) < mahalanobis_threshold
                 else:
@@ -417,12 +509,12 @@ def reject_predicted_attacks_baseline(
 
                 for i, is_adversarial in enumerate(predictions):
                     if method == 'softmax':
-                        is_adversarial = is_adversarial[0]
+                        is_adversarial = bool(is_adversarial)
                     results.append((is_adversarial, a != "test"))
                     if a == "test":
                         if not is_adversarial:
                             counts[method][str(parameters[method][param])][a]['not_rejected_and_not_attacked'] += 1
-                            pred = torch.argmax(model.forward(attacked_dataset[i].unsqueeze(0).to(get_device())))
+                            pred = torch.argmax(model.forward(torch.tensor(attacked_dataset[i]).unsqueeze(0).to(get_device()).float()))
                             if pred == test_labels[i]:
                                 test_acc[method][str(parameters[method][param])] += 1
                         else:
@@ -432,16 +524,14 @@ def reject_predicted_attacks_baseline(
                             counts[method][str(parameters[method][param])][a]['rejected_and_attacked'] += 1
                         else:
                             counts[method][str(parameters[method][param])][a]['not_rejected_and_attacked'] += 1
-                    
-                # Print results
+
                 if verbose:
                     print(f"\nResults for {method.upper()}:")
                     if a == 'test':
                         print(f'Wrongly rejected test data: {counts[method][str(parameters[method][param])][a]["rejected_and_not_attacked"]}')
                         print(f'Trusted test data: {counts[method][str(parameters[method][param])][a]["not_rejected_and_not_attacked"]}')
-                        
                         if counts[method][str(parameters[method][param])][a]['not_rejected_and_not_attacked'] > 0:
-                            test_acc[method][str(parameters[method][param])] = test_acc[method][str(parameters[method][param])] / counts[method][str(parameters[method][param])][a]['not_rejected_and_not_attacked']
+                            test_acc[method][str(parameters[method][param])] /= counts[method][str(parameters[method][param])][a]['not_rejected_and_not_attacked']
                         else:
                             test_acc[method][str(parameters[method][param])] = 0
                         print(f"Accuracy on trusted test data: {test_acc[method][str(parameters[method][param])]}")
@@ -459,43 +549,29 @@ def reject_predicted_attacks_baseline(
                     else:
                         wrongly_rejected += int(rej)
 
-                perc_good = good_defence/num_att if num_att != 0 else 0
-                perc_bad = wrongly_rejected/(len(results)-num_att) if len(results) != num_att else 0
+                perc_good = good_defence / num_att if num_att != 0 else 0
+                perc_bad = wrongly_rejected / (len(results) - num_att) if len(results) != num_att else 0
                 result_line = f"{method},{parameters[method][param]},{a},{experiment_name},{perc_good},{perc_bad}\n"
 
-                # Write the result to the file
-                with open(output_file, 'a') as f:
-                    f.write(result_line)
-
-                with open(counts_file, 'w') as f:
-                    json.dump(counts, f, indent=4)
-
-                with open(test_accuracy_file, 'w') as f:
-                    json.dump(test_acc, f, indent=4)
+                with lock:
+                    with open(output_file, 'a') as f:
+                        f.write(result_line)
+                    with open(counts_file, 'w') as f:
+                        json.dump(counts, f, indent=4)
+                    with open(test_accuracy_file, 'w') as f:
+                        json.dump(test_acc, f, indent=4)
 
 
-def reject_predicted_attacks_baseline_matrices(        
+def reject_predicted_attacks_baseline_matrices(
         experiment_name: str,
         num_classes: int,
         dataset: str,
-        verbose:bool = True,
-        temp_dir:Union[str, None] = None
+        verbose: bool = True,
+        temp_dir: Union[str, None] = None
     ) -> None:
     """
-        Goes over the dataset and predicts if it is an adversarial example or not using baseline methods.
-        Uses K-nearest neighbors, Gaussian Mixture Model, and One-Class SVM for detection.
-        Models are trained on training data and a subset of adversarial examples.
-
-        Args:
-            default_index: experiment index (See constants/constants.py).
-            weights_path: the path to the weights.
-            architecture_index: the index of the architecture (See constants/constants.py).
-            residual: whether the model has residual connections.
-            input_shape: the shape of the input.
-            num_classes: the number of classes.
-            dropout: whether the model has dropout layers.
-            verbose: whether to print the results.
-            temp_dir: the temporary directory.
+    Baseline detectors running directly on matrices (concatenated matrices per class).
+    This function caches the concatenated matrix tensor and caches detectors per param.
     """
     output_file = Path(f'experiments/{experiment_name}/grid_search/grid_search_{experiment_name}_baseline_matrices.txt')
     Path(f'experiments/{experiment_name}/grid_search/').mkdir(parents=True, exist_ok=True)
@@ -506,26 +582,59 @@ def reject_predicted_attacks_baseline_matrices(
     test_accuracy_file = Path(f'experiments/{experiment_name}/counts_per_attack/baseline_matrices_accuracy.json')
     Path(f'experiments/{experiment_name}/counts_per_attack/').mkdir(parents=True, exist_ok=True)
 
-    # TODO: The range in the loop should be easily adjustable.
     num_train_examples = 10000
     num_train_examples_per_class = num_train_examples // num_classes
-    train_data = torch.Tensor().to(get_device())
-    train_labels = torch.Tensor().to(get_device())
-    for i in range(num_classes):
-        for j in range(num_train_examples_per_class):
-            if temp_dir is not None:
-                train_data = torch.cat((train_data, torch.load(f'{temp_dir}/experiments/{experiment_name}/matrices/{i}/{j}/matrix.pt').unsqueeze(0)), dim=0)
-                train_labels = torch.cat((train_labels, torch.Tensor([i]).to(get_device())), dim=0)
-            else:
-                train_data = torch.cat((train_data, torch.load(f'experiments/{experiment_name}/matrices/{i}/{j}/matrix.pt').unsqueeze(0).to(get_device())), dim=0)
-                train_labels = torch.cat((train_labels, torch.Tensor([i]).to(get_device())), dim=0)
 
-    train_data = train_data.reshape(train_data.shape[0], -1).detach().cpu().numpy()
+    print('Preparing concatenated matrices (using cache if available)...', flush=True)
+    base_path = temp_dir if temp_dir is not None else f'experiments/{experiment_name}'
+    preproc_dir = os.path.join(base_path, 'preprocessed')
+    os.makedirs(preproc_dir, exist_ok=True)
+
+    train_data_file = os.path.join(preproc_dir, f'train_matrices_n{num_train_examples}_c{num_classes}.pt')
+    train_labels_file = os.path.join(preproc_dir, f'train_labels_n{num_train_examples}_c{num_classes}.pt')
+
+    try:
+        if (not FORCE_REBUILD_CACHE) and os.path.exists(train_data_file) and os.path.exists(train_labels_file):
+            print('Loading concatenated tensors from cache...', flush=True)
+            train_data = torch.load(train_data_file, map_location='cpu')
+            train_labels = torch.load(train_labels_file, map_location='cpu')
+            # keep on CPU for sklearn; move to device only when needed
+        else:
+            matrix_files = [
+                f'{base_path}/matrices/{i}/{j}/matrix.pt'
+                for i in range(num_classes)
+                for j in range(num_train_examples_per_class)
+            ]
+            mats = []
+            for file in matrix_files:
+                if not os.path.exists(file):
+                    raise FileNotFoundError(f"Expected matrix file missing: {file}")
+                t = torch.load(file, map_location='cpu')
+                # ensure shape (1, ...)
+                if t.dim() == 0:
+                    t = t.unsqueeze(0)
+                else:
+                    t = t.unsqueeze(0)
+                mats.append(t)
+            train_data = torch.cat(mats, dim=0)  # CPU tensor
+            train_labels = torch.cat([
+                torch.full((num_train_examples_per_class,), i, dtype=torch.long)
+                for i in range(num_classes)
+            ])
+            torch.save(train_data, train_data_file)
+            torch.save(train_labels, train_labels_file)
+    except Exception as e:
+        print(f"Error preparing matrices: {e}", flush=True)
+        return
+
+    print(f"Loaded {len(train_data)} training examples with shape {train_data.shape}", flush=True)
+
+    # Keep train_data as CPU tensor; convert to numpy for sklearn
+    train_data_np = train_data.detach().cpu().numpy().reshape(train_data.shape[0], -1)
 
     parameters = get_parameters_baseline(dataset)
     methods = list(parameters.keys())
 
-    # Initialize results dictionaries for each method
     counts = {
         method: {
             str(parameters[method][parameter]): {
@@ -542,64 +651,106 @@ def reject_predicted_attacks_baseline_matrices(
     test_acc = {
         method: {
             str(parameters[method][parameter]): 0
-                for parameter in range(len(parameters[method]))
+            for parameter in range(len(parameters[method]))
         } for method in methods
     }
 
-    # For mahalanobis, we need class means and covariances
-    class_means = {}
-    class_covariances = {}
-    for class_idx in range(num_classes):
-        class_data = train_data[train_labels.detach().cpu() == class_idx]
-        class_means[class_idx] = np.mean(class_data, axis=0)
-        class_covariances[class_idx] = np.cov(class_data, rowvar=False)
-    
-    def get_min_mahalanobis_distances(features: torch.Tensor) -> np.ndarray:
-        min_distances = np.array([])
-        for feature in features:
-            distances = [
-                mahalanobis(feature, class_means[class_idx], class_covariances[class_idx])
-                for class_idx in range(num_classes)
-            ]
-            min_distances = np.append(min_distances, min(distances))
-        return min_distances
+    print("Mahalanobis preparation...", flush=True)
+    base_path = f'{temp_dir}/experiments/{experiment_name}' if temp_dir is not None else f'experiments/{experiment_name}'
+    class_means_file = Path(base_path + '/counts_per_attack' + '/mah_means.npz')
+    class_cov_file = Path(base_path + '/counts_per_attack' + '/mah_cov.npz')
 
+    if (not FORCE_REBUILD_CACHE) and class_means_file.exists() and class_cov_file.exists():
+        loaded_means = np.load(str(class_means_file))
+        loaded_covs = np.load(str(class_cov_file))
+        class_means = {int(k.split('_')[1]): loaded_means[k] for k in loaded_means.files}
+        class_covariances = {int(k.split('_')[1]): loaded_covs[k] for k in loaded_covs.files}
+        print("Mean and covariance for Mahalanobis found and loaded...", flush=True)
+    else:
+        masks = [train_labels == torch.tensor(class_idx, dtype=torch.long) for class_idx in range(num_classes)]
+
+        # Build per-class data as 2D numpy arrays of shape (n_examples_in_class, flattened_feature_dim)
+        class_data_list = []
+        for mask in masks:
+            subset = train_data[mask].detach().cpu().numpy()  # could be (n_k, a, b, ...)
+            if subset.size == 0:
+                # keep empty array
+                class_data_list.append(subset)
+            else:
+                # flatten each sample to 1D vector -> shape (n_k, D_flat)
+                class_data_list.append(subset.reshape(subset.shape[0], -1))
+
+        class_means = {}
+        class_covariances = {}
+        for idx, d in enumerate(class_data_list):
+            if d.size == 0:
+                class_means[idx] = np.zeros(train_data_np.shape[1])
+                class_covariances[idx] = np.eye(train_data_np.shape[1])
+            else:
+                class_means[idx] = np.mean(d, axis=0)
+                class_covariances[idx] = np.cov(d, rowvar=False)
+
+        print("Saving files...", flush=True)
+        np.savez_compressed(str(class_means_file), **{f'mean_{k}': class_means[k] for k in class_means})
+        np.savez_compressed(str(class_cov_file), **{f'cov_{k}': class_covariances[k] for k in class_covariances})
+
+    def get_min_mahalanobis_distances_matrices(features_np: np.ndarray) -> np.ndarray:
+        return _vectorized_min_mahalanobis(np.asarray(features_np).reshape(features_np.shape[0], -1),
+                                           class_means, class_covariances)
+
+    print("Mahalanobis ready...", flush=True)
     if temp_dir is not None:
         test_labels = torch.load(f'{temp_dir}/experiments/{experiment_name}/adversarial_examples/test/labels.pth')
     else:
         test_labels = torch.load(f'experiments/{experiment_name}/adversarial_examples/test/labels.pth')
 
+    print("Start baseline for matrices...", flush=True)
+    lock = mp.Lock()
     for param in range(len(parameters['knn'])):
-        print("Initializing detectors...", flush=True)
-        knn = NearestNeighbors(n_neighbors=parameters['knn'][param], metric="euclidean")
-        kde = KernelDensity(bandwidth=parameters['kde'][param])
-        gmm = GaussianMixture(n_components=parameters['gmm'][param])
-        ocsvm = OneClassSVM(kernel='rbf', nu=parameters['ocsvm'][param])
-        iforest = IsolationForest(n_estimators=parameters['iforest'][param])
+        print("Training detection models (with cache)...", flush=True)
+        cache_base = temp_dir if temp_dir is not None else f'experiments/{experiment_name}'
+        cache_dir = os.path.join(cache_base, 'preprocessed')
+        os.makedirs(cache_dir, exist_ok=True)
+        cache_file = os.path.join(cache_dir, f'detectors_param{param}_matrices.joblib')
 
-        print("Training detection models...", flush=True)
-        knn.fit(train_data)
-        kde.fit(train_data)
-        gmm.fit(train_data)
-        ocsvm.fit(train_data)
-        iforest.fit(train_data)
-        mahalanobis_threshold = np.percentile(
-            get_min_mahalanobis_distances(train_data), 
-            parameters['mahalanobis'][param]
-        )
+        if (not FORCE_REBUILD_CACHE) and os.path.exists(cache_file):
+            print("Loading trained detectors from cache (matrices)...", flush=True)
+            knn, kde, gmm, ocsvm, iforest, mahalanobis_threshold = load(cache_file)
+        else:
+            knn = NearestNeighbors(n_neighbors=parameters['knn'][param], metric="euclidean")
+            kde = KernelDensity(bandwidth=parameters['kde'][param])
+            gmm = GaussianMixture(n_components=parameters['gmm'][param])
+            ocsvm = OneClassSVM(kernel='rbf', nu=parameters['ocsvm'][param])
+            iforest = IsolationForest(n_estimators=parameters['iforest'][param])
+
+            knn.fit(train_data_np)
+            kde.fit(train_data_np)
+            gmm.fit(train_data_np)
+            ocsvm.fit(train_data_np)
+            iforest.fit(train_data_np)
+
+            mahalanobis_threshold = np.percentile(get_min_mahalanobis_distances_matrices(train_data_np),
+                                                 parameters['mahalanobis'][param])
+
+            dump((knn, kde, gmm, ocsvm, iforest, mahalanobis_threshold), cache_file)
 
         for method in methods:
-            # Test on both clean and adversarial data
             results = []
             for a in ["test"] + ATTACKS:
+                with lock:
+                    if output_file.exists():
+                        with open(output_file, 'r') as f:
+                            existing_lines = f.readlines()
+                        prefix = f"{method},{parameters[method][param]},{a}"
+                        if any(line.startswith(prefix) for line in existing_lines):
+                            print(f"Result already exists for method: {method}, parameter: {str(parameters[method][param])}, attack: {a}, skipping...", flush=True)
+                            continue
+
                 if counts_file.exists():
                     with open(counts_file, 'r') as file:
-
                         counts_current = json.load(file)
-
                     if all(value == 0 for value in counts_current[method][str(parameters[method][param])][a].values()):
                         counts = counts_current
-
                     else:
                         print(f'Found and loaded method: {method}, parameter: {str(parameters[method][param])}, attack: {a}', flush=True)
                         continue
@@ -608,48 +759,44 @@ def reject_predicted_attacks_baseline_matrices(
                     with open(test_accuracy_file, 'r') as file:
                         test_acc = json.load(file)
 
-                    #if all(value == 0 for value in current_acc[method][str(parameters[method][param])].values()):
-                    #    test_acc = current_acc
-
-                    #else:
-                    #    continue
-
-                attack_found = True
-                print(f"\n\nEvaluating {a} examples", flush=True)
-                attacked_dataset = torch.Tensor().to(get_device())
-                for i in range(len(train_data)):
+                # Efficiently load adversarial matrices for attack `a` into a numpy array (CPU)
+                attack_mats = []
+                i = 0
+                attack_base = f'{base_path}/adversarial_matrices/{a}/' if temp_dir is not None else f'experiments/{experiment_name}/adversarial_matrices/{a}/'
+                while True:
+                    mat_path = f'{attack_base}{i}/matrix.pth'
+                    if not os.path.exists(mat_path):
+                        break
                     try:
-                        if temp_dir is not None:
-                            attacked_dataset = torch.cat((attacked_dataset, torch.load(f'{temp_dir}/experiments/{experiment_name}/adversarial_matrices/{a}/{i}/matrix.pth').unsqueeze(0).to(get_device())), dim=0)
-                        else:
-                            attacked_dataset = torch.cat((attacked_dataset, torch.load(f'experiments/{experiment_name}/adversarial_matrices/{a}/{i}/matrix.pth').unsqueeze(0).to(get_device())), dim=0)
-                    except:
-                        if i == 0:
-                            print(f"Attack {a} not found.", flush=True)
-                            attack_found = False
-                            break
-                
-                if not attack_found:
+                        m = torch.load(mat_path, map_location='cpu')
+                    except Exception:
+                        break
+                    attack_mats.append(m)
+                    i += 1
+
+                if len(attack_mats) == 0:
+                    print(f"Attack {a} not found.", flush=True)
                     continue
-                
-                attacked_dataset = attacked_dataset.reshape(attacked_dataset.shape[0], -1)
+
+                # Convert to numpy matrix dataset (N, D)
+                attacked_np = np.stack([_ensure_np(m).reshape(-1) for m in attack_mats], axis=0)
 
                 if method == 'knn':
-                    distances, _ = knn.kneighbors(attacked_dataset)
+                    distances, _ = knn.kneighbors(attacked_np)
                     average_distance = distances.mean(axis=1)
                     predictions = average_distance < np.percentile(average_distance, 10)
                 elif method == 'kde':
-                    scores = kde.score_samples(attacked_dataset)
+                    scores = kde.score_samples(attacked_np)
                     predictions = scores < np.percentile(scores, 10)
                 elif method == 'gmm':
-                    scores = gmm.score_samples(attacked_dataset)
+                    scores = gmm.score_samples(attacked_np)
                     predictions = scores < np.percentile(scores, 10)
                 elif method == 'ocsvm':
-                    predictions = ocsvm.predict(attacked_dataset) == -1
+                    predictions = ocsvm.predict(attacked_np) == -1
                 elif method == 'iforest':
-                    predictions = iforest.predict(attacked_dataset) == -1
+                    predictions = iforest.predict(attacked_np) == -1
                 elif method == 'mahalanobis':
-                    predictions = get_min_mahalanobis_distances(attacked_dataset) < mahalanobis_threshold
+                    predictions = get_min_mahalanobis_distances_matrices(attacked_np) < mahalanobis_threshold
                 else:
                     raise ValueError(f"Method {method} not found.")
 
@@ -658,7 +805,8 @@ def reject_predicted_attacks_baseline_matrices(
                     if a == "test":
                         if not is_adversarial:
                             counts[method][str(parameters[method][param])][a]['not_rejected_and_not_attacked'] += 1
-                            pred = torch.argmax(attacked_dataset[i].sum(dim=0))
+                            # simple heuristic for prediction on matrix-form data
+                            pred = int(np.argmax(attacked_np[i].sum(axis=0))) if attacked_np.ndim == 2 else 0
                             if pred == test_labels[i]:
                                 test_acc[method][str(parameters[method][param])] += 1
                         else:
@@ -668,14 +816,12 @@ def reject_predicted_attacks_baseline_matrices(
                             counts[method][str(parameters[method][param])][a]['rejected_and_attacked'] += 1
                         else:
                             counts[method][str(parameters[method][param])][a]['not_rejected_and_attacked'] += 1
-                    
-                # Print results
+
                 if verbose:
                     print(f"\nResults for {method.upper()}:")
                     if a == 'test':
                         print(f'Wrongly rejected test data: {counts[method][str(parameters[method][param])][a]["rejected_and_not_attacked"]}')
                         print(f'Trusted test data: {counts[method][str(parameters[method][param])][a]["not_rejected_and_not_attacked"]}')
-                        
                         if counts[method][str(parameters[method][param])][a]['not_rejected_and_not_attacked'] > 0:
                             test_acc[method][str(parameters[method][param])] = test_acc[method][str(parameters[method][param])] / counts[method][str(parameters[method][param])][a]['not_rejected_and_not_attacked']
                         else:
@@ -697,42 +843,30 @@ def reject_predicted_attacks_baseline_matrices(
 
                 result_line = f"{method},{str(parameters[method][param])},{a},{experiment_name},{good_defence/num_att},{wrongly_rejected/(len(results)-num_att)}\n"
 
-                # Write the result to the file
-                with open(output_file, 'a') as f:
-                    f.write(result_line)
-
-                with open(counts_file, 'w') as f:
-                    json.dump(counts[method], f, indent=4)
-
-                with open(test_accuracy_file, 'w') as f:
-                    json.dump([test_acc[method]], f, indent=4)
+                with lock:
+                    with open(output_file, 'a') as f:
+                        f.write(result_line)
+                    with open(counts_file, 'w') as f:
+                        json.dump(counts, f, indent=4)
+                    with open(test_accuracy_file, 'w') as f:
+                        json.dump(test_acc, f, indent=4)
 
 
 def main(
-        experiment_name:Union[str, None] = None,
-        t_epsilon:Union[float, None] = None,
-        epsilon:Union[float, None] = None,
-        epsilon_p:Union[float, None] = None,
-        temp_dir:Union[str, None] = None,
-        baseline:bool = False
+        experiment_name: Union[str, None] = None,
+        t_epsilon: Union[float, None] = None,
+        epsilon: Union[float, None] = None,
+        epsilon_p: Union[float, None] = None,
+        temp_dir: Union[str, None] = None,
+        baseline: bool = False
     ) -> str:
-    """
-        Main function to detect adversarial examples.
-        Args:
-            experiment_name: the index of the default experiment.
-            t_epsilon: the t^epsilon parameter.
-            epsilon: the epsilon parameter.
-            epsilon_p: the epsilon prime parameter.
-            temp_dir: the temporary directory.
-        Returns:
-            The result of the detection.
-    """
+
     args = Namespace(
-        experiment_name = experiment_name,
-        t_epsilon = t_epsilon, 
-        epsilon = epsilon, 
-        epsilon_p = epsilon_p, 
-        temp_dir = temp_dir
+        experiment_name=experiment_name,
+        t_epsilon=t_epsilon,
+        epsilon=epsilon,
+        epsilon_p=epsilon_p,
+        temp_dir=temp_dir
     )
 
     if args.experiment_name is not None:
@@ -767,35 +901,39 @@ def main(
 
     if baseline:
         reject_predicted_attacks_baseline(
-            experiment_name = args.experiment_name,
-            weights_path = weights_path,
-            architecture_index = architecture_index,
-            input_shape = input_shape,
-            num_classes = num_classes,
-            verbose = True,
-            temp_dir = args.temp_dir
+            experiment_name=args.experiment_name,
+            weights_path=weights_path,
+            architecture_index=architecture_index,
+            input_shape=input_shape,
+            num_classes=num_classes,
+            verbose=True,
+            temp_dir=args.temp_dir
         )
+        print("BASELINE FINISHED... \n", flush=True)
         reject_predicted_attacks_baseline_matrices(
-            experiment_name = args.experiment_name,
-            num_classes = num_classes,
-            dataset = dataset,
-            verbose = True,
-            temp_dir = args.temp_dir
+            experiment_name=args.experiment_name,
+            num_classes=num_classes,
+            dataset=dataset,
+            verbose=True,
+            temp_dir=args.temp_dir
         )
+        print("MATRIX BASELINE FINISHED...\n", flush=True)
 
     result = reject_predicted_attacks(
-        experiment_name = args.experiment_name,
-        weights_path = weights_path,
-        architecture_index = architecture_index,
-        input_shape = input_shape,
-        num_classes = num_classes,
-        ellipsoids = ellipsoids,
-        t_epsilon = args.t_epsilon,
-        epsilon = args.epsilon,
-        epsilon_p = args.epsilon_p,
-        verbose = True,
-        temp_dir = args.temp_dir
+        experiment_name=args.experiment_name,
+        weights_path=weights_path,
+        architecture_index=architecture_index,
+        input_shape=input_shape,
+        num_classes=num_classes,
+        ellipsoids=ellipsoids,
+        t_epsilon=args.t_epsilon,
+        epsilon=args.epsilon,
+        epsilon_p=args.epsilon_p,
+        verbose=True,
+        temp_dir=args.temp_dir
     )
+
+    print("DETECTION FINISHED...", flush=True)
 
     return result
 
