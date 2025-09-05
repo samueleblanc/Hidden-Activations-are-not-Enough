@@ -7,12 +7,13 @@ from sklearn.neighbors import KernelDensity
 from sklearn.mixture import GaussianMixture
 from sklearn.svm import OneClassSVM
 from sklearn.ensemble import IsolationForest
-# from scipy.spatial.distance import mahalanobis  # not used in vectorized version
+from sklearn.decomposition import TruncatedSVD
+from sklearn.covariance import LedoitWolf
 from argparse import Namespace
 from pathlib import Path
 from typing import Union
 import multiprocessing as mp
-from joblib import dump, load
+from joblib import dump, load, Parallel, delayed
 
 from utils.utils import get_ellipsoid_data, zero_std, get_model, get_dataset, subset, get_num_classes, get_input_shape, get_device, get_parameters_baseline
 from constants.constants import DEFAULT_EXPERIMENTS, ATTACKS
@@ -27,36 +28,41 @@ def _ensure_np(x):
     return np.asarray(x)
 
 
-def _vectorized_min_mahalanobis(feats: np.ndarray, class_means: dict, class_covariances: dict) -> np.ndarray:
+def _vectorized_min_mahalanobis_with_prec(feats: np.ndarray, class_means: dict, class_precisions: dict) -> np.ndarray:
     """
-    feats: (N, D) numpy array
+    feats: (N, D) numpy array in the SAME projection space used to fit class_precisions
     class_means: dict{k: 1D numpy array (D,)}
-    class_covariances: dict{k: 2D numpy array (D, D)}
-    returns: (N,) min Mahalanobis distance to any class
+    class_precisions: dict{k: 2D numpy array (D, D)} (precision matrices)
+    returns: (N,) min Mahalanobis distance to any class (in projected space)
     """
     feats = np.asarray(feats).reshape(feats.shape[0], -1)
     N, D = feats.shape
     min_dists = np.full((N,), np.inf, dtype=float)
 
-    # precompute pseudo-inverses
-    inv_covs = {}
-    for k, cov in class_covariances.items():
-        cov = np.asarray(cov)
-        # regularize small covariances
-        try:
-            inv_covs[k] = np.linalg.pinv(cov)
-        except Exception:
-            inv_covs[k] = np.linalg.pinv(cov + 1e-6 * np.eye(cov.shape[0]))
-
+    # Vectorized loop across classes using einsum
     for k in class_means.keys():
         mean_k = np.asarray(class_means[k]).ravel()
         diff = feats - mean_k  # (N, D)
-        inv_cov = inv_covs[k]
-        # Mahalanobis squared distances via einsum
-        dists_sq = np.einsum('ij,jk,ik->i', diff, inv_cov, diff)
+        prec = np.asarray(class_precisions[k])
+        # squared distances = (diff @ prec * diff).sum(axis=1) -> einsum
+        dists_sq = np.einsum('ij,jk,ik->i', diff, prec, diff)
         min_dists = np.minimum(min_dists, np.sqrt(np.maximum(dists_sq, 0.0)))
 
     return min_dists
+
+
+def _detect_n_cpus(num_classes: int) -> int:
+    """Detect available CPU count for parallel ops; cap at num_classes (no need for more jobs)."""
+    n = None
+    for var in ('SLURM_CPUS_PER_TASK', 'SLURM_CPUS_ON_NODE', 'SLURM_CPUS_PER_NODE', 'CPUS', 'NUM_CPUS'):
+        v = os.environ.get(var)
+        if v and v.isdigit():
+            n = int(v)
+            break
+    if n is None:
+        n = os.cpu_count() or 1
+    n = max(1, int(n))
+    return min(n, num_classes)
 
 
 def reject_predicted_attacks(
@@ -379,10 +385,27 @@ def reject_predicted_attacks_baseline(
             class_means[class_idx] = np.mean(class_data, axis=0)
             class_covariances[class_idx] = np.cov(class_data, rowvar=False)
 
-    # vectorized mahalanobis helper (uses above _vectorized_min_mahalanobis)
+    # vectorized mahalanobis helper (uses above _vectorized_min_mahalanobis_with_prec)
+    # for features we keep previous approach (covariances computed directly) — it'll be ok if feature dim is reasonable
     def get_min_mahalanobis_distances(features_np: np.ndarray) -> np.ndarray:
-        return _vectorized_min_mahalanobis(np.asarray(features_np).reshape(features_np.shape[0], -1),
-                                           class_means, class_covariances)
+        feats = np.asarray(features_np).reshape(features_np.shape[0], -1)
+        N = feats.shape[0]
+        min_dists = np.full((N,), np.inf, dtype=float)
+        # precompute inverse covs
+        inv_covs = {}
+        for k in range(num_classes):
+            cov = np.asarray(class_covariances[k])
+            try:
+                inv_covs[k] = np.linalg.pinv(cov)
+            except Exception:
+                inv_covs[k] = np.linalg.pinv(cov + 1e-6 * np.eye(cov.shape[0]))
+        for k in range(num_classes):
+            mean_k = np.asarray(class_means[k]).ravel()
+            diff = feats - mean_k
+            inv_cov = inv_covs[k]
+            dists_sq = np.einsum('ij,jk,ik->i', diff, inv_cov, diff)
+            min_dists = np.minimum(min_dists, np.sqrt(np.maximum(dists_sq, 0.0)))
+        return min_dists
 
     counts_file = Path(f'experiments/{experiment_name}/counts_per_attack/baseline_counts.json')
     test_accuracy_file = Path(f'experiments/{experiment_name}/counts_per_attack/baseline_accuracy.json')
@@ -572,6 +595,7 @@ def reject_predicted_attacks_baseline_matrices(
     """
     Baseline detectors running directly on matrices (concatenated matrices per class).
     This function caches the concatenated matrix tensor and caches detectors per param.
+    Uses global TruncatedSVD + LedoitWolf shrinkage per-class to compute stable Mahalanobis distances.
     """
     output_file = Path(f'experiments/{experiment_name}/grid_search/grid_search_{experiment_name}_baseline_matrices.txt')
     Path(f'experiments/{experiment_name}/grid_search/').mkdir(parents=True, exist_ok=True)
@@ -629,7 +653,7 @@ def reject_predicted_attacks_baseline_matrices(
 
     print(f"Loaded {len(train_data)} training examples with shape {train_data.shape}", flush=True)
 
-    # Keep train_data as CPU tensor; convert to numpy for sklearn
+    # Keep train_data as CPU tensor; convert to numpy for sklearn and flatten per-sample
     train_data_np = train_data.detach().cpu().numpy().reshape(train_data.shape[0], -1)
 
     parameters = get_parameters_baseline(dataset)
@@ -655,50 +679,98 @@ def reject_predicted_attacks_baseline_matrices(
         } for method in methods
     }
 
-    print("Mahalanobis preparation...", flush=True)
+    print("Mahalanobis preparation (fast & stable)...", flush=True)
     base_path = f'{temp_dir}/experiments/{experiment_name}' if temp_dir is not None else f'experiments/{experiment_name}'
-    class_means_file = Path(base_path + '/counts_per_attack' + '/mah_means.npz')
-    class_cov_file = Path(base_path + '/counts_per_attack' + '/mah_cov.npz')
+    class_means_file = Path(base_path + '/counts_per_attack' + '/mah_means_proj.npz')
+    class_prec_file = Path(base_path + '/counts_per_attack' + '/mah_prec_proj.npz')
+    pca_file = Path(base_path + '/counts_per_attack' + '/mah_svd.npz')
 
-    if (not FORCE_REBUILD_CACHE) and class_means_file.exists() and class_cov_file.exists():
-        loaded_means = np.load(str(class_means_file))
-        loaded_covs = np.load(str(class_cov_file))
-        class_means = {int(k.split('_')[1]): loaded_means[k] for k in loaded_means.files}
-        class_covariances = {int(k.split('_')[1]): loaded_covs[k] for k in loaded_covs.files}
-        print("Mean and covariance for Mahalanobis found and loaded...", flush=True)
+    # Decide projection dimension (cap to keep memory reasonable)
+    N, D = train_data_np.shape
+    # choose n_components <= min(N-1, D), cap at 256 (tunable)
+    n_components = min(256, D, max(1, N - 1))
+    # but avoid trivial sizes for very small N
+    n_components = max(1, min(n_components, N - 1))
+
+    n_jobs = _detect_n_cpus(num_classes)
+
+    if (not FORCE_REBUILD_CACHE) and class_means_file.exists() and class_prec_file.exists() and pca_file.exists():
+        print("Loading PCA + class means + precisions from cache...", flush=True)
+        with np.load(str(pca_file)) as pz:
+            svd_components = pz['components']
+            svd_explained = pz['explained_variance'] if 'explained_variance' in pz.files else None
+        with np.load(str(class_means_file)) as mzip:
+            class_means = {int(k.split('_')[1]): mzip[k] for k in mzip.files}
+        with np.load(str(class_prec_file)) as pzip:
+            class_precisions = {int(k.split('_')[1]): pzip[k] for k in pzip.files}
+        # Create SVD object wrapper (we only need transform via components)
+        class _SVDWrapper:
+            def __init__(self, components):
+                self.components_ = components
+            def transform(self, X):
+                # X (n, D) -> X @ components_.T (n, k)
+                return np.dot(X, self.components_.T)
+        svd = _SVDWrapper(svd_components)
+        print("Loaded Mahalanobis projection & class precisions.", flush=True)
     else:
-        masks = [train_labels == torch.tensor(class_idx, dtype=torch.long) for class_idx in range(num_classes)]
+        # Compute global TruncatedSVD on flattened matrices to reduce dimension
+        print(f"Computing global TruncatedSVD with n_components={n_components} (N={N}, D={D})...", flush=True)
+        svd = TruncatedSVD(n_components=n_components, random_state=0)
+        train_proj = svd.fit_transform(train_data_np)  # (N, k)
+        print("SVD done; projected shape:", train_proj.shape, flush=True)
 
-        # Build per-class data as 2D numpy arrays of shape (n_examples_in_class, flattened_feature_dim)
-        class_data_list = []
-        for mask in masks:
-            subset = train_data[mask].detach().cpu().numpy()  # could be (n_k, a, b, ...)
-            if subset.size == 0:
-                # keep empty array
-                class_data_list.append(subset)
-            else:
-                # flatten each sample to 1D vector -> shape (n_k, D_flat)
-                class_data_list.append(subset.reshape(subset.shape[0], -1))
+        # Precompute a global fallback LedoitWolf on projected data (used for small classes)
+        print("Fitting global LedoitWolf as fallback...", flush=True)
+        lw_global = LedoitWolf().fit(train_proj)
+        global_mean = lw_global.location_.astype(np.float32)
+        global_precision = lw_global.precision_.astype(np.float32)
+
+        # Build per-class projected data
+        train_labels_np = train_labels.detach().cpu().numpy().astype(int)
+        class_proj_list = []
+        for class_idx in range(num_classes):
+            mask = (train_labels_np == class_idx)
+            class_data_proj = train_proj[mask]  # shape (n_k, k)
+            class_proj_list.append(class_data_proj)
+
+        # parallel fit per-class LedoitWolf for projected data
+        def _fit_class(idx, X_proj):
+            if X_proj.shape[0] < 2:
+                # not enough samples — use global fallback
+                return idx, global_mean, global_precision
+            try:
+                lw = LedoitWolf().fit(X_proj)
+                return idx, lw.location_.astype(np.float32), lw.precision_.astype(np.float32)
+            except Exception:
+                # fallback to global
+                return idx, global_mean, global_precision
+
+        print(f"Fitting per-class LedoitWolf in parallel with n_jobs={n_jobs}...", flush=True)
+        results = Parallel(n_jobs=n_jobs)(
+            delayed(_fit_class)(idx, class_proj_list[idx]) for idx in range(num_classes)
+        )
 
         class_means = {}
-        class_covariances = {}
-        for idx, d in enumerate(class_data_list):
-            if d.size == 0:
-                class_means[idx] = np.zeros(train_data_np.shape[1])
-                class_covariances[idx] = np.eye(train_data_np.shape[1])
-            else:
-                class_means[idx] = np.mean(d, axis=0)
-                class_covariances[idx] = np.cov(d, rowvar=False)
+        class_precisions = {}
+        for idx, mu, prec in results:
+            class_means[idx] = mu
+            class_precisions[idx] = prec
 
-        print("Saving files...", flush=True)
+        # Save PCA components + class_means + class_precisions
+        print("Saving PCA components and class Mahalanobis data to cache...", flush=True)
+        os.makedirs(os.path.dirname(str(class_means_file)), exist_ok=True)
+        # svd.components_ shape (k, D) ; save as components
+        np.savez_compressed(str(pca_file), components=svd.components_)
         np.savez_compressed(str(class_means_file), **{f'mean_{k}': class_means[k] for k in class_means})
-        np.savez_compressed(str(class_cov_file), **{f'cov_{k}': class_covariances[k] for k in class_covariances})
+        np.savez_compressed(str(class_prec_file), **{f'prec_{k}': class_precisions[k] for k in class_precisions})
 
+    # helper: project features then compute vectorized min Mahalanobis
     def get_min_mahalanobis_distances_matrices(features_np: np.ndarray) -> np.ndarray:
-        return _vectorized_min_mahalanobis(np.asarray(features_np).reshape(features_np.shape[0], -1),
-                                           class_means, class_covariances)
+        # features_np is (n, D_full)
+        proj = svd.transform(np.asarray(features_np).reshape(features_np.shape[0], -1))
+        return _vectorized_min_mahalanobis_with_prec(proj, class_means, class_precisions)
 
-    print("Mahalanobis ready...", flush=True)
+    print("Mahalanobis ready (projected).", flush=True)
     if temp_dir is not None:
         test_labels = torch.load(f'{temp_dir}/experiments/{experiment_name}/adversarial_examples/test/labels.pth')
     else:
@@ -717,21 +789,32 @@ def reject_predicted_attacks_baseline_matrices(
             print("Loading trained detectors from cache (matrices)...", flush=True)
             knn, kde, gmm, ocsvm, iforest, mahalanobis_threshold = load(cache_file)
         else:
+            print('Start training methods...', flush=True)
             knn = NearestNeighbors(n_neighbors=parameters['knn'][param], metric="euclidean")
+
             kde = KernelDensity(bandwidth=parameters['kde'][param])
+
             gmm = GaussianMixture(n_components=parameters['gmm'][param])
+
             ocsvm = OneClassSVM(kernel='rbf', nu=parameters['ocsvm'][param])
+
             iforest = IsolationForest(n_estimators=parameters['iforest'][param])
 
+
             knn.fit(train_data_np)
+            print('KNN ready...', flush=True)
             kde.fit(train_data_np)
+            print('KDE ready...', flush=True)
             gmm.fit(train_data_np)
+            print('GAUSSIAN ready...', flush=True)
             ocsvm.fit(train_data_np)
+            print('OCSVM ready...', flush=True)
             iforest.fit(train_data_np)
+            print('IFOREST ready...', flush=True)
 
             mahalanobis_threshold = np.percentile(get_min_mahalanobis_distances_matrices(train_data_np),
                                                  parameters['mahalanobis'][param])
-
+            print('MAHALANOBIS ready...', flush=True)
             dump((knn, kde, gmm, ocsvm, iforest, mahalanobis_threshold), cache_file)
 
         for method in methods:
@@ -932,8 +1015,6 @@ def main(
         verbose=True,
         temp_dir=args.temp_dir
     )
-
-    print("DETECTION FINISHED...", flush=True)
 
     return result
 

@@ -175,7 +175,7 @@ def run_adv_examples_script(params: tuple) -> None:
             with lock:
                 with open(output_file, 'a') as f:
                     f.write(result_line)
-
+        print('Trial finished...\n', flush=True)
     else:
         print("Error: Invalid rej_lev flag", flush=True)
         return
