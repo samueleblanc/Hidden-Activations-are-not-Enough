@@ -17,15 +17,20 @@ from model_zoo.vgg import VGG
 from constants.constants import ARCHITECTURES
 
 
-def get_device(verbose=False) -> torch.device:
+def get_device(trial_number: int = 1, gpu_count: int = 1, verbose=True) -> torch.device:
     """
         Returns:
             The device to use.
     """
+    if gpu_count == 0:
+        return torch.device("cpu")
+        # Assign GPU based on trial number (e.g., trial 0 -> cuda:0, trial 1 -> cuda:1)
+
     if torch.cuda.is_available():
         if verbose:
             print("DEVICE: cuda")
-        return torch.device("cuda")
+        gpu_id = trial_number % gpu_count
+        return torch.device(f"cuda:{gpu_id}")
     elif torch.backends.mps.is_available():
         if verbose:
             print("DEVICE: mps")
