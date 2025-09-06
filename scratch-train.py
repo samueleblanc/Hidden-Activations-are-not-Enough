@@ -159,7 +159,7 @@ def train_model(trial):
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
-            #torch.cuda.synchronize()
+            torch.cuda.synchronize()
             if sched == 'cyclic':
                 scheduler.step()
 
@@ -186,9 +186,9 @@ def save_study(study, trial):
     # /lustre07/ -> narval
     # /lustre04/ -> beluga
     # /          -> graham & nibi
-    #study_dir = "/scratch/armenta/"
-    #if not os.path.exists(study_dir):
-    #    os.makedirs(study_dir)
+    study_dir = "/scratch/armenta/"
+    if not os.path.exists(study_dir):
+        os.makedirs(study_dir)
     args = parse_args()
     joblib.dump(study, f"{args.model}_{args.dataset}_{args.version}.pkl")
 
