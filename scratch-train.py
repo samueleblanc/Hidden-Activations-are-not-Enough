@@ -2,13 +2,11 @@ import optuna
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from model_zoo.cnn import CNN_2D
-from utils.utils import get_dataset, get_device, get_num_classes, get_input_shape
+from utils.utils import get_dataset, get_num_classes, get_input_shape
 from torch.optim.lr_scheduler import StepLR, CosineAnnealingLR, ExponentialLR, MultiStepLR, CyclicLR
 import joblib
 import os
 from argparse import ArgumentParser, Namespace
-
 
 os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 from optuna.storages import JournalStorage
@@ -17,6 +15,7 @@ from optuna.storages.journal import JournalFileBackend
 from knowledgematrix.models.alexnet import AlexNet
 from knowledgematrix.models.resnet18 import ResNet18
 from knowledgematrix.models.vgg11 import VGG11
+
 
 def parse_args() -> Namespace:
     """
@@ -51,14 +50,24 @@ def parse_args() -> Namespace:
     return parser.parse_args()
 
 
+def get_device(trial_number: int, gpu_count: int) -> torch.device:
+    """Assign a specific GPU to each trial based on trial number."""
+    if not torch.cuda.is_available():
+        return torch.device("cpu")
+    if gpu_count == 0:
+        return torch.device("cpu")
+    gpu_id = trial_number % gpu_count
+    return torch.device(f"cuda:{gpu_id}")
+
 def train_model(trial):
     # Define hyperparameters to tune
     trial_number = trial.number
     gpu_count = torch.cuda.device_count()
-    print(f"Trial {trial_number}: Using {gpu_count} GPUs, assigned to {get_device(trial_number, gpu_count)}")
+    device = get_device(trial_number, gpu_count)
+    print(f"Trial {trial_number}: Using {gpu_count} GPUs, assigned to {device}")
     args = parse_args()
-    batch_size = trial.suggest_categorical("batch_size", [32, 64, 128, 256, 512, 1024])
-    learning_rate = trial.suggest_float("learning_rate", 1e-4, 1.0, log=True)
+    batch_size = trial.suggest_categorical("batch_size", [16, 32, 64])
+    learning_rate = trial.suggest_float("learning_rate", 1e-5, 1e-3, log=True)
     opt = trial.suggest_categorical("optimizer", ['adam', 'sgd'])
     mom = trial.suggest_float('momentum', 0.0, 0.99) if opt == 'sgd' else 0.0
     wd = trial.suggest_float('weight_decay', 1e-6, 1e-2, log=True)
@@ -76,18 +85,17 @@ def train_model(trial):
         data_path=None
     )
 
-    device = get_device()
     num_classes = get_num_classes(args.dataset)
     input_shape = get_input_shape(args.dataset)
 
     if args.model == 'alexnet':
-        model = AlexNet(input_shape, num_classes).to(device)
+        model = AlexNet(input_shape, num_classes, pretrained=True, freeze_features=True).to(device)
 
     elif args.model == 'resnet':
-        model = ResNet18(input_shape, num_classes).to(device)
+        model = ResNet18(input_shape, num_classes, pretrained=True, freeze_features=True).to(device)
 
     elif args.model == 'vgg':
-        model = VGG11(input_shape, num_classes).to(device)
+        model = VGG11(input_shape, num_classes, pretrained=True, freeze_features=True).to(device)
 
     else:
         raise ValueError(f'Model {args.model} is not supported.')
@@ -96,9 +104,9 @@ def train_model(trial):
     criterion = nn.CrossEntropyLoss().to(device)
 
     if opt == 'adam':
-        optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=wd)
+        optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=learning_rate, weight_decay=wd)
     else:
-        optimizer = optim.SGD(model.parameters(), lr=learning_rate, weight_decay=wd, momentum=mom)
+        optimizer = optim.SGD(filter(lambda p: p.requires_grad, model.parameters()), lr=learning_rate, weight_decay=wd, momentum=mom)
 
     if sched == 'step':
         scheduler = StepLR(optimizer=optimizer, step_size=30, gamma=0.1)
@@ -120,6 +128,29 @@ def train_model(trial):
     # Train the model
     for epoch in range(120):
         print("Epoch: ", epoch)
+        if epoch == 60:
+            # Unfreeze the feature extractor layers
+            for layer in model.layers:
+                if isinstance(layer, nn.Conv2d):
+                    for param in layer.parameters():
+                        param.requires_grad = True
+            # Recreate optimizer with small fixed LR on all trainable params
+            small_lr = 1e-5
+            if opt == 'adam':
+                optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=small_lr, weight_decay=wd)
+            else:
+                optimizer = optim.SGD(filter(lambda p: p.requires_grad, model.parameters()), lr=small_lr, weight_decay=wd, momentum=mom)
+            # Recreate scheduler with new optimizer
+            if sched == 'step':
+                scheduler = StepLR(optimizer=optimizer, step_size=30, gamma=0.1)
+            elif sched == 'cosine':
+                scheduler = CosineAnnealingLR(optimizer, T_max=60)  # Remaining epochs
+            elif sched == 'exp':
+                scheduler = ExponentialLR(optimizer, gamma=0.95)
+            elif sched == 'multi':
+                scheduler = MultiStepLR(optimizer, milestones=[30, 50], gamma=0.1)  # Adjusted for remaining
+            else:
+                scheduler = CyclicLR(optimizer, base_lr=small_lr/10, max_lr=small_lr, step_size_up=2000)
         for i, data in enumerate(train_loader, 0):
             inputs, labels = data
             inputs, labels = inputs.to(device, non_blocking=True), labels.to(device, non_blocking=True)
@@ -155,9 +186,9 @@ def save_study(study, trial):
     # /lustre07/ -> narval
     # /lustre04/ -> beluga
     # /          -> graham & nibi
-    study_dir = "/scratch/armenta/"
-    if not os.path.exists(study_dir):
-        os.makedirs(study_dir)
+    #study_dir = "/scratch/armenta/"
+    #if not os.path.exists(study_dir):
+    #    os.makedirs(study_dir)
     args = parse_args()
     joblib.dump(study, f"{args.model}_{args.dataset}_{args.version}.pkl")
 
@@ -173,7 +204,7 @@ if __name__ == '__main__':
 
     study.optimize(train_model,
                    n_trials=100,
-                   #n_jobs=torch.cuda.device_count(),
+                   n_jobs=2,
                    callbacks=[save_study])
 
     # Print the best hyperparameters and accuracy

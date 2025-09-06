@@ -3,7 +3,9 @@ import torch
 import json
 import random
 import torchvision
-from torchvision import transforms
+import torchvision.transforms as transforms
+from torchvision.datasets import CIFAR10, CIFAR100
+from torch.utils.data import DataLoader
 import shutil
 from pathlib import Path
 from typing import Union
@@ -45,8 +47,6 @@ def get_architecture(
         input_shape = (1, 28, 28),
         num_classes:int = 10,
         architecture_index:int = 0,
-        residual:bool = False,
-        dropout:bool = False,
         pretrained:bool = False
     ) -> Union[MLP, CNN_2D, ResNet, AlexNet, VGG]:
     """
@@ -225,6 +225,27 @@ def get_dataset(
             download = True
         )
     elif data_set == 'cifar10':
+        # Use ImageNet normalization for pretrained models
+        mean = [0.485, 0.456, 0.406]
+        std = [0.229, 0.224, 0.225]
+
+        train_transform = transforms.Compose([
+            transforms.Resize(224),  # Resize to match AlexNet input
+            transforms.RandomHorizontalFlip(),  # Optional augmentation
+            transforms.ToTensor(),
+            transforms.Normalize(mean=mean, std=std)
+        ])
+
+        test_transform = transforms.Compose([
+            transforms.Resize(224),  # Resize to match AlexNet input
+            transforms.ToTensor(),
+            transforms.Normalize(mean=mean, std=std)
+        ])
+
+        train_set = CIFAR10(root=data_path or './data', train=True, download=True, transform=train_transform)
+        test_set = CIFAR10(root=data_path or './data', train=False, download=True, transform=test_transform)
+
+        '''
         # Use data augmentation for CIFAR-10
         transform_train = transforms.Compose([
             transforms.Resize((32,32)),
@@ -247,7 +268,28 @@ def get_dataset(
             transform = transform, 
             download = True
         )
+        '''
     elif data_set == 'cifar100':
+        # Use ImageNet normalization for pretrained models
+        mean = [0.485, 0.456, 0.406]
+        std = [0.229, 0.224, 0.225]
+
+        train_transform = transforms.Compose([
+            transforms.Resize(224),  # Resize to match AlexNet input
+            transforms.RandomHorizontalFlip(),  # Optional augmentation
+            transforms.ToTensor(),
+            transforms.Normalize(mean=mean, std=std)
+        ])
+
+        test_transform = transforms.Compose([
+            transforms.Resize(224),  # Resize to match AlexNet input
+            transforms.ToTensor(),
+            transforms.Normalize(mean=mean, std=std)
+        ])
+
+        train_set = CIFAR100(root=data_path or './data', train=True, download=True, transform=train_transform)
+        test_set = CIFAR100(root=data_path or './data', train=False, download=True, transform=test_transform)
+        '''
         # Use data augmentation for CIFAR-100
         transform_train = transforms.Compose([
             transforms.Resize((32,32)),
@@ -270,6 +312,7 @@ def get_dataset(
             transform = transform, 
             download = True
         )
+        '''
     elif data_set == 'imagenette':
         preprocess = transforms.Compose([
             transforms.Resize(256),
