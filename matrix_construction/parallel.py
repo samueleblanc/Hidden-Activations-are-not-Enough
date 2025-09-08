@@ -7,14 +7,18 @@ import torch
 from torch.utils.data import DataLoader, Subset
 from typing import Union
 
-from model_zoo.mlp import MLP
-from model_zoo.cnn import CNN_2D
-from model_zoo.alex_net import AlexNet
-from model_zoo.res_net import ResNet
-from model_zoo.vgg import VGG
+#from model_zoo.mlp import MLP
+#from model_zoo.cnn import CNN_2D
+#from model_zoo.alex_net import AlexNet
+#from model_zoo.res_net import ResNet
+#from model_zoo.vgg import VGG
 from matrix_construction.matrix_computation import MlpRepresentation, ConvRepresentation_2D
 from utils.utils import get_architecture, get_dataset, get_num_classes, get_input_shape, get_device
-
+from knowledgematrix.matrix_computer import KnowledgeMatrixComputer
+from knowledgematrix.models.alexnet import AlexNet
+from knowledgematrix.models.resnet18 import ResNet18
+from knowledgematrix.models.vgg11 import VGG11
+from torchvision.models import AlexNet_Weights, alexnet
 
 class ParallelMatrixConstruction:
     """
@@ -32,7 +36,7 @@ class ParallelMatrixConstruction:
             - save_path: Where to save computed matrices
             - architecture_index: Index of model architecture
     """
-    def __init__(self, dict_exp: dict) -> None:
+    def __init__(self, dict_exp: dict,) -> None:
         self.epoch: int = dict_exp["epochs"]
         self.num_samples: int = dict_exp["num_samples"]
         self.dataname: str = dict_exp["data_name"].lower()
@@ -43,23 +47,25 @@ class ParallelMatrixConstruction:
         self.device = get_device()
         self.batch_size = dict_exp['batch_size']
         self.num_classes: int = get_num_classes(self.dataname)
+        self.imagenet = True if self.dataname=='imagenet' else False
 
         self.data = get_dataset(self.dataname, data_loader=False)[0]
 
     def compute_matrices_on_dataset(
             self,
-            model: Union[MLP, CNN_2D, AlexNet, ResNet, VGG],
+            model: Union[AlexNet, ResNet18, VGG11],
             chunk_id: int
     ) -> None:
         """
         Computes matrices for all classes in the dataset in parallel.
         """
-        if isinstance(model, MLP):
-            matrix_computer = MlpRepresentation(model=model)
-        elif isinstance(model, (CNN_2D, AlexNet, ResNet, VGG)):
-            matrix_computer = ConvRepresentation_2D(model=model, batch_size=self.batch_size, device=get_device())
-        else:
-            raise ValueError(f"Architecture not supported: {model}. Expects MLP, CNN_2D, AlexNet, ResNet, or VGG.")
+        matrix_computer = KnowledgeMatrixComputer(model, batch_size=self.batch_size)
+        #if isinstance(model, MLP):
+        #    matrix_computer = MlpRepresentation(model=model)
+        #elif isinstance(model, (CNN_2D, AlexNet, ResNet, VGG)):
+        #    matrix_computer = ConvRepresentation_2D(model=model, batch_size=self.batch_size, device=get_device())
+        #else:
+        #    raise ValueError(f"Architecture not supported: {model}. Expects MLP, CNN_2D, AlexNet, ResNet, or VGG.")
 
         for i in range(self.num_classes):
             if self.dataname == 'mnist1d':
@@ -90,21 +96,25 @@ class ParallelMatrixConstruction:
         new_path = os.path.join(path, directory)
         model_file = f"epoch_{self.epoch}.pth"
         model_path = os.path.join(new_path, model_file)
-        state_dict = torch.load(model_path, map_location=self.device)
+        if not self.imagenet:
+            state_dict = torch.load(model_path, map_location=self.device)
 
-        model = get_architecture(
-                    input_shape = get_input_shape(self.dataname),
-                    num_classes = self.num_classes,
-                    architecture_index = self.architecture_index
-                )
-        model.to(self.device)
-        model.load_state_dict(state_dict)
+            model = get_architecture(
+                        input_shape = get_input_shape(self.dataname),
+                        num_classes = self.num_classes,
+                        architecture_index = self.architecture_index
+                    )
+            model.to(self.device)
+            model.load_state_dict(state_dict)
+        else:
+            model = alexnet(weights=AlexNet_Weights.DEFAULT).to(self.device)
+
         self.compute_matrices_on_dataset(model, chunk_id=chunk_id)
     
     def compute_chunk_of_matrices(
             self,
             data: torch.Tensor,
-            matrix_computer: Union[MlpRepresentation, ConvRepresentation_2D],
+            matrix_computer: KnowledgeMatrixComputer,
             out_class: int,
             chunk_id: int = 0
     ) -> None:
@@ -143,7 +153,7 @@ class ParallelMatrixConstruction:
                 # if the path has been created, someone else is already computing the matrix
                 continue
             '''
-            print(f"Chunk: {chunk_id}. Class {out_class}. Matrix {i}/{len(data)}")
+            print(f"Chunk: {chunk_id}. Class {out_class}. Matrix {i}/{len(data)}", flush=True)
             matrix = matrix_computer.forward(d)
             os.makedirs(root)
             torch.save(matrix, matrix_path)

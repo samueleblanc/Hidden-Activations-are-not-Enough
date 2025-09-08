@@ -1,24 +1,24 @@
 #!/bin/bash
-#SBATCH --account=def-bruestle
-#SBATCH --job-name=alexnet_cifar10_matrices
-#SBATCH --array=0-3
-#SBATCH --time=2:30:00  # Increased to accommodate potential longer runs
+#SBATCH --account=def-ko1
+#SBATCH --job-name=alexnet_imagenet_matrices
+#SBATCH --array=0-1
+#SBATCH --time=00:20:00  # Increased to accommodate potential longer runs
 #SBATCH --ntasks=1
-#SBATCH --gres=gpu:1
-#SBATCH --mem=17G  # Increased to prevent segmentation faults
-#SBATCH --output=alexnet_cifar10_%A_%a.out
-#SBATCH --error=alexnet_cifar10_%A_%a.err
+#SBATCH --gres=gpu:2
+#SBATCH --mem=10G  # Increased to prevent segmentation faults
+#SBATCH --output=alexnet_imagenet_%A_%a.out
+#SBATCH --error=alexnet_imagenet_%A_%a.err
 
 # Set variables
-EXPERIMENT="alexnet_cifar10"
+EXPERIMENT="alexnet_imagenet"
 TASK_ID=$SLURM_ARRAY_TASK_ID
 ZIP_FILE="$PWD/experiments/$EXPERIMENT/matrices_task_$TASK_ID.zip"
 
 # Prepare environment
 TEMP_DIR=$SLURM_TMPDIR
 echo "Using temporary directory: $TEMP_DIR"
-module load StdEnv/2023 python/3.10.13 scipy-stack/2025a cuda/12.2 cudnn
-source env_nibi/bin/activate
+module load StdEnv/2023 python/3.11.5 scipy-stack/2025a cuda/12.2 cudnn
+source env_nibi_311/bin/activate
 
 # Copy data and weights to temporary directory
 echo "Copying datasets..."
@@ -43,8 +43,8 @@ python generate_matrices.py \
     --temp_dir "$TEMP_DIR" \
     --experiment "$EXPERIMENT" \
     --chunk_id $TASK_ID \
-    --total_chunks 4 \
-    --batch_size 16
+    --total_chunks 2 \
+    --batch_size 8000
 
 # Zip the matrices directory
 echo "Zipping matrices for task $TASK_ID..."

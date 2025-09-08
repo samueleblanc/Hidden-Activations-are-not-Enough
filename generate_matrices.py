@@ -47,8 +47,6 @@ def main() -> None:
     if not os.path.exists(weights_path):
         raise ValueError(f"Model needs to be trained first")
 
-
-
     dict_exp = {
         "epochs": epochs,
         "weights_path": weights_path,
@@ -61,8 +59,8 @@ def main() -> None:
     }
 
     # Set device to the GPU assigned to this task
-    gpu_id = 1#chunk_id % torch.cuda.device_count()  # Cycle through available GPUs
-    #torch.cuda.set_device(gpu_id)
+    gpu_id = chunk_id % torch.cuda.device_count()  # Cycle through available GPUs
+    torch.cuda.set_device(gpu_id)
     print(f"Processing chunk {chunk_id} on GPU {gpu_id}", flush=True)
 
     mat_constructer = ParallelMatrixConstruction(dict_exp)

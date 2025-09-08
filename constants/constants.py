@@ -106,6 +106,7 @@ DEFAULT_EXPERIMENTS = {
     'alexnet_imagenet': {
         'pretrained': True,
         'dataset': 'imagenet',
+        'architecture_index': -3
     },
     'mlp_mnist': { # accuracy 0.98
         'pretrained': False,
