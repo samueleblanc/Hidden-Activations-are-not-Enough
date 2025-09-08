@@ -126,8 +126,8 @@ def train_model(trial):
 
     model.train()
     # Train the model
-    for epoch in range(120):
-        print("Epoch: ", epoch)
+    for epoch in range(100):
+        print("Epoch: ", epoch, flush=True)
         if epoch == 60:
             # Unfreeze the feature extractor layers
             for layer in model.layers:
@@ -159,7 +159,7 @@ def train_model(trial):
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
-            torch.cuda.synchronize()
+            #torch.cuda.synchronize()
             if sched == 'cyclic':
                 scheduler.step()
 
@@ -190,13 +190,13 @@ def save_study(study, trial):
     if not os.path.exists(study_dir):
         os.makedirs(study_dir)
     args = parse_args()
-    joblib.dump(study, f"{args.model}_{args.dataset}_{args.version}.pkl")
+    joblib.dump(study, f"{args.model}_{args.dataset}_{args.version}_.pkl")
 
 
 if __name__ == '__main__':
     # Create a study object and specify the direction
     args = parse_args()
-    storage = JournalStorage(JournalFileBackend(f'{args.model}_{args.dataset}_{args.version}.log'))
+    storage = JournalStorage(JournalFileBackend(f'/scratch/armenta/{args.model}_{args.dataset}_{args.version}_.log'))
     study = optuna.create_study(direction="minimize",
                                 study_name=f"{args.model}_{args.dataset}_{args.version}_",
                                 storage=storage,
@@ -204,7 +204,7 @@ if __name__ == '__main__':
 
     study.optimize(train_model,
                    n_trials=100,
-                   n_jobs=2,
+                   n_jobs=8,
                    callbacks=[save_study])
 
     # Print the best hyperparameters and accuracy
