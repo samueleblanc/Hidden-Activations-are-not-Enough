@@ -26,8 +26,9 @@ def main() -> None:
         raise ValueError("Default index not specified in constants/constants.py")
 
     experiment = args.experiment_name
-    epochs = DEFAULT_EXPERIMENTS[experiment]['epochs']-1
+
     dataset = DEFAULT_EXPERIMENTS[experiment]['dataset']
+    epochs = DEFAULT_EXPERIMENTS[experiment]['epochs']-1 if dataset != 'imagenet' else None
     architecture_index = DEFAULT_EXPERIMENTS[experiment]['architecture_index']
     num_samples = args.num_samples_per_class
 
@@ -70,7 +71,7 @@ def main() -> None:
     with open(done_file, 'w') as f:
         f.write("done")
 
-    print(f"Chunk {args.chunk_id} completed and saved to {save_path}")
+    print(f"Chunk {args.chunk_id} completed and saved to {save_path}", flush=True)
     print(f"Chunk {chunk_id} completed!", flush=True)
 
 

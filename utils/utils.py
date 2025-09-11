@@ -19,6 +19,128 @@ from model_zoo.vgg import VGG
 from constants.constants import ARCHITECTURES
 
 
+from torch.utils.data import Dataset, DataLoader
+from PIL import Image
+import torchvision.transforms as transforms
+from torchvision.datasets import CIFAR10
+from typing import Tuple, Optional, Callable
+
+
+class ImageNetVal(Dataset):
+    """
+    Custom Dataset for ImageNet validation set, loading images and ground truth labels.
+
+    Args:
+        root (str): Path to validation images (e.g., /datashare/imagenet/ILSVRC2012/val/).
+        gt_path (str): Path to ILSVRC2012_validation_ground_truth.txt.
+        transform (Callable, optional): Transforms for images (e.g., Resize, ToTensor, Normalize).
+        target_transform (Callable, optional): Transforms for labels.
+
+    Loads 50,000 validation images with labels (0-999, matching ILSVRC2012_ID - 1).
+    Images are sorted alphabetically to match ground truth order.
+    """
+    def __init__(
+        self,
+        root: str,
+        gt_path: str,
+        transform: Optional[Callable] = None,
+        target_transform: Optional[Callable] = None
+    ) -> None:
+        self.root = root
+        self.transform = transform
+        self.target_transform = target_transform
+        self.gt_path = gt_path
+
+        # Load ground truth labels (50,000 lines, ILSVRC2012_ID 1-1000)
+        if not os.path.exists(gt_path):
+            raise FileNotFoundError(f"Ground truth file not found at {gt_path}")
+        with open(gt_path, 'r') as f:
+            self.labels = [int(line.strip()) - 1 for line in f.readlines()]  # Convert to 0-indexed (0-999)
+
+        if len(self.labels) != 50000:
+            raise ValueError(f"Expected 50,000 labels, got {len(self.labels)} in {gt_path}")
+
+        # Get sorted image paths (alphabetical order to match ground truth)
+        self.image_paths = sorted(
+            [os.path.join(root, f) for f in os.listdir(root) if f.lower().endswith(('.jpeg', '.jpg'))]
+        )
+
+        if len(self.image_paths) != 50000:
+            raise ValueError(f"Expected 50,000 validation images, got {len(self.image_paths)} in {root}")
+
+        # Verify image filenames (e.g., ILSVRC2012_val_00000001.JPEG)
+        for i, path in enumerate(self.image_paths[:5], 1):
+            expected = f"ILSVRC2012_val_{str(i).zfill(8)}.JPEG"
+            if os.path.basename(path) != expected:
+                print(f"Warning: Image {path} does not match expected {expected}. Labels may misalign.")
+
+    def __len__(self) -> int:
+        return len(self.image_paths)
+
+    def __getitem__(self, index: int) -> Tuple[torch.Tensor, int]:
+        try:
+            image = Image.open(self.image_paths[index]).convert('RGB')
+        except Exception as e:
+            print(f"Error loading image {self.image_paths[index]}: {e}")
+            image = Image.new('RGB', (224, 224), (0, 0, 0))  # Fallback black image
+
+        label = self.labels[index]
+
+        if self.transform is not None:
+            image = self.transform(image)
+
+        if self.target_transform is not None:
+            label = self.target_transform(label)
+
+        return image, label
+
+
+def get_imagenet_val_dataset(
+    data_path: str = '/datashare/imagenet/ILSVRC2012',
+    transform: Optional[transforms.Compose] = None,
+    batch_size: int = 32
+) -> Tuple[DataLoader, ImageNetVal]:
+    """
+    Loads ImageNet validation dataset as a proxy for test set with real labels.
+
+    Args:
+        data_path (str): Base path (val in data_path/val/, gt in data_path/ILSVRC2012_devkit_t12/data/).
+        transform (transforms.Compose, optional): Image transforms.
+        batch_size (int): Batch size for DataLoader.
+
+    Returns:
+        Tuple[DataLoader, ImageNetVal]: Validation DataLoader and dataset.
+    """
+    if transform is None:
+        mean = [0.485, 0.456, 0.406]
+        std = [0.229, 0.224, 0.225]
+        transform = transforms.Compose([
+            transforms.Resize(256),
+            transforms.CenterCrop(224),  # Standard ImageNet preprocessing
+            transforms.ToTensor(),
+            transforms.Normalize(mean=mean, std=std)
+        ])
+
+    val_root = os.path.join(data_path, 'val')
+    gt_path = os.path.join(data_path, 'ILSVRC2012_devkit_t12/data/ILSVRC2012_validation_ground_truth.txt')
+
+    val_set = ImageNetVal(
+        root=val_root,
+        gt_path=gt_path,
+        transform=transform
+    )
+
+    val_loader = DataLoader(
+        val_set,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=4,  # Adjust for Nibi cluster I/O
+        pin_memory=True  # Faster GPU transfers
+    )
+
+    return val_loader, val_set
+
+
 def get_device(trial_number: int = 1, gpu_count: int = 1, verbose=True) -> torch.device:
     """
         Returns:
@@ -313,7 +435,9 @@ def get_dataset(
             download = True
         )
         '''
-    elif data_set == 'imagenette':
+    elif data_set == 'imagenet':
+
+        '''
         preprocess = transforms.Compose([
             transforms.Resize(256),
             transforms.CenterCrop(224),
@@ -332,6 +456,7 @@ def get_dataset(
             transform = preprocess, 
             download = True
         )
+        '''
     elif data_set == "mnist1d":
         defaults = get_dataset_args()
         data = make_dataset(defaults)

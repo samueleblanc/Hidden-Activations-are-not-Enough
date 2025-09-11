@@ -1,14 +1,16 @@
 #!/bin/bash
 #SBATCH --account=def-ko1
 #SBATCH --job-name=alexnet_imagenet_matrices
-#SBATCH --array=0-1
+#SBATCH --array=0-3
 #SBATCH --time=00:20:00  # Increased to accommodate potential longer runs
+#SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --gres=gpu:2
+#SBATCH --gres=gpu:4
 #SBATCH --mem=10G  # Increased to prevent segmentation faults
 #SBATCH --output=alexnet_imagenet_%A_%a.out
 #SBATCH --error=alexnet_imagenet_%A_%a.err
 
+#export CUDA_VISIBLE_DEVICES=0,1
 # Set variables
 EXPERIMENT="alexnet_imagenet"
 TASK_ID=$SLURM_ARRAY_TASK_ID
@@ -43,7 +45,7 @@ python generate_matrices.py \
     --temp_dir "$TEMP_DIR" \
     --experiment "$EXPERIMENT" \
     --chunk_id $TASK_ID \
-    --total_chunks 2 \
+    --total_chunks 4 \
     --batch_size 8000
 
 # Zip the matrices directory
