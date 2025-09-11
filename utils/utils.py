@@ -436,7 +436,11 @@ def get_dataset(
         )
         '''
     elif data_set == 'imagenet':
-
+        val_loader, val_set = get_imagenet_val_dataset(data_path or '/datashare/imagenet/ILSVRC2012', batch_size=batch_size)
+        if data_loader:
+            return None, val_loader  # No train loader, return val as test
+        else:
+            return None, val_set  # No train set, return val as test
         '''
         preprocess = transforms.Compose([
             transforms.Resize(256),

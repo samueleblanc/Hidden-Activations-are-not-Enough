@@ -24,11 +24,16 @@ source env_nibi_311/bin/activate
 
 # Copy data and weights to temporary directory
 echo "Copying datasets..."
-mkdir -p "$TEMP_DIR/data/cifar-10-batches-py/"
-cp -r data/cifar-10-batches-py/* "$TEMP_DIR/data/cifar-10-batches-py/" || { echo "Failed to copy dataset"; exit 1; }
+#mkdir -p "$TEMP_DIR/data/cifar-10-batches-py/"
+#cp -r data/cifar-10-batches-py/* "$TEMP_DIR/data/cifar-10-batches-py/" || { echo "Failed to copy dataset"; exit 1; }
 echo "Copying weights for task $TASK_ID..."
 mkdir -p "$TEMP_DIR/experiments/$EXPERIMENT/weights/"
 cp experiments/$EXPERIMENT/weights/* "$TEMP_DIR/experiments/$EXPERIMENT/weights/"
+
+echo "copy imagenet.."
+mkdir -p "$TEMP_DIR/data/ILSVRC2012/"
+cp -r /datashare/imagenet/ILSVRC2012/* $TEMP_DIR/data/ILSVRC2012/
+echo "imagenet ready!!!"
 
 # Check for existing zip file and unzip if present
 if [ -f "$ZIP_FILE" ]; then

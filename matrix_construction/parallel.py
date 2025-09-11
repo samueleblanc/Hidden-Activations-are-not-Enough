@@ -94,20 +94,18 @@ class ParallelMatrixConstruction:
         path = os.getcwd()
         directory = f"{self.weights_path}"
         new_path = os.path.join(path, directory)
-        model_file = f"epoch_{self.epoch}.pth"
+        model_file = "pretrained-weights.pth" if self.imagenet else f"epoch_{self.epoch}.pth"
         model_path = os.path.join(new_path, model_file)
-        if not self.imagenet:
-            state_dict = torch.load(model_path, map_location=self.device)
 
-            model = get_architecture(
-                        input_shape = get_input_shape(self.dataname),
-                        num_classes = self.num_classes,
-                        architecture_index = self.architecture_index
-                    )
-            model.to(self.device)
-            model.load_state_dict(state_dict)
-        else:
-            model = alexnet(weights=AlexNet_Weights.DEFAULT).to(self.device)
+        state_dict = torch.load(model_path, map_location=self.device)
+
+        model = get_architecture(
+                    input_shape = get_input_shape(self.dataname),
+                    num_classes = self.num_classes,
+                    architecture_index = self.architecture_index
+                )
+        model.to(self.device)
+        model.load_state_dict(state_dict)
 
         self.compute_matrices_on_dataset(model, chunk_id=chunk_id)
     
