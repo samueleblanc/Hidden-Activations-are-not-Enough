@@ -3,7 +3,6 @@ import torch
 import json
 import random
 import torchvision
-import torchvision.transforms as transforms
 from torchvision.datasets import CIFAR10, CIFAR100
 from torch.utils.data import DataLoader
 import shutil
@@ -13,9 +12,9 @@ from mnist1d.data import make_dataset, get_dataset_args
 
 from model_zoo.mlp import MLP
 from model_zoo.cnn import CNN_2D
-from model_zoo.res_net import ResNet
-from model_zoo.alex_net import AlexNet
-from model_zoo.vgg import VGG
+from knowledgematrix.models.alexnet import AlexNet
+from knowledgematrix.models.resnet18 import ResNet18
+from knowledgematrix.models.vgg11 import VGG11
 from constants.constants import ARCHITECTURES
 
 
@@ -169,8 +168,7 @@ def get_architecture(
         input_shape = (1, 28, 28),
         num_classes:int = 10,
         architecture_index:int = 0,
-        pretrained:bool = False
-    ) -> Union[MLP, CNN_2D, ResNet, AlexNet, VGG]:
+    ) -> Union[MLP, CNN_2D, ResNet18, AlexNet, VGG11]:
     """
         Args:
             input_shape: The shape of the input data.
@@ -204,21 +202,15 @@ def get_architecture(
                        pooling="avg")
     elif architecture_index == -3:
         model = AlexNet(
-            input_shape = input_shape,
-            num_classes = num_classes,
-            pretrained = pretrained
+            input_shape, num_classes, pretrained=True, freeze_features=True
         )
     elif architecture_index == -2:
-        model = ResNet(
-            input_shape = input_shape,
-            num_classes = num_classes,
-            pretrained=pretrained
+        model = ResNet18(
+            input_shape, num_classes, pretrained=True, freeze_features=True
         )
     elif architecture_index == -1:
-        model = VGG(
-            input_shape = input_shape,
-            num_classes = num_classes,
-            pretrained = pretrained
+        model = VGG11(
+            input_shape, num_classes, pretrained=True, freeze_features=True
         )
     else:
         model = CNN_2D(
@@ -236,7 +228,7 @@ def get_model(
         input_shape,
         num_classes: int,
         device: torch.device = torch.device('cpu'),
-    ) -> Union[MLP, CNN_2D, ResNet, AlexNet, VGG]:
+    ) -> Union[MLP, CNN_2D, ResNet18, AlexNet, VGG11]:
     """ 
         Args:
             path: The path to the model weights.

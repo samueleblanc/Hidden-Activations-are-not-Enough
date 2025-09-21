@@ -7,14 +7,15 @@ from torch.optim.lr_scheduler import StepLR
 from pathlib import Path
 from argparse import ArgumentParser, Namespace
 from typing import Union
+from torch.optim.lr_scheduler import StepLR, CosineAnnealingLR, ExponentialLR, MultiStepLR, CyclicLR
 
-from model_zoo.alex_net import AlexNet
+from knowledgematrix.models.alexnet import AlexNet
+from knowledgematrix.models.resnet18 import ResNet18
+from knowledgematrix.models.vgg11 import VGG11
 from model_zoo.cnn import CNN_2D
 from model_zoo.mlp import MLP
-from model_zoo.res_net import ResNet
-from model_zoo.vgg import VGG
 from constants.constants import DEFAULT_EXPERIMENTS
-from utils.utils import get_architecture, get_dataset, get_device, get_input_shape, get_num_classes
+from utils.utils import get_dataset, get_device, get_input_shape, get_num_classes, get_architecture
 
 
 def parse_args() -> Namespace:
@@ -44,11 +45,12 @@ def parse_args() -> Namespace:
 
 
 def train_one_epoch(
-        model: Union[AlexNet, CNN_2D, MLP, ResNet, VGG], 
+        model: Union[AlexNet, CNN_2D, MLP, ResNet18, VGG11],
         train_loader, 
         criterion: nn.CrossEntropyLoss, 
         optimizer: Union[optim.SGD, optim.Adam], 
-        device: torch.device
+        device: torch.device,
+        scheduler: str
     ) -> None:
     """
         Args:
@@ -68,10 +70,14 @@ def train_one_epoch(
         loss.backward()
         optimizer.step()
         running_loss += loss.item() * inputs.size(0)
+        if scheduler == 'cyclic':
+            scheduler.step()
+
+
 
 
 def evaluate_model(
-        model: Union[AlexNet, CNN_2D, MLP, ResNet, VGG], 
+        model: Union[AlexNet, CNN_2D, MLP, ResNet18, VGG11],
         data_loader, 
         criterion: nn.CrossEntropyLoss, 
         device: torch.device
@@ -108,21 +114,20 @@ def main() -> None:
     print("Start main")
     args = parse_args()
     if args.experiment_name is not None:
-        #try:
         experiment = args.experiment_name
         dataset = DEFAULT_EXPERIMENTS[experiment]['dataset']
-        optimizer_name = DEFAULT_EXPERIMENTS[experiment]['optimizer']
+        opt = DEFAULT_EXPERIMENTS[experiment]['optimizer']
         lr = DEFAULT_EXPERIMENTS[experiment]['lr']
         batch_size = DEFAULT_EXPERIMENTS[experiment]['batch_size']
         epochs = DEFAULT_EXPERIMENTS[experiment]['epochs']
-        momentum = DEFAULT_EXPERIMENTS[experiment]['momentum']
-        weight_decay = DEFAULT_EXPERIMENTS[experiment]['weight_decay']
+        mom = DEFAULT_EXPERIMENTS[experiment]['momentum']
+        wd = DEFAULT_EXPERIMENTS[experiment]['weight_decay']
+        sched = DEFAULT_EXPERIMENTS[experiment]['scheduler']
+        architecture_index = DEFAULT_EXPERIMENTS[experiment]['architecture_index']
+        save_every_epochs = 10
 
-        #except KeyError:
-        #    print(f"Experiment {args.experiment_name} does not exist or has incorrect hyper parameters.")
-        #    return
     else:
-        raise ValueError("Default index not specified in constants/constants.py")
+        raise ValueError("Experiment not specified in constants/constants.py")
 
     device = get_device()
     train_loader, test_loader = get_dataset(
@@ -134,45 +139,34 @@ def main() -> None:
 
     input_shape = get_input_shape(dataset)
     num_classes = get_num_classes(dataset)
-    architecture_index = 0
+    model = get_architecture(input_shape, num_classes, architecture_index).to(device)
 
-    if experiment[:7] == 'alexnet':
-        architecture_index = -3
-    elif experiment[:6] == 'resnet':
-        architecture_index = -2
-    elif experiment[:3] == 'vgg':
-        architecture_index = -1
+    # Define loss function and optimizer
+    criterion = nn.CrossEntropyLoss().to(device)
 
-    model = get_architecture(
-        architecture_index = architecture_index,
-        input_shape = input_shape,
-        num_classes = num_classes
-    ).to(device)
-
-    criterion = nn.CrossEntropyLoss()
-    if optimizer_name == "sgd":
-        optimizer = optim.SGD(
-            params = model.parameters(), 
-            lr = lr, 
-            weight_decay = weight_decay,
-            momentum = momentum
-        )
-    elif optimizer_name == "adam":
-        optimizer = optim.Adam(
-            params = model.parameters(), 
-            lr = lr, 
-            weight_decay = weight_decay
-        )
+    if opt == 'adam':
+        optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=lr,
+                               weight_decay=wd)
     else:
-        raise ValueError("Unsupported optimizer. Add it manually at line 221 on training.py")
+        optimizer = optim.SGD(filter(lambda p: p.requires_grad, model.parameters()), lr=lr,
+                              weight_decay=wd, momentum=mom)
 
-    step_size = epochs-10 if epochs-10>0 else 10
-    scheduler = StepLR(
-        optimizer = optimizer,
-        step_size = step_size,
-        gamma = 0.1
-    )
+    if sched == 'step':
+        scheduler = StepLR(optimizer=optimizer, step_size=30, gamma=0.1)
 
+    elif sched == 'cosine':
+        scheduler = CosineAnnealingLR(optimizer, T_max=120)
+
+    elif sched == 'exp':
+        scheduler = ExponentialLR(optimizer, gamma=0.95)
+
+    elif sched == 'multi':
+        scheduler = MultiStepLR(optimizer, milestones=[60, 90], gamma=0.1)
+
+    else:
+        scheduler = CyclicLR(optimizer, base_lr=0.001, max_lr=1)
+
+    model.train()
     start_epoch = 0
     if args.from_checkpoint:
         checkpoints_path = Path(f'experiments/{args.experiment}/weights/')
@@ -190,13 +184,14 @@ def main() -> None:
                'test_loss':[]}
 
     print("Training...", flush=True)
-    for epoch in range(start_epoch, epochs):
+    for epoch in range(start_epoch, epochs+1):
         train_one_epoch(
             model = model, 
             train_loader = train_loader, 
             criterion = criterion, 
             optimizer = optimizer, 
-            device = device
+            device = device,
+            scheduler = sched
         )
         train_loss, train_accuracy = evaluate_model(
             model = model, 
@@ -219,11 +214,12 @@ def main() -> None:
         print(f"Epoch {epoch}/{epochs}, Train Loss: {train_loss:.4f}, Test Loss: {test_loss:.4f}, "
               f"Train Accuracy: {train_accuracy:.4f}, Test Accuracy: {test_accuracy:.4f}", flush=True)
 
-        scheduler.step()
+        if sched != 'cyclic':
+            scheduler.step()
 
-        #if epoch % save_every_epochs == 0 or epoch == epochs - 1:
-        #    os.makedirs(f'experiments/{args.default_index}/weights/', exist_ok=True)
-        #    torch.save(model.state_dict(), f'experiments/{args.default_index}/weights/epoch_{epoch}.pth')
+        if epoch % save_every_epochs == 0 or epoch == epochs - 1:
+            os.makedirs(f'experiments/{experiment}/weights/', exist_ok=True)
+            torch.save(model.state_dict(), f'experiments/{experiment}/weights/epoch_{epoch}.pth')
         os.makedirs(f'experiments/{experiment}/weights/', exist_ok=True)
         with open(f'experiments/{experiment}/weights/history.json', 'w') as json_file:
             json.dump(history, json_file, indent=4)
