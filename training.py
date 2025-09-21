@@ -169,7 +169,7 @@ def main() -> None:
     model.train()
     start_epoch = 0
     if args.from_checkpoint:
-        checkpoints_path = Path(f'experiments/{args.experiment}/weights/')
+        checkpoints_path = Path(f'experiments/{experiment}/weights/')
         if checkpoints_path.exists():
             checkpoints = list(checkpoints_path.glob('epoch_*.pth'))
             if checkpoints:

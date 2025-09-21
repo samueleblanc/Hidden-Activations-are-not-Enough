@@ -28,7 +28,7 @@ def main() -> None:
     experiment = args.experiment_name
 
     dataset = DEFAULT_EXPERIMENTS[experiment]['dataset']
-    epochs = DEFAULT_EXPERIMENTS[experiment]['epochs']-1 if dataset != 'imagenet' else None
+    epochs = DEFAULT_EXPERIMENTS[experiment]['epochs'] if dataset != 'imagenet' else None
     architecture_index = DEFAULT_EXPERIMENTS[experiment]['architecture_index']
     num_samples = args.num_samples_per_class
 

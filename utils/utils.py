@@ -168,6 +168,7 @@ def get_architecture(
         input_shape = (1, 28, 28),
         num_classes:int = 10,
         architecture_index:int = 0,
+        pretrained = False,
     ) -> Union[MLP, CNN_2D, ResNet18, AlexNet, VGG11]:
     """
         Args:
@@ -202,15 +203,15 @@ def get_architecture(
                        pooling="avg")
     elif architecture_index == -3:
         model = AlexNet(
-            input_shape, num_classes, pretrained=True, freeze_features=True
+            input_shape, num_classes, pretrained=pretrained, freeze_features=True
         )
     elif architecture_index == -2:
         model = ResNet18(
-            input_shape, num_classes, pretrained=True, freeze_features=True
+            input_shape, num_classes, pretrained=pretrained, freeze_features=True
         )
     elif architecture_index == -1:
         model = VGG11(
-            input_shape, num_classes, pretrained=True, freeze_features=True
+            input_shape, num_classes, pretrained=pretrained, freeze_features=True
         )
     else:
         model = CNN_2D(
