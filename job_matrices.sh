@@ -5,7 +5,7 @@
 #SBATCH --time=00:20:00  # Increased to accommodate potential longer runs
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=16
-#SBATCH --mem=124G  # Increased to prevent segmentation faults
+#SBATCH --mem=248G  # Increased to prevent segmentation faults
 #SBATCH --output=alexnet_cifar10_%A_%a.out
 #SBATCH --error=alexnet_cifar10_%A_%a.err
 
@@ -45,7 +45,7 @@ fi
 
 # Run Python script in the foreground
 echo "Generating matrices for task $TASK_ID..."
-python generate_matrices.py --temp_dir "$TEMP_DIR" --experiment "$EXPERIMENT" --chunk_id $TASK_ID --total_chunks 2 --batch_size 150528 # 150528=224*224*3 is max for imagenet size
+python generate_matrices.py --temp_dir "$TEMP_DIR" --experiment "$EXPERIMENT" --chunk_id $TASK_ID --total_chunks 2 --batch_size 75264 #75264, 150528=224*224*3 is max for imagenet size
 
 # Zip the matrices directory
 echo "Zipping matrices for task $TASK_ID..."
