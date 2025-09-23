@@ -13,7 +13,7 @@ from typing import Union
 #from model_zoo.res_net import ResNet
 #from model_zoo.vgg import VGG
 from matrix_construction.matrix_computation import MlpRepresentation, ConvRepresentation_2D
-from utils.utils import get_architecture, get_dataset, get_num_classes, get_input_shape, get_device
+from utils.utils import get_architecture, get_dataset, get_num_classes, get_device
 from knowledgematrix.matrix_computer import KnowledgeMatrixComputer
 from knowledgematrix.models.alexnet import AlexNet
 from knowledgematrix.models.resnet18 import ResNet18
@@ -50,6 +50,15 @@ class ParallelMatrixConstruction:
         self.imagenet = True if self.dataname=='imagenet' else False
 
         self.data = get_dataset(self.dataname, data_loader=False)[0]
+        if self.dataname in ['cifar10', 'cifar100', 'imagenet']:
+            self.input_shape = (3,224,224)
+        elif self.dataname == 'mnist1d':
+            self.input_shape = (40,)
+        elif self.dataname == 'mnist':
+            self.input_shape = (1,28,28)
+        else:
+            raise ValueError(f'Input size is not supported for {self.dataname}')
+
 
     def compute_matrices_on_dataset(
             self,
@@ -100,7 +109,7 @@ class ParallelMatrixConstruction:
         state_dict = torch.load(model_path, map_location=self.device)
 
         model = get_architecture(
-                    input_shape = get_input_shape(self.dataname),
+                    input_shape = self.input_shape,
                     num_classes = self.num_classes,
                     architecture_index = self.architecture_index
                 )
@@ -152,6 +161,8 @@ class ParallelMatrixConstruction:
                 continue
             '''
             print(f"Chunk: {chunk_id}. Class {out_class}. Matrix {i}/{len(data)}", flush=True)
+            d = d.unsqueeze(0)
+            print(d.shape)
             matrix = matrix_computer.forward(d)
             os.makedirs(root)
             torch.save(matrix, matrix_path)

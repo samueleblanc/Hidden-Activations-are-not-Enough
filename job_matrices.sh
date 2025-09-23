@@ -45,12 +45,7 @@ fi
 
 # Run Python script in the foreground
 echo "Generating matrices for task $TASK_ID..."
-python generate_matrices.py \
-    --temp_dir "$TEMP_DIR" \
-    --experiment "$EXPERIMENT" \
-    --chunk_id $TASK_ID \
-    --total_chunks 1 \
-    --batch_size 150528 # 150528=224*224*3 is max for imagenet size
+python generate_matrices.py --temp_dir "$TEMP_DIR" --experiment "$EXPERIMENT" --chunk_id $TASK_ID --total_chunks 2 --batch_size 150528 # 150528=224*224*3 is max for imagenet size
 
 # Zip the matrices directory
 echo "Zipping matrices for task $TASK_ID..."

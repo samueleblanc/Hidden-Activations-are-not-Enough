@@ -97,7 +97,6 @@ DEFAULT_EXPERIMENTS = {
         'epochs': 70,
         'batch_size': 16,
         'lr': 5.9727572025986934e-05,
-        'epochs': 300,
         'optimizer': 'adam',
         'momentum': 0,
         'weight_decay': 0.0015747834011850491,
