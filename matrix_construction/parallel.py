@@ -51,11 +51,11 @@ class ParallelMatrixConstruction:
 
         self.data = get_dataset(self.dataname, data_loader=False)[0]
         if self.dataname in ['cifar10', 'cifar100', 'imagenet']:
-            self.input_shape = (3,224,224)
+            self.input_shape = (3, 224, 224)
         elif self.dataname == 'mnist1d':
-            self.input_shape = (40,)
-        elif self.dataname == 'mnist':
-            self.input_shape = (1,28,28)
+            self.input_shape = (1, 1, 40)
+        elif self.dataname in ['mnist', 'fashion']:
+            self.input_shape = (1, 28, 28)
         else:
             raise ValueError(f'Input size is not supported for {self.dataname}')
 

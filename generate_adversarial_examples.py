@@ -22,7 +22,7 @@ def parse_args(
     parser.add_argument(
         "--experiment_name",
         type = str,
-        default = 0,
+        default = 'alexnet_cifar10',
         help = "Name of experiment <<network>>_<<dataset>>"
     )
     parser.add_argument(
@@ -66,7 +66,6 @@ def apply_attack(
             The name of the attack and the adversarial examples (that are misclassified).
     """
     device = get_device()
-    print(f"Using device: {device}", flush=True)
 
     attack_save_path = path_adv_examples / f'{attack_name}/adversarial_examples.pth'
     wrong_pred_save_path = path_adv_examples / f'{attack_name}/wrong_predictions.pth'
@@ -201,7 +200,7 @@ def main() -> None:
     experiment = args.experiment_name
     architecture_index = DEFAULT_EXPERIMENTS[experiment]['architecture_index']
     dataset = DEFAULT_EXPERIMENTS[experiment]['dataset']
-    epoch = DEFAULT_EXPERIMENTS[experiment]['epochs']-1
+    epoch = DEFAULT_EXPERIMENTS[experiment]['epochs']
 
     print("Experiment: ", experiment)
 
@@ -211,7 +210,7 @@ def main() -> None:
         weights_path = Path(f'experiments/{experiment}/weights/epoch_{epoch}.pth')
 
     if not weights_path.exists():
-        raise ValueError(f"Experiment needs to be trained")
+        raise ValueError(f"Couldn't find weights at {weights_path}")
 
     input_shape = get_input_shape(dataset)
     num_classes = get_num_classes(dataset)

@@ -265,12 +265,13 @@ def get_input_shape(
         return (1, 28, 28)
     elif data_set == 'mnist1d':
         return (1, 1, 40)
-    elif data_set == 'cifar10' or data_set == 'cifar100':
-        return (3, 32, 32)
-    elif data_set == 'imagenet':
-        return (3, 224, 224)
     else:
-        raise ValueError("Unsupported dataset.")
+    #elif data_set == 'cifar10' or data_set == 'cifar100':
+    #    return (3, 32, 32)
+    #elif data_set == 'imagenet':
+        return (3, 224, 224)
+    #else:
+    #    raise ValueError("Unsupported dataset.")
 
 
 def get_num_classes(
