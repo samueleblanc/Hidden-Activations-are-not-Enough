@@ -159,7 +159,7 @@ def main() -> None:
         experiment = DEFAULT_EXPERIMENTS[f'{args.experiment_name}']
         architecture_index = experiment['architecture_index']
         dataset = experiment['dataset']
-        epoch = experiment['epochs'] - 1
+        epoch = experiment['epochs']
 
     else:
         raise ValueError("Default index not specified in constants/constants.py")
