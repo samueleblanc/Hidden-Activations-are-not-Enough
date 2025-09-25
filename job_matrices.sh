@@ -1,24 +1,24 @@
 #!/bin/bash
-#SBATCH --account=def-ko1
-#SBATCH --job-name=alexnet_cifar10_matrices
-#SBATCH --array=0
-#SBATCH --time=00:20:00  # Increased to accommodate potential longer runs
+#SBATCH --account=def-assem
+#SBATCH --job-name=matrices
+#SBATCH --array=2
+#SBATCH --time=02:20:00  # Increased to accommodate potential longer runs
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=16
-#SBATCH --mem=248G  # Increased to prevent segmentation faults
-#SBATCH --output=alexnet_cifar10_%A_%a.out
-#SBATCH --error=alexnet_cifar10_%A_%a.err
+#SBATCH --mem=180G  # Increased to prevent segmentation faults
+#SBATCH --output=slurm_out/alexnet_cifar10_matrices_%A_%a.out
+#SBATCH --error=slurm_err/alexnet_cifar10_matrices_%A_%a.err
 
 #export CUDA_VISIBLE_DEVICES=0,1
 # Set variables
 EXPERIMENT="alexnet_cifar10"
 TASK_ID=$SLURM_ARRAY_TASK_ID
-ZIP_FILE="$PWD/experiments/$EXPERIMENT/matrices_task_$TASK_ID.zip"
+ZIP_FILE="$PWD/experiments/$EXPERIMENT/matrices_chunk_$TASK_ID.zip"
 
 # Prepare environment
 TEMP_DIR=$SLURM_TMPDIR
 echo "Using temporary directory: $TEMP_DIR"
-module load StdEnv/2023 python/3.11.5 scipy-stack/2025a cuda/12.2 cudnn
+module load StdEnv/2023 python/3.11.5 scipy-stack/2025a #cuda/12.2 cudnn
 source env_rorqual/bin/activate
 
 # Copy data and weights to temporary directory
@@ -43,9 +43,29 @@ if [ -f "$ZIP_FILE" ]; then
     echo "Existing matrices unzipped to $TEMP_DIR/experiments/$EXPERIMENT/matrices"
 fi
 
+GPU_LOGFILE="gpu_monitor.anc10m_$TASK_ID.log"
+INTERVAL=30  # seconds between GPU checks
+
+monitor_gpu() {
+  echo "Timestamp, GPU Utilization (%), GPU Memory Used (MiB), GPU Memory Total (MiB)" > "$GPU_LOGFILE"
+  while true; do
+    timestamp=$(date +%Y-%m-%dT%H:%M:%S)
+    nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total \
+               --format=csv,noheader,nounits \
+    | awk -v ts="$timestamp" '{print ts", "$1", "$2", "$3}' >> "$GPU_LOGFILE"
+    sleep $INTERVAL
+  done
+}
+
+# Start monitoring in background
+monitor_gpu &
+MONITOR_PID=$!
+echo "GPU monitor started in background (PID $MONITOR_PID)"
+
 # Run Python script in the foreground
 echo "Generating matrices for task $TASK_ID..."
-python generate_matrices.py --temp_dir "$TEMP_DIR" --experiment "$EXPERIMENT" --chunk_id $TASK_ID --total_chunks 2 --batch_size 75264 #75264, 150528=224*224*3 is max for imagenet size
+timeout 2h python generate_matrices.py --temp_dir "$TEMP_DIR" --experiment "$EXPERIMENT" --chunk_id $TASK_ID --total_chunks 4 --batch_size 18816 #37632,75264, 150528=224*224*3 is max for imagenet size
+
 
 # Zip the matrices directory
 echo "Zipping matrices for task $TASK_ID..."

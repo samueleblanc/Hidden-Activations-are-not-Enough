@@ -7,18 +7,13 @@ import torch
 from torch.utils.data import DataLoader, Subset
 from typing import Union
 
-#from model_zoo.mlp import MLP
-#from model_zoo.cnn import CNN_2D
-#from model_zoo.alex_net import AlexNet
-#from model_zoo.res_net import ResNet
-#from model_zoo.vgg import VGG
 from matrix_construction.matrix_computation import MlpRepresentation, ConvRepresentation_2D
 from utils.utils import get_architecture, get_dataset, get_num_classes, get_device
 from knowledgematrix.matrix_computer import KnowledgeMatrixComputer
 from knowledgematrix.models.alexnet import AlexNet
 from knowledgematrix.models.resnet18 import ResNet18
 from knowledgematrix.models.vgg11 import VGG11
-from torchvision.models import AlexNet_Weights, alexnet
+
 
 class ParallelMatrixConstruction:
     """
@@ -37,6 +32,7 @@ class ParallelMatrixConstruction:
             - architecture_index: Index of model architecture
     """
     def __init__(self, dict_exp: dict,) -> None:
+        self._validate_input_dictionary(dict_exp)
         self.epoch: int = dict_exp["epochs"]
         self.num_samples: int = dict_exp["num_samples"]
         self.dataname: str = dict_exp["data_name"].lower()
@@ -44,8 +40,9 @@ class ParallelMatrixConstruction:
         self.chunk_size: int = dict_exp['chunk_size']
         self.save_path: str = dict_exp['save_path']
         self.architecture_index: int = dict_exp['architecture_index']
-        self.device = get_device()
+        self.device = dict_exp['device']
         self.batch_size = dict_exp['batch_size']
+        self.verbose = dict_exp['verbose']
         self.num_classes: int = get_num_classes(self.dataname)
         self.imagenet = True if self.dataname=='imagenet' else False
 
@@ -59,6 +56,20 @@ class ParallelMatrixConstruction:
         else:
             raise ValueError(f'Input size is not supported for {self.dataname}')
 
+    def _validate_input_dictionary(self, dict_exp: dict):
+        correct_keys = {'epochs', 'num_samples', 'data_name', 'weights_path', 'chunk_size', 'save_path', 'architecture_index'
+                        'device', 'batch_size', 'verbose'}
+        correct_types = [int, int, str, str, int, str, int, str, int, bool]
+        keys = dict_exp.keys()
+        if correct_keys != keys:
+            raise ValueError(f'Dictionary of inputs should have keys {correct_keys} and got {keys}')
+
+        i = 0
+        for key, val in dict_exp:
+            if type(val) != correct_types[i]:
+                raise ValueError(f'Values of input dictionary at Key: {key}, should be {correct_types[i]}, got {type(val)}')
+            i += 1
+
 
     def compute_matrices_on_dataset(
             self,
@@ -68,13 +79,7 @@ class ParallelMatrixConstruction:
         """
         Computes matrices for all classes in the dataset in parallel.
         """
-        matrix_computer = KnowledgeMatrixComputer(model, batch_size=self.batch_size)
-        #if isinstance(model, MLP):
-        #    matrix_computer = MlpRepresentation(model=model)
-        #elif isinstance(model, (CNN_2D, AlexNet, ResNet, VGG)):
-        #    matrix_computer = ConvRepresentation_2D(model=model, batch_size=self.batch_size, device=get_device())
-        #else:
-        #    raise ValueError(f"Architecture not supported: {model}. Expects MLP, CNN_2D, AlexNet, ResNet, or VGG.")
+        matrix_computer = KnowledgeMatrixComputer(model, batch_size=self.batch_size, device=self.device)
 
         for i in range(self.num_classes):
             if self.dataname == 'mnist1d':
@@ -82,18 +87,18 @@ class ParallelMatrixConstruction:
             else:
                 train_indices = [idx for idx, target in enumerate(self.data.targets) if target in [i]]
                 sub_train_dataloader = DataLoader(
-                                            Subset(self.data, train_indices),
-                                            batch_size=int(self.num_samples),
-                                            drop_last=True
-                                        )
+                    Subset(self.data, train_indices),
+                    batch_size=int(self.num_samples),
+                    drop_last=True
+                )
 
-                x_train = next(iter(sub_train_dataloader))[0] # 0 for input and 1 for label
+                x_train = next(iter(sub_train_dataloader))[0]  # 0 for input and 1 for label
 
             self.compute_chunk_of_matrices(
-                data = x_train,
-                matrix_computer = matrix_computer,
-                out_class = i,
-                chunk_id = chunk_id
+                data=x_train,
+                matrix_computer=matrix_computer,
+                out_class=i,
+                chunk_id=chunk_id
             )
 
     def values_on_epoch(self, chunk_id: int) -> None:
@@ -109,15 +114,15 @@ class ParallelMatrixConstruction:
         state_dict = torch.load(model_path, map_location=self.device)
 
         model = get_architecture(
-                    input_shape = self.input_shape,
-                    num_classes = self.num_classes,
-                    architecture_index = self.architecture_index
-                )
+            input_shape=self.input_shape,
+            num_classes=self.num_classes,
+            architecture_index=self.architecture_index
+        )
         model.to(self.device)
         model.load_state_dict(state_dict)
 
         self.compute_matrices_on_dataset(model, chunk_id=chunk_id)
-    
+
     def compute_chunk_of_matrices(
             self,
             data: torch.Tensor,
@@ -145,24 +150,16 @@ class ParallelMatrixConstruction:
 
         for i, d in enumerate(data):
             idx = chunk_id*self.chunk_size+i
+            if self.verbose:
+                print(f'Matrix: {i}/{data.shape[0]}. Chunk: {chunk_id}. Class: {out_class}',flush=True)
+
             root = os.path.join(directory, f"{idx}")
             matrix_path = os.path.join(root, "matrix.pt")
-            
             if os.path.exists(matrix_path):
                 # if matrix was already computed, pass to next sample of data
                 continue
-
-            '''
-            if not os.path.exists(root):
-                # if the path has not been created, then no one is working on this sample
-                os.makedirs(root)
-            else:
-                # if the path has been created, someone else is already computing the matrix
-                continue
-            '''
-            print(f"Chunk: {chunk_id}. Class {out_class}. Matrix {i}/{len(data)}", flush=True)
+            # TODO: maybe do unsqueeze inside forward method of matrix computer
             d = d.unsqueeze(0)
-            print(d.shape)
             matrix = matrix_computer.forward(d)
             os.makedirs(root)
             torch.save(matrix, matrix_path)

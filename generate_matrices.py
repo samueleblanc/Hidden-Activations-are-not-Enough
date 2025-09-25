@@ -7,6 +7,7 @@ from argparse import ArgumentParser, Namespace
 
 from matrix_construction.parallel import ParallelMatrixConstruction
 from constants.constants import DEFAULT_EXPERIMENTS
+from utils.utils import get_device
 
 
 def parse_args() -> Namespace:
@@ -48,6 +49,9 @@ def main() -> None:
     if not os.path.exists(weights_path):
         raise ValueError(f"Model needs to be trained first")
 
+    gpu_id = chunk_id % torch.cuda.device_count()  # Cycle through available GPUs
+    torch.cuda.set_device(gpu_id)
+
     dict_exp = {
         "epochs": epochs,
         "weights_path": weights_path,
@@ -57,11 +61,9 @@ def main() -> None:
         'chunk_size': chunk_size,
         'architecture_index': architecture_index,
         'batch_size': args.batch_size,
+        'device': get_device(chunk_id, torch.cuda.device_count())
     }
 
-    # Set device to the GPU assigned to this task
-    gpu_id = 0 # chunk_id % torch.cuda.device_count()  # Cycle through available GPUs
-    #torch.cuda.set_device(gpu_id)
     print(f"Processing chunk {chunk_id} on GPU {gpu_id}", flush=True)
 
     mat_constructer = ParallelMatrixConstruction(dict_exp)

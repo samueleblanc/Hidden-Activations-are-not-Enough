@@ -150,6 +150,14 @@ def apply_attack(
     torch.save(misclassified_images.cpu(), attack_save_path)
     torch.save(predictions.cpu(), wrong_pred_save_path)
 
+    del model
+    del data
+    del labels
+    del attacked_data
+    del predictions
+    del misclassified_images
+    del misclassified_indexes
+
 
 def generate_adversarial_examples(
         exp_dataset_test: torch.Tensor,

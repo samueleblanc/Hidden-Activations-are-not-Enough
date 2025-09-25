@@ -153,6 +153,7 @@ def get_device(trial_number: int = 1, gpu_count: int = 1, verbose=True) -> torch
         if verbose:
             print("DEVICE: cuda")
         gpu_id = trial_number % gpu_count
+        print(f"DEVICE: cuda:{gpu_id}")
         return torch.device(f"cuda:{gpu_id}")
     elif torch.backends.mps.is_available():
         if verbose:

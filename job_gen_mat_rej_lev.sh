@@ -1,27 +1,28 @@
 #!/bin/bash
 
 #SBATCH --account=def-ko1 #account to charge the calculation
-#SBATCH --time=06:00:00 #hour:minutes:seconds
+#SBATCH --time=00:10:00 #hour:minutes:seconds
 #SBATCH --gres=gpu:1
-#SBATCH --mem=13G #memory requested
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=248G #memory requested
 #SBATCH --output=slurm_out/mats_rej_lev_gpu_%j.out
 #SBATCH --error=slurm_err/mats_rej_lev_gpu_%j.err
 
-hours=6
-minutes=0
+hours=0
+minutes=20
 seconds=0
-zip_time=20
+zip_time=10
 
 EXPERIMENT="alexnet_cifar10"
 ZIP_FILE="$PWD/experiments/$EXPERIMENT/rejection_levels/matrices.zip"
-HOME_DIR="/scratch/armenta"
+HOME_DIR="links/scratch/armenta"
 
 # Create output and error directories if they don't exist
 mkdir -p $PWD/slurm_out
 mkdir -p $PWD/slurm_err
 
-module load StdEnv/2023 python/3.10.13 scipy-stack/2025a #load the required module
-source env_nibi/bin/activate #load the virtualenv (absolute or relative path to where the script is submitted)
+module load StdEnv/2023 python/3.11.5 scipy-stack/2025a
+source env_rorqual/bin/activate #load the virtualenv (absolute or relative path to where the script is submitted)
 
 mkdir -p $SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
 echo "Copying weights..."

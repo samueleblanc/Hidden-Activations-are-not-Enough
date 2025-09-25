@@ -1,12 +1,12 @@
 #!/bin/bash
 
 #SBATCH --account=def-assem #account to charge the calculation
-#SBATCH --time=00:15:00 #hour:minutes:seconds
-#SBATCH --gres=nvidia_h100_80gb_hbm3_1g.10gb:1
-#SBATCH --cpus-per-task=2
-#SBATCH --mem=15G #memory requested
-#SBATCH --output=slurm_out/adv_examples_gpu_%j.out
-#SBATCH --error=slurm_err/adv_examples_gpu_%j.err
+#SBATCH --time=02:00:00 #hour:minutes:seconds
+#SBATCH --gres=gpu:1
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=124G #memory requested
+#SBATCH --output=slurm_out/anc10_adv_ex_gpu.out
+#SBATCH --error=slurm_err/anc10_adv_ex_gpu.err
 
 # Create output and error directories if they don't exist
 mkdir -p $PWD/slurm_out
@@ -17,8 +17,10 @@ EXPERIMENT="alexnet_cifar10"
 
 # Prepare environment
 echo "Using temporary directory: $SLURM_TMPDIR"
-module load StdEnv/2023 python/3.10.13 scipy-stack/2025a cuda/12.2 cudnn
-source env_nibi/bin/activate
+#module load StdEnv/2023 python/3.10.13 scipy-stack/2025a cuda/12.2 cudnn
+#source env_nibi/bin/activate
+module load StdEnv/2023 python/3.11.5 scipy-stack/2025a
+source env_rorqual/bin/activate
 
 mkdir -p $SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
 echo "Copying weights..."
@@ -29,5 +31,24 @@ mkdir -p "$SLURM_TMPDIR/data/cifar-10-batches-py/"
 echo "Copying datasets..."
 cp -r data/cifar-10-batches-py/* "$SLURM_TMPDIR/data/cifar-10-batches-py/" || { echo "Failed to copy dataset"; exit 1; }
 echo "CIFAR10 ready"
+
+GPU_LOGFILE="gpu_monitor.anc10ae.log"
+INTERVAL=30  # seconds between GPU checks
+
+monitor_gpu() {
+  echo "Timestamp, GPU Utilization (%), GPU Memory Used (MiB), GPU Memory Total (MiB)" > "$GPU_LOGFILE"
+  while true; do
+    timestamp=$(date +%Y-%m-%dT%H:%M:%S)
+    nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total \
+               --format=csv,noheader,nounits \
+    | awk -v ts="$timestamp" '{print ts", "$1", "$2", "$3}' >> "$GPU_LOGFILE"
+    sleep $INTERVAL
+  done
+}
+
+# Start monitoring in background
+monitor_gpu &
+MONITOR_PID=$!
+echo "GPU monitor started in background (PID $MONITOR_PID)"
 
 python generate_adversarial_examples.py --experiment_name $EXPERIMENT --temp_dir=$SLURM_TMPDIR
