@@ -146,7 +146,7 @@ def compute_matrices_for_rejection_level(
                 matrix_computer,
                 pred
                 )
-
+        print(f'Matrix {i}/{len(exp_dataset_train)}', flush=True)
         compute_one_matrix(args)
 
 
