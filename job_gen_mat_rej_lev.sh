@@ -1,12 +1,12 @@
 #!/bin/bash
 
-#SBATCH --account=def-ko1 #account to charge the calculation
-#SBATCH --time=00:10:00 #hour:minutes:seconds
+#SBATCH --account=def-assem #account to charge the calculation
+#SBATCH --time=00:20:00 #hour:minutes:seconds
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=16
-#SBATCH --mem=248G #memory requested
-#SBATCH --output=slurm_out/mats_rej_lev_gpu_%j.out
-#SBATCH --error=slurm_err/mats_rej_lev_gpu_%j.err
+#SBATCH --mem=180G #memory requested
+#SBATCH --output=slurm_out/mats_rej_lev_%A.out
+#SBATCH --error=slurm_err/mats_rej_lev_%A.err
 
 hours=0
 minutes=20
@@ -57,7 +57,21 @@ if [ -f "$ZIP_FILE" ]; then
     echo "Unzipped existing matrices"
 fi
 
-python compute_matrices_for_rejection_level.py --experiment_name $EXPERIMENT --temp_dir $SLURM_TMPDIR --batch_size 3072 &
+GPU_LOGFILE="gpu_monitor.$EXPERIMENT_rej_lev.log"
+INTERVAL=30  # seconds between GPU checks
+
+monitor_gpu() {
+  echo "Timestamp, GPU Utilization (%), GPU Memory Used (MiB), GPU Memory Total (MiB)" > "$GPU_LOGFILE"
+  while true; do
+    timestamp=$(date +%Y-%m-%dT%H:%M:%S)
+    nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total \
+               --format=csv,noheader,nounits \
+    | awk -v ts="$timestamp" '{print ts", "$1", "$2", "$3}' >> "$GPU_LOGFILE"
+    sleep $INTERVAL
+  done
+}
+
+python compute_matrices_for_rejection_level.py --experiment_name $EXPERIMENT --temp_dir $SLURM_TMPDIR --batch_size 18816 &
 PYTHON_PID=$!
 
 #time_limit=$(scontrol show job $SLURM_JOB_ID | grep TimeLimit | awk '{print $2}' | cut -d= -f2)
