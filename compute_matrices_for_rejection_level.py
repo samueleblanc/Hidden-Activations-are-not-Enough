@@ -6,9 +6,9 @@ from typing import Union
 
 from model_zoo.mlp import MLP
 from model_zoo.cnn import CNN_2D
-from model_zoo.alex_net import AlexNet
-from model_zoo.res_net import ResNet
-from model_zoo.vgg import VGG
+from knowledgematrix.models.alexnet import AlexNet
+from knowledgematrix.models.vgg11 import VGG11
+from knowledgematrix.models.resnet18 import ResNet18
 from constants.constants import DEFAULT_EXPERIMENTS
 from utils.utils import get_model, subset, get_dataset, get_num_classes, get_input_shape, get_device
 from matrix_construction.matrix_computation import MlpRepresentation, ConvRepresentation_2D
@@ -126,7 +126,7 @@ def compute_matrices_for_rejection_level(
 
     if isinstance(model, MLP):
         matrix_computer = MlpRepresentation(model)
-    elif isinstance(model, (CNN_2D, AlexNet, VGG, ResNet)):
+    elif isinstance(model, (CNN_2D, AlexNet, VGG11, ResNet18)):
         matrix_computer = ConvRepresentation_2D(model, batch_size=batch_size, device=device)
     else:
         raise NotImplementedError(f"Model {type(model)} not supported")
