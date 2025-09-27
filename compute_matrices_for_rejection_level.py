@@ -9,6 +9,7 @@ from model_zoo.cnn import CNN_2D
 from knowledgematrix.models.alexnet import AlexNet
 from knowledgematrix.models.vgg11 import VGG11
 from knowledgematrix.models.resnet18 import ResNet18
+from knowledgematrix.matrix_computer import KnowledgeMatrixComputer
 from constants.constants import DEFAULT_EXPERIMENTS
 from utils.utils import get_model, subset, get_dataset, get_num_classes, get_input_shape, get_device
 from matrix_construction.matrix_computation import MlpRepresentation, ConvRepresentation_2D
@@ -38,17 +39,18 @@ def parse_args(
         help = "Number of train samples to compute rejection level.",
     )
     parser.add_argument(
+        "--batch_size",
+        type = int,
+        default = 18816, # for h100 gpu
+        help = "Temporary directory to save and read data. Useful when using clusters."
+    )
+    parser.add_argument(
         "--temp_dir",
         type = str,
         default = None,
         help = "Temporary directory to save and read data. Useful when using clusters."
     )
-    parser.add_argument(
-        "--batch_size",
-        type = int,
-        default = 16,
-        help = "Batch size for matrix computation. Number of columns of the matrix processed at the same time on GPU."
-    )
+
     return parser.parse_args()
 
 
@@ -84,10 +86,10 @@ def compute_one_matrix(args: tuple) -> None:
     if os.path.exists(path_experiment_matrix):
         return
 
-    mat = matrix_computer.forward(im)
+    mat = matrix_computer.forward(im.unsqueeze(0))
 
-    torch.save(pred, path_prediction)
-    torch.save(mat, path_experiment_matrix)
+    torch.save(pred.cpu().detach(), path_prediction)
+    torch.save(mat.cpu().detach(), path_experiment_matrix)
 
 
 def compute_matrices_for_rejection_level(
@@ -100,7 +102,7 @@ def compute_matrices_for_rejection_level(
         num_classes: int,
         temp_dir:Union[str, None] = None,
         device: torch.device = 'cpu',
-        batch_size: int = 16,
+        batch_size: int = 18816,
     ) -> None:
     """
         Args:
@@ -124,21 +126,14 @@ def compute_matrices_for_rejection_level(
                       num_classes=num_classes,
                       device=device)
 
-    if isinstance(model, MLP):
-        matrix_computer = MlpRepresentation(model)
-    elif isinstance(model, (CNN_2D, AlexNet, VGG11, ResNet18)):
-        matrix_computer = ConvRepresentation_2D(model, batch_size=batch_size, device=device)
-    else:
-        raise NotImplementedError(f"Model {type(model)} not supported")
-
-    exp_dataset_train = exp_dataset_train.to(device)
-    exp_dataset_labels = exp_dataset_labels.to(device)
+    matrix_computer = KnowledgeMatrixComputer(model, batch_size=batch_size, device=device)
 
     for i in range(len(exp_dataset_train)):
-        pred = torch.argmax(model.forward(exp_dataset_train[i]))
+        model.eval()
+        pred = torch.argmax(model.forward(exp_dataset_train[i].unsqueeze(0).to(device)))
 
-        args = (exp_dataset_train[i],
-                exp_dataset_labels[i],
+        args = (exp_dataset_train[i].to(device),
+                exp_dataset_labels[i].to(device),
                 experiment_name,
                 i,
                 temp_dir,
@@ -183,7 +178,7 @@ def main() -> None:
     exp_dataset_train_file = Path(f'experiments/{args.experiment_name}/rejection_levels/exp_dataset_train.pth')
     exp_dataset_labels_file = Path(f'experiments/{args.experiment_name}/rejection_levels/exp_dataset_labels.pth')
 
-    if exp_dataset_train_file.exists():
+    if exp_dataset_train_file.exists() and exp_dataset_labels_file.exists():
         exp_dataset_train = torch.load(exp_dataset_train_file)
         exp_dataset_labels = torch.load(exp_dataset_labels_file)
 
@@ -219,7 +214,7 @@ def main() -> None:
         device=device,
         batch_size = args.batch_size,
     )
-    print("---ALL MATRICES COMPUTED----",flush=True)
+    print("---ALL MATRICES COMPUTED----", flush=True)
 
     #if args.temp_dir is not None:
     #    zip_and_cleanup(

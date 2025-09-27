@@ -55,6 +55,7 @@ if [ -f "$ZIP_FILE" ]; then
     cd "$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/"
     unzip -o matrices.zip
     echo "Unzipped existing matrices"
+    cd -
 fi
 
 GPU_LOGFILE="gpu_monitor.$EXPERIMENT_rej_lev.log"
