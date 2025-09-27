@@ -99,7 +99,7 @@ def apply_attack(
              torchattacks.FAB(model),
              torchattacks.Square(model),
              torchattacks.SPSA(model),
-             torchattacks.JSMA(model),
+             #torchattacks.JSMA(model),
              torchattacks.EADL1(model),
              torchattacks.EADEN(model)
             ]

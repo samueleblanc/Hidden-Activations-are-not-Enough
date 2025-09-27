@@ -67,7 +67,7 @@ ATTACKS = [
     "FAB",
     "Square",
     "SPSA", # X
-    "JSMA",
+    #"JSMA",
     "EADL1",
     "EADEN"
 ]

@@ -3,7 +3,7 @@
 #SBATCH --account=def-assem #account to charge the calculation
 #SBATCH --time=00:20:00 #hour:minutes:seconds
 #SBATCH --cpus-per-task=2
-#SBATCH --mem-per-cpu=20G #memory requested
+#SBATCH --mem-per-cpu=40G #memory requested
 #SBATCH --output=slurm_out/E_mat_stats_%A_%a.out
 #SBATCH --error=slurm_err/E_mat_stats_%A_%a.err
 

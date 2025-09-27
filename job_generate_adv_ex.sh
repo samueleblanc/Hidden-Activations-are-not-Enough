@@ -5,8 +5,8 @@
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=124G #memory requested
-#SBATCH --output=slurm_out/C_adv_ex_gpu.out
-#SBATCH --error=slurm_err/C_adv_ex_gpu.err
+#SBATCH --output=slurm_out/C_adv_ex_%A.out
+#SBATCH --error=slurm_err/C_adv_ex_%A.err
 
 # Create output and error directories if they don't exist
 mkdir -p $PWD/slurm_out
