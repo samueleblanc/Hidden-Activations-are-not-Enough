@@ -76,22 +76,26 @@ DEFAULT_EXPERIMENTS = {
     'resnet_cifar100': { # accuracy: 0.5017
         'pretrained': False,
         'dataset': 'cifar100',
-        'batch_size': 512,
+        'batch_size': 32,
         'lr': 0.017380615684942945,
-        'epochs': 300,
+        'epochs': 100,
         'optimizer': 'sgd',
         'momentum': 0.10773147737028008,
         'weight_decay': 0.021924018744206505,
+        'scheduler': 'multi',
+        'architecture_index': -2,
     },
-    'resnet_cifar10': {# accuracy: 0.8178
+    'resnet_cifar10': {
         'pretrained': False,
         'dataset': 'cifar10',
         'batch_size': 32,
         'lr': 0.009230996304925737,
-        'epochs': 300,
+        'epochs': 100,
         'optimizer': 'sgd',
         'momentum': 0.8231700796140718,
         'weight_decay': 0.0007273616737214423,
+        'scheduler': 'multi',
+        'architecture_index': -2,
     },
     'alexnet_cifar10': {
         'epochs': 70,
@@ -129,6 +133,7 @@ DEFAULT_EXPERIMENTS = {
         'momentum': 0.12983706131994044,
         'weight_decay': 4.556992684513291e-05,
         'scheduler': 'multi',
+        'architecture_index': -1,
     },
     'lenet_cifar10': {
         'epochs': 507,

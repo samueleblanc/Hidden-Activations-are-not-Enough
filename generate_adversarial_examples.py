@@ -1,5 +1,6 @@
 import torch
 import torchattacks
+from torch.utils.data import TensorDataset, DataLoader
 from argparse import ArgumentParser, Namespace
 from pathlib import Path
 from typing import Union
@@ -41,30 +42,16 @@ def parse_args(
 
 
 def apply_attack(
-        attack_name: str, 
-        data: torch.Tensor, 
-        labels: torch.Tensor, 
+        attack_name: str,
+        data: torch.Tensor,
+        labels: torch.Tensor,
         weights_path: Path,
-        architecture_index: int, 
+        architecture_index: int,
         path_adv_examples: Path,
         input_shape,
         num_classes: int,
+        batch_size: int = 528,
     ):
-    """
-        Applies an attack to the data and saves the adversarial examples.
-
-        Args:
-            attack_name: the name of the attack.
-            data: the data to attack.
-            labels: the labels of the data.
-            weights_path: the path to the weights.
-            architecture_index: the index of the architecture (See constants/constants.py).
-            path_adv_examples: the path to save the adversarial examples.
-            input_shape: the shape of the input.
-            num_classes: the number of classes.
-        Returns:
-            The name of the attack and the adversarial examples (that are misclassified).
-    """
     device = get_device()
 
     attack_save_path = path_adv_examples / f'{attack_name}/adversarial_examples.pth'
@@ -83,80 +70,115 @@ def apply_attack(
         num_classes = num_classes,
         device = device
     )
+    model.eval()
 
-    data = data.to(device)
-    labels = labels.to(device)
+    # don't move the whole dataset to device (that causes OOM)
+    # data = data.to(device)
+    # labels = labels.to(device)
 
+    # prepare DataLoader to iterate in small batches
+    ds = TensorDataset(data, labels)
+    loader = DataLoader(ds, batch_size=batch_size, shuffle=False, pin_memory=True)
+
+    # build attack instance once (some attacks accept keyword args to reduce iterations/steps)
     attacks_classes = dict(
         zip(
             ["test"] + ATTACKS,
             [torchattacks.VANILA(model),
-            torchattacks.GN(model),
-            torchattacks.FGSM(model),
-            # torchattacks.RFGSM(model),
-            torchattacks.PGD(model),
-            torchattacks.EOTPGD(model),
-            # torchattacks.FFGSM(model),
-            # torchattacks.TPGD(model),
-            torchattacks.MIFGSM(model),
-            # torchattacks.UPGD(model),
-            # torchattacks.DIFGSM(model),
-            # torchattacks.Jitter(model),
-            # torchattacks.NIFGSM(model),
-            # torchattacks.PGDRS(model),
-            torchattacks.VMIFGSM(model),
-            # torchattacks.VNIFGSM(model),
-            torchattacks.CW(model),
-            # torchattacks.PGDL2(model),
-            # torchattacks.PGDRSL2(model),
-            torchattacks.DeepFool(model),
-            # torchattacks.SparseFool(model),
-            # torchattacks.OnePixel(model),
-            torchattacks.Pixle(model),
-            torchattacks.APGD(model),
-            torchattacks.APGDT(model),
-            torchattacks.FAB(model),
-            torchattacks.Square(model),
-            torchattacks.SPSA(model),
-            torchattacks.JSMA(model),
-            torchattacks.EADL1(model),
-            torchattacks.EADEN(model)
+             torchattacks.GN(model),
+             torchattacks.FGSM(model),
+             torchattacks.PGD(model),
+             torchattacks.EOTPGD(model),
+             torchattacks.MIFGSM(model),
+             torchattacks.VMIFGSM(model),
+             torchattacks.CW(model),
+             torchattacks.DeepFool(model),
+             torchattacks.Pixle(model),
+             torchattacks.APGD(model),
+             torchattacks.APGDT(model),
+             torchattacks.FAB(model),
+             torchattacks.Square(model),
+             torchattacks.SPSA(model),
+             torchattacks.JSMA(model),
+             torchattacks.EADL1(model),
+             torchattacks.EADEN(model)
             ]
         )
     )
-    try:
-        attacked_data = attacks_classes[attack_name](data, labels)
-    except Exception as e:
-        print(f"Error applying attack {attack_name}: {e}")
+
+    attack_instance = attacks_classes.get(attack_name)
+    if attack_instance is None:
+        print(f"Unknown attack {attack_name}")
         return
 
     if attack_name == "test":
-        torch.save(attacked_data.cpu(), attack_save_path)
-        torch.save(labels.cpu(), path_adv_examples / f'{attack_name}/labels.pth')
+        # run on entire dataset in batches but save everything
+        adv_list = []
+        labels_list = []
+        for xb, yb in loader:
+            xb = xb.to(device)
+            yb = yb.to(device)
+            with torch.no_grad():
+                attacked = attack_instance(xb, yb)
+            adv_list.append(attacked.cpu())
+            labels_list.append(yb.cpu())
+            del xb, yb, attacked
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        torch.save(torch.cat(adv_list), attack_save_path)
+        torch.save(torch.cat(labels_list), path_adv_examples / f'{attack_name}/labels.pth')
+        del adv_list, labels_list
         return
 
-    with torch.no_grad():
-        predictions = torch.argmax(model(attacked_data), dim=1)
+    # For real attacks: store only misclassified adversarial examples to save RAM
+    adv_saved = []
+    wrong_preds_saved = []
+    total = 0
+    misclassified = 0
 
-    misclassified = (labels != predictions).sum().item()
-    total = data.size(0)
+    for xb, yb in loader:
+        xb = xb.to(device, non_blocking=True)
+        yb = yb.to(device, non_blocking=True)
+
+        try:
+            attacked_batch = attack_instance(xb, yb)  # most attacks operate batchwise
+        except Exception as e:
+            print(f"Error applying attack {attack_name} on a batch: {e}")
+            # free and continue to next batch / or break depending on severity
+            del xb, yb
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            continue
+
+        with torch.no_grad():
+            preds = torch.argmax(model(attacked_batch), dim=1)
+
+        mis_idx = (yb != preds)
+        miscount_batch = mis_idx.sum().item()
+        misclassified += miscount_batch
+        total += xb.size(0)
+
+        if miscount_batch > 0:
+            adv_saved.append(attacked_batch[mis_idx].cpu())
+            wrong_preds_saved.append(preds[mis_idx].cpu())
+
+        # free GPU memory from this batch
+        del xb, yb, attacked_batch, preds, mis_idx
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     print(f"Attack: {attack_name}. Misclassified after attack: {misclassified} out of {total}.", flush=True)
 
-    # Filter only the attacked images where labels != attacked_predictions
-    misclassified_indexes = labels != predictions
-    misclassified_images = attacked_data[misclassified_indexes]
+    if len(adv_saved) > 0:
+        torch.save(torch.cat(adv_saved), attack_save_path)
+        torch.save(torch.cat(wrong_preds_saved), wrong_pred_save_path)
+    else:
+        raise ValueError(f'Non successful attack method: {attack_name}')
 
-    torch.save(misclassified_images.cpu(), attack_save_path)
-    torch.save(predictions.cpu(), wrong_pred_save_path)
-
-    del model
-    del data
-    del labels
-    del attacked_data
-    del predictions
-    del misclassified_images
-    del misclassified_indexes
+    # cleanup
+    del adv_saved, wrong_preds_saved, model, attack_instance
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
 
 def generate_adversarial_examples(

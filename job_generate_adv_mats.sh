@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH --account=def-ko1 #account to charge the calculation
-#SBATCH --time=08:00:00 #hour:minutes:seconds
+#SBATCH --time=01:00:00 #hour:minutes:seconds
 #SBATCH --gres=gpu:1
 #SBATCH --mem=18G #memory requested
 #SBATCH --output=slurm_out/adv_mats_%j.out
@@ -41,7 +41,7 @@ if [ -f "$ZIP_FILE" ]; then
 fi
 
 # Run Python script in background and capture its PID
-python generate_adversarial_matrices.py --experiment_name $EXPERIMENT --temp_dir $SLURM_TMPDIR --batch_size 3072 &
+python generate_adversarial_matrices.py --experiment_name $EXPERIMENT --temp_dir $SLURM_TMPDIR --batch_size 18816 &
 PYTHON_PID=$!
 
 # Calculate sleep time (total time - 15 minutes)
