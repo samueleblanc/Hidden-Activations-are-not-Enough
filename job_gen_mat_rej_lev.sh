@@ -5,8 +5,8 @@
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=180G #memory requested
-#SBATCH --output=slurm_out/mats_rej_lev_%A.out
-#SBATCH --error=slurm_err/mats_rej_lev_%A.err
+#SBATCH --output=slurm_out/D_rej_lev_%A.out
+#SBATCH --error=slurm_err/D_rej_lev_%A.err
 
 hours=0
 minutes=20

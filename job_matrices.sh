@@ -1,13 +1,16 @@
 #!/bin/bash
 #SBATCH --account=def-assem
 #SBATCH --job-name=matrices
-#SBATCH --array=2
+#SBATCH --array=0-3
 #SBATCH --time=02:20:00  # Increased to accommodate potential longer runs
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=180G  # Increased to prevent segmentation faults
-#SBATCH --output=slurm_out/alexnet_cifar10_matrices_%A_%a.out
-#SBATCH --error=slurm_err/alexnet_cifar10_matrices_%A_%a.err
+#SBATCH --output=slurm_out/B_matrices_%A_%a.out
+#SBATCH --error=slurm_err/B_matrices_%A_%a.err
+
+mkdir -p $PWD/slurm_out
+mkdir -p $PWD/slurm_err
 
 #export CUDA_VISIBLE_DEVICES=0,1
 # Set variables
