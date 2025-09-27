@@ -9,11 +9,6 @@
 #SBATCH --output=slurm_out/D_rej_lev_%A.out
 #SBATCH --error=slurm_err/D_rej_lev_%A.err
 
-hours=0
-minutes=20
-seconds=0
-zip_time=10
-
 EXPERIMENT="alexnet_cifar10"
 HOME_DIR="links/scratch/armenta"
 
@@ -50,7 +45,7 @@ if [ -f "$EXPERIMENT_DATA_LABELS" ]; then
 fi
 
 # If matrices.zip exists on permanent storage, copy and unzip into tmp
-ZIP_FILE="$PWD/experiments/$EXPERIMENT/rejection_levels/matrices.zip"
+ZIP_FILE="$PWD/experiments/$EXPERIMENT/rejection_levels/matrices_task_$SLURM_ARRAY_TASK_ID.zip"
 if [ -f "$ZIP_FILE" ]; then
     echo "Found existing zip file: $ZIP_FILE"
     cp "$ZIP_FILE" "$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/"
@@ -61,7 +56,7 @@ if [ -f "$ZIP_FILE" ]; then
 fi
 
 mkdir gpu-monitor
-GPU_LOGFILE="gpu_monitor.$EXPERIMENT.rej_lev.log"
+GPU_LOGFILE="gpu_monitor.$EXPERIMENT.rej_lev.task-$SLURM_ARRAY_TASK_ID.log"
 INTERVAL=30  # seconds between GPU checks
 
 monitor_gpu() {
@@ -82,7 +77,7 @@ echo "GPU monitor started in background (PID $MONITOR_PID)"
 
 # Launch 4 workers (chunk_id 0..3), binding each to one GPU
 echo "Starting worker for chunk $SLURM_ARRAY_TASK_ID on CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
-timeout 0.5h python compute_matrices_for_rejection_level.py \
+timeout 10m python compute_matrices_for_rejection_level.py \
     --experiment_name $EXPERIMENT \
     --temp_dir $SLURM_TMPDIR \
     --batch_size 18816 \
