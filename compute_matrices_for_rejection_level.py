@@ -115,6 +115,7 @@ def compute_matrices_for_rejection_level(
 
     matrix_computer = KnowledgeMatrixComputer(model, batch_size=batch_size, device=device)
 
+    #data = data[chunk_id * chunk_size:(chunk_id + 1) * chunk_size].to(device)
     # Compute chunk boundaries
     N = len(exp_dataset_train)
     base_chunk = N // total_chunks

@@ -2,7 +2,8 @@
 
 #SBATCH --account=def-assem #account to charge the calculation
 #SBATCH --time=00:20:00 #hour:minutes:seconds
-#SBATCH --gres=gpu:4
+#SBATCH --array=0
+#SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=180G #memory requested
 #SBATCH --output=slurm_out/D_rej_lev_%A.out
@@ -80,65 +81,31 @@ MONITOR_PID=$!
 echo "GPU monitor started in background (PID $MONITOR_PID)"
 
 # Launch 4 workers (chunk_id 0..3), binding each to one GPU
-TOTAL_CHUNKS=4
-BATCH_SIZE=18816
-
-PIDS=()
-for CHUNK_ID in $(seq 0 $((TOTAL_CHUNKS-1))); do
-    # Bind process to a single GPU index using CUDA_VISIBLE_DEVICES
-    export CUDA_VISIBLE_DEVICES="$CHUNK_ID"
-    echo "Starting worker for chunk $CHUNK_ID on CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
-    python compute_matrices_for_rejection_level.py \
-        --experiment_name $EXPERIMENT \
-        --temp_dir $SLURM_TMPDIR \
-        --batch_size $BATCH_SIZE \
-        --chunk_id $CHUNK_ID \
-        --total_chunks $TOTAL_CHUNKS \
-        &
-    PIDS+=($!)
-    sleep 1  # small stagger
-done
-
-# compute sleep_time until we should start zipping (like before)
-total_seconds=$((hours*3600 + minutes*60 + seconds))
-sleep_time=$((total_seconds - zip_time*60))
-if [ $sleep_time -lt 0 ]; then
-    sleep_time=0
-fi
-echo "Sleeping for $sleep_time seconds"
-sleep $sleep_time
-
-# After the sleep window, check if workers are still alive and kill them (to ensure we start zipping)
-for pid in "${PIDS[@]}"; do
-    if ps -p $pid > /dev/null; then
-        echo "Killing Python worker $pid"
-        kill $pid
-        wait $pid 2>/dev/null || true
-    fi
-done
-
-# Stop GPU monitor
-if ps -p $MONITOR_PID > /dev/null; then
-    kill $MONITOR_PID
-    wait $MONITOR_PID 2>/dev/null || true
-fi
+echo "Starting worker for chunk $SLURM_ARRAY_TASK_ID on CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
+timeout 0.5h python compute_matrices_for_rejection_level.py \
+    --experiment_name $EXPERIMENT \
+    --temp_dir $SLURM_TMPDIR \
+    --batch_size 18816 \
+    --chunk_id $SLURM_ARRAY_TASK_ID \
+    --total_chunks 4 \
 
 # Zip matrices directory
 MATRICES_DIR="$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/matrices"
 ZIP_OUTPUT_DIR="$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels"
+ZIP_OUTPUT_FILE="matrices_task_$SLURM_ARRAY_TASK_ID.zip"
 if [ -d "$MATRICES_DIR" ]; then
     echo "Zipping matrices from $MATRICES_DIR ..."
     cd "$ZIP_OUTPUT_DIR" || { echo "Failed to cd to $ZIP_OUTPUT_DIR"; }
-    zip -r matrices.zip matrices || echo "Zip failed"
+    zip -r ZIP_OUTPUT_FILE matrices || echo "Zip failed"
     cd - >/dev/null || true
 else
     echo "No matrices directory found at $MATRICES_DIR, skipping zipping"
 fi
 
 # Copy the zip file back to HOME_DIR (permanent storage)
-TEMP_ZIP="$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/matrices.zip"
+TEMP_ZIP="$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/$ZIP_OUTPUT_FILE"
 DEST_DIR="$HOME_DIR/experiments/$EXPERIMENT/rejection_levels/"
-
+mkdir -p DEST_DIR
 if [ -f "$TEMP_ZIP" ]; then
     echo "Copying zip file $TEMP_ZIP to $DEST_DIR"
     mkdir -p "$DEST_DIR"
