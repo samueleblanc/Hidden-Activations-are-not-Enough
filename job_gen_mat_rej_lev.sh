@@ -58,7 +58,7 @@ if [ -f "$ZIP_FILE" ]; then
     cd -
 fi
 
-GPU_LOGFILE="gpu_monitor.$EXPERIMENT_rej_lev.log"
+GPU_LOGFILE="gpu_monitor.$EXPERIMENT.rej_lev.log"
 INTERVAL=30  # seconds between GPU checks
 
 monitor_gpu() {
@@ -92,24 +92,27 @@ if ps -p $PYTHON_PID > /dev/null; then
     wait $PYTHON_PID 2>/dev/null
 fi
 
-# Zip the matrices
-#cd $SLURM_TMPDIR/experiments/alexnet_cifar10/rejection_levels
-if [ -d "matrices" ]; then
-    echo "Zipping matrices..."
-    cd $SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels
-    zip -r matrices.zip matrices
-    cd -
+MATRICES_DIR="$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/matrices"
+ZIP_OUTPUT_DIR="$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels"
+if [ -d "$MATRICES_DIR" ]; then
+    echo "Zipping matrices from $MATRICES_DIR ..."
+    cd "$ZIP_OUTPUT_DIR" || { echo "Failed to cd to $ZIP_OUTPUT_DIR"; }
+    zip -r matrices.zip matrices || echo "Zip failed"
+    cd - >/dev/null || true
 else
-    echo "No matrices directory found, skipping zipping"
+    echo "No matrices directory found at $MATRICES_DIR, skipping zipping"
 fi
 
-# Copy the zip file to $PWD
-if [ -f "$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/matrices.zip" ]; then
-    echo "Copying zip file $SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/matrices.zip to $HOME_DIR/experiments/$EXPERIMENT/rejection_levels/"
-    mkdir -p $HOME_DIR/experiments/$EXPERIMENT/rejection_levels/
-    cp $SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/matrices.zip $HOME_DIR/experiments/$EXPERIMENT/rejection_levels/ || { echo "Failed to copy zip file"; exit 1; }
+# Copy the zip file back to HOME_DIR (permanent storage)
+TEMP_ZIP="$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/matrices.zip"
+DEST_DIR="$HOME_DIR/experiments/$EXPERIMENT/rejection_levels/"
+
+if [ -f "$TEMP_ZIP" ]; then
+    echo "Copying zip file $TEMP_ZIP to $DEST_DIR"
+    mkdir -p "$DEST_DIR"
+    cp "$TEMP_ZIP" "$DEST_DIR" || { echo "Failed to copy zip file"; exit 1; }
 else
-    echo "No zip file to copy"
+    echo "No zip file to copy from temp dir ($TEMP_ZIP)"
 fi
 
 echo "Job completed"
