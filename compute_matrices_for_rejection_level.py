@@ -4,26 +4,14 @@ from argparse import ArgumentParser, Namespace
 from pathlib import Path
 from typing import Union
 
-from model_zoo.mlp import MLP
-from model_zoo.cnn import CNN_2D
-from knowledgematrix.models.alexnet import AlexNet
-from knowledgematrix.models.vgg11 import VGG11
-from knowledgematrix.models.resnet18 import ResNet18
 from knowledgematrix.matrix_computer import KnowledgeMatrixComputer
 from constants.constants import DEFAULT_EXPERIMENTS
 from utils.utils import get_model, subset, get_dataset, get_num_classes, get_input_shape, get_device
-from matrix_construction.matrix_computation import MlpRepresentation, ConvRepresentation_2D
 
 
 def parse_args(
         parser:Union[ArgumentParser, None] = None
     ) -> Namespace:
-    """
-        Args:
-            parser: the parser to use.
-        Returns:
-            The parsed arguments.
-    """
     if parser is None:
         parser = ArgumentParser()
     parser.add_argument(
@@ -42,7 +30,7 @@ def parse_args(
         "--batch_size",
         type = int,
         default = 18816, # for h100 gpu
-        help = "Temporary directory to save and read data. Useful when using clusters."
+        help = "Batch size used by matrix computer."
     )
     parser.add_argument(
         "--temp_dir",
@@ -50,17 +38,25 @@ def parse_args(
         default = None,
         help = "Temporary directory to save and read data. Useful when using clusters."
     )
+    parser.add_argument(
+        "--chunk_id",
+        type = int,
+        default = 0,
+        help = "Chunk id for this worker (0-based)."
+    )
+    parser.add_argument(
+        "--total_chunks",
+        type = int,
+        default = 4,
+        help = "Total number of chunks / workers."
+    )
 
     return parser.parse_args()
 
 
 def compute_one_matrix(args: tuple) -> None:
-    """
-        Args:
-            args: the arguments (see below).
-    """
     (
-        im, 
+        im,
         label,
         experiment_name,
         i,
@@ -103,23 +99,14 @@ def compute_matrices_for_rejection_level(
         temp_dir:Union[str, None] = None,
         device: torch.device = 'cpu',
         batch_size: int = 18816,
+        chunk_id: int = 0,
+        total_chunks: int = 1,
     ) -> None:
-    """
-        Args:
-            exp_dataset_train: the training set.
-            exp_dataset_labels: the labels of the training set.
-            default_index: the index of the default experiment (See constants/constants.py).
-            weights_path: the path to the weights.
-            architecture_index: the index of the architecture (See constants/constants.py).
-            residual: whether the model has residual connections.
-            input_shape: the shape of the input.
-            dropout: whether the model has dropout layers.
-            nb_workers: the number of workers.
-            temp_dir: the temporary directory.
-    """
-    Path(f'experiments/{experiment_name}/rejection_levels/').mkdir(parents=True, exist_ok=True)
-    print("Computing matrices for rejection level...", flush=True)
 
+    Path(f'experiments/{experiment_name}/rejection_levels/').mkdir(parents=True, exist_ok=True)
+    print(f"Computing matrices for rejection level... chunk {chunk_id}/{total_chunks}", flush=True)
+
+    # Ensure model is loaded onto correct device
     model = get_model(path=weights_path,
                       architecture_index=architecture_index,
                       input_shape=input_shape,
@@ -128,9 +115,30 @@ def compute_matrices_for_rejection_level(
 
     matrix_computer = KnowledgeMatrixComputer(model, batch_size=batch_size, device=device)
 
-    for i in range(len(exp_dataset_train)):
-        model.eval()
-        pred = torch.argmax(model.forward(exp_dataset_train[i].unsqueeze(0).to(device)))
+    # Compute chunk boundaries
+    N = len(exp_dataset_train)
+    base_chunk = N // total_chunks
+    remainder = N % total_chunks
+    # distribute the remainder among the first `remainder` chunks
+    if chunk_id < remainder:
+        start = chunk_id * (base_chunk + 1)
+        end = start + (base_chunk + 1)
+    else:
+        start = chunk_id * base_chunk + remainder
+        end = start + base_chunk
+
+    # Bound check
+    start = max(0, start)
+    end = min(N, end)
+
+    print(f"Worker chunk_id={chunk_id} handling indices [{start}, {end}) out of {N}", flush=True)
+
+    # iterate only over the slice for this chunk
+    model.eval()
+    for i in range(start, end):
+        im = exp_dataset_train[i].unsqueeze(0).to(device)
+        with torch.no_grad():
+            pred = torch.argmax(model.forward(im)).cpu()
 
         args = (exp_dataset_train[i].to(device),
                 exp_dataset_labels[i].to(device),
@@ -141,26 +149,23 @@ def compute_matrices_for_rejection_level(
                 matrix_computer,
                 pred
                 )
-        print(f'Matrix {i}/{len(exp_dataset_train)}', flush=True)
+        print(f'Chunk {chunk_id} - Matrix {i}/{N}', flush=True)
         compute_one_matrix(args)
 
 
 def main() -> None:
-    """
-        Main function to compute the matrices for the rejection level.
-    """
     args = parse_args()
     if args.experiment_name is not None:
         experiment = DEFAULT_EXPERIMENTS[f'{args.experiment_name}']
         architecture_index = experiment['architecture_index']
         dataset = experiment['dataset']
         epoch = experiment['epochs']
-
     else:
         raise ValueError("Default index not specified in constants/constants.py")
 
-    print("Computing matrices for rejection level for Experiment: ", args.experiment_name,flush=True)
+    print("Computing matrices for rejection level for Experiment: ", args.experiment_name, flush=True)
 
+    # Use get_device() which may respect CUDA_VISIBLE_DEVICES
     device = get_device()
 
     if args.temp_dir is not None:
@@ -169,7 +174,7 @@ def main() -> None:
         weights_path = Path(f'experiments/{args.experiment_name}/weights') / f'epoch_{epoch}.pth'
 
     if not weights_path.exists():
-        raise ValueError(f"Experiment needs to be trained")
+        raise ValueError(f"Experiment needs to be trained; missing weights at {weights_path}")
 
     input_shape = get_input_shape(dataset)
     num_classes = get_num_classes(dataset)
@@ -181,7 +186,6 @@ def main() -> None:
     if exp_dataset_train_file.exists() and exp_dataset_labels_file.exists():
         exp_dataset_train = torch.load(exp_dataset_train_file)
         exp_dataset_labels = torch.load(exp_dataset_labels_file)
-
     else:
         train_set, _ = get_dataset(
             data_set=dataset,
@@ -213,15 +217,10 @@ def main() -> None:
         temp_dir = args.temp_dir,
         device=device,
         batch_size = args.batch_size,
+        chunk_id = args.chunk_id,
+        total_chunks = args.total_chunks,
     )
-    print("---ALL MATRICES COMPUTED----", flush=True)
-
-    #if args.temp_dir is not None:
-    #    zip_and_cleanup(
-    #        src_directory = f'{args.temp_dir}/experiments/{experiment}/rejection_levels/matrices/',
-    #        zip_filename = f'experiments/{experiment}/rejection_levels/matrices/matrices',
-    #        clean = False
-    #    )
+    print("---ALL MATRICES COMPUTED FOR THIS WORKER----", flush=True)
 
 
 if __name__ == '__main__':

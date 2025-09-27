@@ -563,6 +563,7 @@ def compute_train_statistics(
             else:  # Otherwise, convert to a list
                 stats[key] = tensor.tolist()
 
+    os.makedirs('experiments/{experiment_name}/matrices/')
     with open(f'experiments/{experiment_name}/matrices/matrix_statistics.json', 'w') as json_file:
         json.dump(statistics, json_file, indent=4)
 

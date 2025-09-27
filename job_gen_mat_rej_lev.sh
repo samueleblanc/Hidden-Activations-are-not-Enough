@@ -2,7 +2,7 @@
 
 #SBATCH --account=def-assem #account to charge the calculation
 #SBATCH --time=00:20:00 #hour:minutes:seconds
-#SBATCH --gres=gpu:1
+#SBATCH --gres=gpu:4
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=180G #memory requested
 #SBATCH --output=slurm_out/D_rej_lev_%A.out
@@ -14,7 +14,6 @@ seconds=0
 zip_time=10
 
 EXPERIMENT="alexnet_cifar10"
-ZIP_FILE="$PWD/experiments/$EXPERIMENT/rejection_levels/matrices.zip"
 HOME_DIR="links/scratch/armenta"
 
 # Create output and error directories if they don't exist
@@ -22,8 +21,9 @@ mkdir -p $PWD/slurm_out
 mkdir -p $PWD/slurm_err
 
 module load StdEnv/2023 python/3.11.5 scipy-stack/2025a
-source env_rorqual/bin/activate #load the virtualenv (absolute or relative path to where the script is submitted)
+source env_rorqual/bin/activate
 
+# Prepare temp directories and weights
 mkdir -p $SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
 echo "Copying weights..."
 cp experiments/$EXPERIMENT/weights/* $SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
@@ -48,7 +48,8 @@ if [ -f "$EXPERIMENT_DATA_LABELS" ]; then
     cp "$EXPERIMENT_DATA_LABELS" "$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/exp_dataset_labels.pth" || { echo "Failed to copy file"; exit 1; }
 fi
 
-# Check for existing zip file and unzip if it exists
+# If matrices.zip exists on permanent storage, copy and unzip into tmp
+ZIP_FILE="$PWD/experiments/$EXPERIMENT/rejection_levels/matrices.zip"
 if [ -f "$ZIP_FILE" ]; then
     echo "Found existing zip file: $ZIP_FILE"
     cp "$ZIP_FILE" "$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/"
@@ -58,6 +59,7 @@ if [ -f "$ZIP_FILE" ]; then
     cd -
 fi
 
+mkdir gpu-monitor
 GPU_LOGFILE="gpu_monitor.$EXPERIMENT.rej_lev.log"
 INTERVAL=30  # seconds between GPU checks
 
@@ -72,11 +74,32 @@ monitor_gpu() {
   done
 }
 
-python compute_matrices_for_rejection_level.py --experiment_name $EXPERIMENT --temp_dir $SLURM_TMPDIR --batch_size 18816 &
-PYTHON_PID=$!
+# start monitor in background
+monitor_gpu &
+MONITOR_PID=$!
+echo "GPU monitor started in background (PID $MONITOR_PID)"
 
-#time_limit=$(scontrol show job $SLURM_JOB_ID | grep TimeLimit | awk '{print $2}' | cut -d= -f2)
-#IFS=':' read -r hours minutes seconds <<< "$time_limit"
+# Launch 4 workers (chunk_id 0..3), binding each to one GPU
+TOTAL_CHUNKS=4
+BATCH_SIZE=18816
+
+PIDS=()
+for CHUNK_ID in $(seq 0 $((TOTAL_CHUNKS-1))); do
+    # Bind process to a single GPU index using CUDA_VISIBLE_DEVICES
+    export CUDA_VISIBLE_DEVICES="$CHUNK_ID"
+    echo "Starting worker for chunk $CHUNK_ID on CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
+    python compute_matrices_for_rejection_level.py \
+        --experiment_name $EXPERIMENT \
+        --temp_dir $SLURM_TMPDIR \
+        --batch_size $BATCH_SIZE \
+        --chunk_id $CHUNK_ID \
+        --total_chunks $TOTAL_CHUNKS \
+        &
+    PIDS+=($!)
+    sleep 1  # small stagger
+done
+
+# compute sleep_time until we should start zipping (like before)
 total_seconds=$((hours*3600 + minutes*60 + seconds))
 sleep_time=$((total_seconds - zip_time*60))
 if [ $sleep_time -lt 0 ]; then
@@ -85,13 +108,22 @@ fi
 echo "Sleeping for $sleep_time seconds"
 sleep $sleep_time
 
-# Kill Python script if still running
-if ps -p $PYTHON_PID > /dev/null; then
-    echo "Killing Python process $PYTHON_PID"
-    kill $PYTHON_PID
-    wait $PYTHON_PID 2>/dev/null
+# After the sleep window, check if workers are still alive and kill them (to ensure we start zipping)
+for pid in "${PIDS[@]}"; do
+    if ps -p $pid > /dev/null; then
+        echo "Killing Python worker $pid"
+        kill $pid
+        wait $pid 2>/dev/null || true
+    fi
+done
+
+# Stop GPU monitor
+if ps -p $MONITOR_PID > /dev/null; then
+    kill $MONITOR_PID
+    wait $MONITOR_PID 2>/dev/null || true
 fi
 
+# Zip matrices directory
 MATRICES_DIR="$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/matrices"
 ZIP_OUTPUT_DIR="$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels"
 if [ -d "$MATRICES_DIR" ]; then

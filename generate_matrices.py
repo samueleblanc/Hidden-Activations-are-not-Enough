@@ -15,9 +15,9 @@ def parse_args() -> Namespace:
     parser.add_argument("--experiment_name", type=str, default=None, help="The index for default experiment")
     parser.add_argument("--num_samples_per_class", type=int, default=1000, help="Number of data samples per class")
     parser.add_argument("--temp_dir", default=None, type=str, help="Temporary directory for data")
-    parser.add_argument("--chunk_id", type=int, default=None, help="Chunk ID to process (set by Slurm task ID)")
-    parser.add_argument("--total_chunks", type=int, default=1, help="Total number of chunks")
-    parser.add_argument("--batch_size", type=int, default=16, help="Number of samples to process at a time per GPU")
+    parser.add_argument("--chunk_id", type=int, default=0, help="Chunk ID to process (set by Slurm task ID)")
+    parser.add_argument("--total_chunks", type=int, default=4, help="Total number of chunks")
+    parser.add_argument("--batch_size", type=int, default=3072, help="Number of columns of knowledge matrix to process at a time per GPU")
     return parser.parse_args()
 
 

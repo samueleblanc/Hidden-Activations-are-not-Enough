@@ -3,6 +3,7 @@ from argparse import ArgumentParser, Namespace
 from multiprocessing import Pool
 from pathlib import Path
 from typing import Union
+from knowledgematrix.matrix_computer import KnowledgeMatrixComputer
 
 from model_zoo.mlp import MLP
 from model_zoo.cnn import CNN_2D
@@ -34,7 +35,7 @@ def parse_args(
     parser.add_argument(
         "--batch_size",
         type=int,
-        default=16,
+        default=18816,
         help="Number of colums in matrix to process at the same time."
     )
     parser.add_argument(
@@ -70,10 +71,10 @@ def save_one_matrix(
     else:
         matrix_save_path = Path(f'experiments/{experiment_name}/adversarial_matrices') / f'{attack}' / f'{i}/matrix.pth'
 
-    matrix_save_path.parent.mkdir(parents=True, exist_ok=True)
     if not matrix_save_path.exists():
         im = im.to(device)
-        mat = representation.forward(im)
+        mat = representation.forward(im.unsqueeze(0))
+        matrix_save_path.parent.mkdir(parents=True, exist_ok=True)
         torch.save(mat.cpu(), matrix_save_path)
 
 
@@ -120,20 +121,7 @@ def generate_matrices_for_attacks(
 
         print(f"Generating matrices for attack {attack}.", flush=True)
 
-        #model = get_model(
-        #    path=weights_path,
-        #    architecture_index=architecture_index,
-        #    input_shape=input_shape,
-        #    num_classes=num_classes,
-        #    device=device
-        #)
-
-        if isinstance(model, MLP):
-            representation = MlpRepresentation(model)
-        elif isinstance(model, (CNN_2D, AlexNet, VGG, ResNet)):
-            representation = ConvRepresentation_2D(model, batch_size=batch_size, device=device)
-        else:
-            raise NotImplementedError(f"Model {type(model)} not implemented.")
+        representation = KnowledgeMatrixComputer(model, batch_size=batch_size, device=device)
 
         for i in range(len(attacked_dataset)):
             save_one_matrix(attacked_dataset[i],
@@ -182,11 +170,7 @@ def main() -> None:
         batch_size = args.batch_size,
         device=device
     )
-    print("----ALL MATRICES COMPUTED----",flush=True)
-    #if args.temp_dir is not None:
-    #    zip_and_cleanup(f'{args.temp_dir}/experiments/{args.experiment_name}/adversarial_matrices/',
-    #                    f'experiments/{args.experiment_name}/adversarial_matrices/adversarial_matrices',
-    #                    clean = False)
+    print("----ALL MATRICES OF ADVERSARIAL EXAMPLES COMPUTED----", flush=True)
 
 
 if __name__ == "__main__":
