@@ -1,11 +1,14 @@
 #!/bin/bash
 
-#SBATCH --account=def-ko1 #account to charge the calculation
+#SBATCH --account=def-assem #account to charge the calculation
 #SBATCH --time=00:20:00 #hour:minutes:seconds
+#SBATCH --array=0
 #SBATCH --gres=gpu:1
-#SBATCH --mem=18G #memory requested
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=180G #memory requested
 #SBATCH --output=slurm_out/F_adv_mats_%A.out
 #SBATCH --error=slurm_err/F_adv_mats_%A.err
+
 
 EXPERIMENT="alexnet_cifar10"
 ZIP_FILE="$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adversarial_matrices/matrices_task_$SLURM_ARRAY_TASK_ID.zip"
