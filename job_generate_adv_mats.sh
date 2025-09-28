@@ -1,23 +1,18 @@
 #!/bin/bash
 
 #SBATCH --account=def-ko1 #account to charge the calculation
-#SBATCH --time=01:00:00 #hour:minutes:seconds
+#SBATCH --time=00:20:00 #hour:minutes:seconds
 #SBATCH --gres=gpu:1
 #SBATCH --mem=18G #memory requested
-#SBATCH --output=slurm_out/adv_mats_%j.out
-#SBATCH --error=slurm_err/adv_mats_%j.err
+#SBATCH --output=slurm_out/F_adv_mats_%A.out
+#SBATCH --error=slurm_err/F_adv_mats_%A.err
 
 EXPERIMENT="alexnet_cifar10"
-ZIP_TIME=30 # in minutes
-hours=8
-minutes=0
-seconds=0
+HOME_DIR="/home/armenta/links/scratch/KnowledgeMatrices/Hidden-Activations-are-not-Enough"
+ZIP_FILE="experiments/$EXPERIMENT/adversarial_matrices/matrices_task_$SLURM_ARRAY_TASK_ID.zip"
 
-
-module load StdEnv/2023 python/3.10.13 scipy-stack/2025a #load the required module
-source env_nibi/bin/activate #load the virtualenv (absolute or relative path to where the script is submitted)
-
-HOME_DIR="/home/armenta/scratch/KnowledgeMatrices/Hidden-Activations-are-not-Enough"
+module load StdEnv/2023 python/3.11.5 scipy-stack/2025a
+source env_rorqual/bin/activate
 
 mkdir -p $SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
 echo "Copying weights..."
@@ -31,48 +26,46 @@ echo "Adv examples ready."
 
 mkdir -p experiments/$EXPERIMENT/adversarial_matrices/
 
-ZIP_FILE="experiments/$EXPERIMENT/adversarial_matrices/matrices.zip"
 if [ -f "$ZIP_FILE" ]; then
     echo "Found existing experiment data labels file: $ZIP_FILE"
-    cp "$ZIP_FILE" "$SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_matrices/matrices.zip" || { echo "Failed to copy file"; exit 1; }
+    cp "$ZIP_FILE" "$SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_matrices/matrices_task_$SLURM_ARRAY_TASK_ID.zip" || { echo "Failed to copy file"; exit 1; }
     echo "Unzipping matrices.zip to temporary directory..."
-    unzip "$SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_matrices/matrices.zip" -d "$SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_matrices/" || { echo "Failed to unzip file"; exit 1; }
+    unzip "$SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_matrices/matrices_task_$SLURM_ARRAY_TASK_ID.zip" -d "$SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_matrices/" || { echo "Failed to unzip file"; exit 1; }
     echo "Unzip completed."
 fi
 
+mkdir gpu-monitor
+GPU_LOGFILE="gpu-monitor/$EXPERIMENT.adv_mats.task-$SLURM_ARRAY_TASK_ID.log"
+INTERVAL=30  # seconds between GPU checks
+
+monitor_gpu() {
+  echo "Timestamp, GPU Utilization (%), GPU Memory Used (MiB), GPU Memory Total (MiB)" > "$GPU_LOGFILE"
+  while true; do
+    timestamp=$(date +%Y-%m-%dT%H:%M:%S)
+    nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total \
+               --format=csv,noheader,nounits \
+    | awk -v ts="$timestamp" '{print ts", "$1", "$2", "$3}' >> "$GPU_LOGFILE"
+    sleep $INTERVAL
+  done
+}
+
+# start monitor in background
+monitor_gpu &
+MONITOR_PID=$!
+echo "GPU monitor started in background (PID $MONITOR_PID)"
+
 # Run Python script in background and capture its PID
-python generate_adversarial_matrices.py --experiment_name $EXPERIMENT --temp_dir $SLURM_TMPDIR --batch_size 18816 &
-PYTHON_PID=$!
-
-# Calculate sleep time (total time - 15 minutes)
-total_seconds=$((hours*3600 + minutes*60 + seconds))
-sleep_time=$((total_seconds - 60*ZIP_TIME))  # 900=15*60 seconds = 15 minutes
-
-# Ensure sleep_time is not negative
-if [ $sleep_time -lt 0 ]; then
-    sleep_time=0
-fi
-
-echo "Sleeping for $sleep_time seconds"
-sleep $sleep_time
-
-# Kill Python process if still running
-if kill -0 $PYTHON_PID 2>/dev/null; then
-    echo "Killing Python process $PYTHON_PID"
-    kill $PYTHON_PID
-    wait $PYTHON_PID  # Wait for process to terminate
-fi
+timeout 10m python generate_adversarial_matrices.py --experiment_name $EXPERIMENT --temp_dir $SLURM_TMPDIR --chunk_id $SLURM_ARRAY_TASK_ID
 
 # Zip the matrices
 echo "Zipping matrices..."
-cd $SLURM_TMPDIR/experiments/$EXPERIMENT
-zip -r adversarial_matrices.zip adversarial_matrices
+cd $SLURM_TMPDIR/experiments/$EXPERIMENT/
+zip -r matrices_task_$SLURM_ARRAY_TASK_ID.zip adversarial_matrices
 cd -
 # Copy the zip file to the permanent directory
 #echo "Zip file: $SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_matrices.zip"
-echo "Copying zip file $SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_matrices.zip to $PWD/experiments/$EXPERIMENT/adversarial_matrices/"
+echo "Copying zip file $SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_matrices/matrices_task_$SLURM_ARRAY_TASK_ID.zip to $PWD/experiments/$EXPERIMENT/adversarial_matrices/"
 mkdir -p $PWD/experiments/$EXPERIMENT/adversarial_matrices/
-cp $SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_matrices.zip $PWD/experiments/$EXPERIMENT/adversarial_matrices/ || { echo "Failed to copy zip file"; exit 1; }
-#cp adversarial_matrices.zip $PWD/experiments/$EXPERIMENT/adversarial_matrices/
+cp $SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_matrices/matrices_task_$SLURM_ARRAY_TASK_ID.zip $PWD/experiments/$EXPERIMENT/adversarial_matrices/ || { echo "Failed to copy zip file"; exit 1; }
 
 echo "Done!"

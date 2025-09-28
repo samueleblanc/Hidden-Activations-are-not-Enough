@@ -37,6 +37,18 @@ def parse_args(
         default = None,
         help = "Temporary directory to save and read data. Useful when using clusters."
     )
+    parser.add_argument(
+        "--chunk_id",
+        type = int,
+        default = 0,
+        help = "Current chunk id or slurm task id"
+    )
+    parser.add_argument(
+        "--total_chunks",
+        type = int,
+        default = 4,
+        help = "Temporary directory to save and read data. Useful when using clusters."
+    )
 
     return parser.parse_args()
 
@@ -46,7 +58,7 @@ def save_one_matrix(
         attack: str, 
         i: int, 
         experiment_name: str,
-        representation,
+        matrix_computer,
         temp_dir: Union[str, None],
         device
     ) -> None:
@@ -65,8 +77,7 @@ def save_one_matrix(
         matrix_save_path = Path(f'experiments/{experiment_name}/adversarial_matrices') / f'{attack}' / f'{i}/matrix.pth'
 
     if not matrix_save_path.exists():
-        im = im.to(device)
-        mat = representation.forward(im.unsqueeze(0))
+        mat = matrix_computer.forward(im.unsqueeze(0).to(device))
         matrix_save_path.parent.mkdir(parents=True, exist_ok=True)
         torch.save(mat.cpu(), matrix_save_path)
 
@@ -78,8 +89,10 @@ def generate_matrices_for_attacks(
         architecture_index: int,
         input_shape,
         num_classes: int,
-        batch_size: int,
         device,
+        batch_size: int = 18816,
+        chunk_id: int = 0,
+        total_chunks: int = 1,
     ) -> None:
     """
         Calls the save_one_matrix function for each adversarial example.
@@ -100,7 +113,8 @@ def generate_matrices_for_attacks(
         input_shape=input_shape,
         num_classes=num_classes,
         device=device
-    ).to(device)
+    )
+    matrix_computer = KnowledgeMatrixComputer(model, batch_size=batch_size, device=device)
     for attack in ['test'] + ATTACKS:
         if temp_dir is not None:
             path_adv_examples = Path(temp_dir) / f'experiments/{experiment_name}/adversarial_examples' / f"{attack}/adversarial_examples.pth"
@@ -110,19 +124,39 @@ def generate_matrices_for_attacks(
             print(f'Attak {attack} does NOT exists.', flush=True)
             continue
         attacked_dataset = torch.load(path_adv_examples)
-        attacked_dataset = attacked_dataset.to(device)
 
         print(f"Generating matrices for attack {attack}.", flush=True)
 
-        representation = KnowledgeMatrixComputer(model, batch_size=batch_size, device=device)
+        N = attacked_dataset.shape[0]
+        base_chunk = N // total_chunks
+        remainder = N % total_chunks
+        # distribute the remainder among the first `remainder` chunks
+        if chunk_id < remainder:
+            start = chunk_id * (base_chunk + 1)
+            end = start + (base_chunk + 1)
+        else:
+            start = chunk_id * base_chunk + remainder
+            end = start + base_chunk
 
-        for i in range(len(attacked_dataset)):
-            save_one_matrix(attacked_dataset[i],
+        # Bound check
+        start = max(0, start)
+        end = min(N, end)
+
+        print(f"Worker chunk_id={chunk_id} handling indices [{start}, {end}) out of {N}", flush=True)
+
+        # iterate only over the slice for this chunk
+        model.eval()
+        for i in range(start, end):
+            print(f'Chunk {chunk_id} - Matrix {i}/{N}', flush=True)
+            save_one_matrix(attacked_dataset[i].to(device),
                             attack,
                             i,
                             experiment_name,
-                            representation,
-                            temp_dir, device)
+                            matrix_computer,
+                            temp_dir,
+                            device)
+
+
 
 
 def main() -> None:
@@ -134,10 +168,10 @@ def main() -> None:
         experiment = DEFAULT_EXPERIMENTS[f'{args.experiment_name}']
         architecture_index = experiment['architecture_index']
         dataset = experiment['dataset']
-        epoch = experiment['epochs'] - 1
+        epoch = experiment['epochs']
 
     else:
-        raise ValueError("Default experiment not specified.")
+        raise ValueError("Experiment not specified. Use --experiment_name")
 
     print("Experiment: ", args.experiment_name, flush=True)
 
