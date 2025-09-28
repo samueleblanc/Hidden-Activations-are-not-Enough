@@ -8,23 +8,22 @@
 #SBATCH --error=slurm_err/F_adv_mats_%A.err
 
 EXPERIMENT="alexnet_cifar10"
-HOME_DIR="/home/armenta/links/scratch/KnowledgeMatrices/Hidden-Activations-are-not-Enough"
-ZIP_FILE="experiments/$EXPERIMENT/adversarial_matrices/matrices_task_$SLURM_ARRAY_TASK_ID.zip"
+ZIP_FILE="$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adversarial_matrices/matrices_task_$SLURM_ARRAY_TASK_ID.zip"
 
 module load StdEnv/2023 python/3.11.5 scipy-stack/2025a
 source env_rorqual/bin/activate
 
 mkdir -p $SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
 echo "Copying weights..."
-cp experiments/$EXPERIMENT/weights/* $SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
+cp $SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/weights/* $SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
 echo "Weights copied to temp directory..."
 
 mkdir -p $SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_examples/
 echo "Copying adversarial examples..."
-cp -r experiments/$EXPERIMENT/adversarial_examples/* $SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_examples/
+cp -r $SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adversarial_examples/* $SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_examples/
 echo "Adv examples ready."
 
-mkdir -p experiments/$EXPERIMENT/adversarial_matrices/
+mkdir -p $SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adversarial_matrices/
 
 if [ -f "$ZIP_FILE" ]; then
     echo "Found existing experiment data labels file: $ZIP_FILE"
@@ -64,8 +63,8 @@ zip -r matrices_task_$SLURM_ARRAY_TASK_ID.zip adversarial_matrices
 cd -
 # Copy the zip file to the permanent directory
 #echo "Zip file: $SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_matrices.zip"
-echo "Copying zip file $SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_matrices/matrices_task_$SLURM_ARRAY_TASK_ID.zip to $PWD/experiments/$EXPERIMENT/adversarial_matrices/"
+echo "Copying zip file $SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_matrices/matrices_task_$SLURM_ARRAY_TASK_ID.zip to $SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adversarial_matrices/"
 mkdir -p $PWD/experiments/$EXPERIMENT/adversarial_matrices/
-cp $SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_matrices/matrices_task_$SLURM_ARRAY_TASK_ID.zip $PWD/experiments/$EXPERIMENT/adversarial_matrices/ || { echo "Failed to copy zip file"; exit 1; }
+cp $SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_matrices/matrices_task_$SLURM_ARRAY_TASK_ID.zip $SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adversarial_matrices/ || { echo "Failed to copy zip file"; exit 1; }
 
 echo "Done!"
