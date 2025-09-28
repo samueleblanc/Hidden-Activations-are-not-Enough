@@ -11,7 +11,7 @@
 
 EXPERIMENT="alexnet_cifar10"
 HOME_DIR="links/scratch/armenta"
-
+ZIP_OUTPUT_FILE="matrices_task_$SLURM_ARRAY_TASK_ID.zip"
 # Create output and error directories if they don't exist
 mkdir -p $PWD/slurm_out
 mkdir -p $PWD/slurm_err
@@ -50,13 +50,13 @@ if [ -f "$ZIP_FILE" ]; then
     echo "Found existing zip file: $ZIP_FILE"
     cp "$ZIP_FILE" "$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/"
     cd "$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/"
-    unzip -o matrices.zip
+    unzip -o $ZIP_OUTPUT_FILE
     echo "Unzipped existing matrices"
     cd -
 fi
 
 mkdir gpu-monitor
-GPU_LOGFILE="gpu_monitor.$EXPERIMENT.rej_lev.task-$SLURM_ARRAY_TASK_ID.log"
+GPU_LOGFILE="gpu-monitor/$EXPERIMENT.rej_lev.task-$SLURM_ARRAY_TASK_ID.log"
 INTERVAL=30  # seconds between GPU checks
 
 monitor_gpu() {
@@ -87,11 +87,11 @@ timeout 10m python compute_matrices_for_rejection_level.py \
 # Zip matrices directory
 MATRICES_DIR="$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/matrices"
 ZIP_OUTPUT_DIR="$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels"
-ZIP_OUTPUT_FILE="matrices_task_$SLURM_ARRAY_TASK_ID.zip"
+
 if [ -d "$MATRICES_DIR" ]; then
     echo "Zipping matrices from $MATRICES_DIR ..."
     cd "$ZIP_OUTPUT_DIR" || { echo "Failed to cd to $ZIP_OUTPUT_DIR"; }
-    zip -r ZIP_OUTPUT_FILE matrices || echo "Zip failed"
+    zip -r $ZIP_OUTPUT_FILE matrices || echo "Zip failed"
     cd - >/dev/null || true
 else
     echo "No matrices directory found at $MATRICES_DIR, skipping zipping"
@@ -100,7 +100,7 @@ fi
 # Copy the zip file back to HOME_DIR (permanent storage)
 TEMP_ZIP="$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/$ZIP_OUTPUT_FILE"
 DEST_DIR="$HOME_DIR/experiments/$EXPERIMENT/rejection_levels/"
-mkdir -p DEST_DIR
+mkdir -p $DEST_DIR
 if [ -f "$TEMP_ZIP" ]; then
     echo "Copying zip file $TEMP_ZIP to $DEST_DIR"
     mkdir -p "$DEST_DIR"

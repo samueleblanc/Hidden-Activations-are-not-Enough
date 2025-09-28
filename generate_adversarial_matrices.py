@@ -1,16 +1,9 @@
 import torch
 from argparse import ArgumentParser, Namespace
-from multiprocessing import Pool
 from pathlib import Path
 from typing import Union
 from knowledgematrix.matrix_computer import KnowledgeMatrixComputer
 
-from model_zoo.mlp import MLP
-from model_zoo.cnn import CNN_2D
-from model_zoo.alex_net import AlexNet
-from model_zoo.res_net import ResNet
-from model_zoo.vgg import VGG
-from matrix_construction.matrix_computation import MlpRepresentation, ConvRepresentation_2D
 from utils.utils import get_model, get_num_classes, get_input_shape, zip_and_cleanup, get_device
 from constants.constants import DEFAULT_EXPERIMENTS, ATTACKS
 
