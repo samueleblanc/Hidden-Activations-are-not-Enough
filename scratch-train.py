@@ -44,7 +44,7 @@ def parse_args() -> Namespace:
     parser.add_argument(
         "--version",
         type = str,
-        default = '01',
+        default = '02',
         help = "Temporary path on compute node where the dataset is saved."
     )
     return parser.parse_args()
@@ -59,6 +59,7 @@ def get_device(trial_number: int, gpu_count: int) -> torch.device:
     gpu_id = trial_number % gpu_count
     return torch.device(f"cuda:{gpu_id}")
 
+
 def train_model(trial):
     # Define hyperparameters to tune
     trial_number = trial.number
@@ -66,7 +67,7 @@ def train_model(trial):
     device = get_device(trial_number, gpu_count)
     print(f"Trial {trial_number}: Using {gpu_count} GPUs, assigned to {device}")
     args = parse_args()
-    batch_size = trial.suggest_categorical("batch_size", [16, 32, 64])
+    batch_size = trial.suggest_categorical("batch_size", [16, 32, 64, 128])
     learning_rate = trial.suggest_float("learning_rate", 1e-5, 1e-3, log=True)
     opt = trial.suggest_categorical("optimizer", ['adam', 'sgd'])
     mom = trial.suggest_float('momentum', 0.0, 0.99) if opt == 'sgd' else 0.0
@@ -204,7 +205,7 @@ if __name__ == '__main__':
 
     study.optimize(train_model,
                    n_trials=100,
-                   n_jobs=8,
+                   n_jobs=4,
                    callbacks=[save_study])
 
     # Print the best hyperparameters and accuracy

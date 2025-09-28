@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH --account=def-assem
-#SBATCH --gpus=a100_2g.10gb:1
+#SBATCH --gpus=a100_2g.10gb:4
 #SBATCH --cpus-per-task=3
 #SBATCH --time=00:30:00
 #SBATCH --mem=31G
@@ -20,5 +20,5 @@ source env_narval/bin/activate #load the virtualenv (absolute or relative path t
 #export CUDA_LAUNCH_BLOCKING=1
 #export TORCH_USE_CUDA_DSA=1
 
-#python scratch-train.py --temp_dir $SLURM_TMPDIR --model alexnet --dataset cifar10
-python training.py --experiment_name vgg_cifar100 --temp_dir $SLURM_TMPDIR
+python scratch-train.py --temp_dir $SLURM_TMPDIR --model vgg --dataset cifar100
+#python training.py --experiment_name vgg_cifar100 --temp_dir $SLURM_TMPDIR
