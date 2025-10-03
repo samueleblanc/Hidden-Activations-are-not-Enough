@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Union
 from knowledgematrix.matrix_computer import KnowledgeMatrixComputer
 
-from utils.utils import get_model, get_num_classes, get_input_shape, zip_and_cleanup, get_device
+from utils.utils import get_model, get_num_classes, get_input_shape, get_device
 from constants.constants import DEFAULT_EXPERIMENTS, ATTACKS
 
 
@@ -52,11 +52,10 @@ def parse_args(
 
     return parser.parse_args()
 
-
 def save_one_matrix(
-        im: torch.Tensor, 
-        attack: str, 
-        i: int, 
+        im: torch.Tensor,
+        attack: str,
+        i: int,
         experiment_name: str,
         matrix_computer,
         temp_dir: Union[str, None],
@@ -80,7 +79,6 @@ def save_one_matrix(
         mat = matrix_computer.forward(im.unsqueeze(0).to(device))
         matrix_save_path.parent.mkdir(parents=True, exist_ok=True)
         torch.save(mat.cpu(), matrix_save_path)
-
 
 def generate_matrices_for_attacks(
         experiment_name: str,
@@ -144,6 +142,7 @@ def generate_matrices_for_attacks(
 
         print(f"Worker chunk_id={chunk_id} handling indices [{start}, {end}) out of {N}", flush=True)
 
+
         # iterate only over the slice for this chunk
         model.eval()
         for i in range(start, end):
@@ -155,9 +154,6 @@ def generate_matrices_for_attacks(
                             matrix_computer,
                             temp_dir,
                             device)
-
-
-
 
 def main() -> None:
     """

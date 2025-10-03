@@ -50,7 +50,7 @@ def apply_attack(
         path_adv_examples: Path,
         input_shape,
         num_classes: int,
-        batch_size: int = 528,
+        batch_size: int = 8,
     ):
     device = get_device()
 
