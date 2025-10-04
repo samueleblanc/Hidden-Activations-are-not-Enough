@@ -2,21 +2,20 @@
 #SBATCH --account=def-assem
 #SBATCH --job-name=matrices
 #SBATCH --array=0-3
-#SBATCH --time=02:20:00  # Increased to accommodate potential longer runs
+#SBATCH --time=05:30:00  # Increased to accommodate potential longer runs
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=180G  # Increased to prevent segmentation faults
-#SBATCH --output=slurm_out/B_matrices_%A_%a.out
-#SBATCH --error=slurm_err/B_matrices_%A_%a.err
+#SBATCH --output=slurm_out/B_mats_%A_%a.out
+#SBATCH --error=slurm_err/B_mats_%A_%a.err
 
-mkdir -p $PWD/slurm_out
-mkdir -p $PWD/slurm_err
+mkdir -p $SLURM_SUBMIT_DIR/slurm_out
+mkdir -p $SLURM_SUBMIT_DIR/slurm_err
 
-#export CUDA_VISIBLE_DEVICES=0,1
 # Set variables
 EXPERIMENT="alexnet_cifar10"
 TASK_ID=$SLURM_ARRAY_TASK_ID
-ZIP_FILE="$PWD/experiments/$EXPERIMENT/matrices_chunk_$TASK_ID.zip"
+ZIP_FILE="$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/matrices_chunk_$TASK_ID.zip"
 
 # Prepare environment
 TEMP_DIR=$SLURM_TMPDIR
@@ -46,7 +45,8 @@ if [ -f "$ZIP_FILE" ]; then
     echo "Existing matrices unzipped to $TEMP_DIR/experiments/$EXPERIMENT/matrices"
 fi
 
-GPU_LOGFILE="gpu_monitor.anc10m_$TASK_ID.log"
+mkdir gpu-monitor/
+GPU_LOGFILE="gpu-monitor/$EXPERIMENT.mats.$TASK_ID.log"
 INTERVAL=30  # seconds between GPU checks
 
 monitor_gpu() {
@@ -67,7 +67,7 @@ echo "GPU monitor started in background (PID $MONITOR_PID)"
 
 # Run Python script in the foreground
 echo "Generating matrices for task $TASK_ID..."
-timeout 2h python generate_matrices.py --temp_dir "$TEMP_DIR" --experiment "$EXPERIMENT" --chunk_id $TASK_ID --total_chunks 4 --batch_size 18816 #37632,75264, 150528=224*224*3 is max for imagenet size
+timeout 5h python generate_matrices.py --temp_dir "$TEMP_DIR" --experiment "$EXPERIMENT" --chunk_id $TASK_ID --total_chunks 4 --batch_size 18816 #37632,75264, 150528=224*224*3 is max for imagenet size
 
 
 # Zip the matrices directory
@@ -75,7 +75,7 @@ echo "Zipping matrices for task $TASK_ID..."
 cd "$TEMP_DIR/experiments/$EXPERIMENT"
 zip -r "matrices_task_$TASK_ID.zip" matrices || { echo "Zipping failed"; exit 1; }
 
-# Copy the zip file to $PWD
-echo "Copying zip file to $PWD..."
+# Copy the zip file to $SLURM_SUBMIT_DIR
+echo "Copying zip file to $SLURM_SUBMIT_DIR..."
 cp "matrices_task_$TASK_ID.zip" "$ZIP_FILE" || { echo "Failed to copy zip file"; exit 1; }
 echo "Task $TASK_ID completed successfully"

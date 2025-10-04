@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH --account=def-assem #account to charge the calculation
-#SBATCH --time=02:00:00 #hour:minutes:seconds
+#SBATCH --time=04:00:00 #hour:minutes:seconds
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=124G #memory requested
@@ -9,16 +9,15 @@
 #SBATCH --error=slurm_err/C_adv_ex_%A.err
 
 # Create output and error directories if they don't exist
-mkdir -p $PWD/slurm_out
-mkdir -p $PWD/slurm_err
+mkdir -p $SLURM_SUBMIT_DIR/slurm_out
+mkdir -p $SLURM_SUBMIT_DIR/slurm_err
 
 # Set variables
 EXPERIMENT="alexnet_cifar10"
 
 # Prepare environment
 echo "Using temporary directory: $SLURM_TMPDIR"
-#module load StdEnv/2023 python/3.10.13 scipy-stack/2025a cuda/12.2 cudnn
-#source env_nibi/bin/activate
+
 module load StdEnv/2023 python/3.11.5 scipy-stack/2025a
 source env_rorqual/bin/activate
 
@@ -32,7 +31,8 @@ echo "Copying datasets..."
 cp -r data/cifar-10-batches-py/* "$SLURM_TMPDIR/data/cifar-10-batches-py/" || { echo "Failed to copy dataset"; exit 1; }
 echo "CIFAR10 ready"
 
-GPU_LOGFILE="gpu_monitor.anc10ae.log"
+mkdir gpu-monitor
+GPU_LOGFILE="gpu-monitor.$EXPERIMENT.adv_ex.log"
 INTERVAL=30  # seconds between GPU checks
 
 monitor_gpu() {
@@ -52,3 +52,4 @@ MONITOR_PID=$!
 echo "GPU monitor started in background (PID $MONITOR_PID)"
 
 python generate_adversarial_examples.py --experiment_name $EXPERIMENT --temp_dir=$SLURM_TMPDIR
+

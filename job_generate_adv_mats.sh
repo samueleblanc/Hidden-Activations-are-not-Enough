@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH --account=def-assem #account to charge the calculation
-#SBATCH --time=05:00:00 #hour:minutes:seconds
+#SBATCH --time=05:30:00 #hour:minutes:seconds
 #SBATCH --array=0-3
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=16
@@ -39,7 +39,7 @@ if [ -f "$ZIP_FILE" ]; then
 fi
 
 mkdir -p gpu-monitor/
-GPU_LOGFILE="gpu-monitor/$EXPERIMENT.adv_mats.task-$SLURM_ARRAY_TASK_ID.log"
+GPU_LOGFILE="gpu-monitor/$EXPERIMENT.adv_mats.$SLURM_ARRAY_TASK_ID.log"
 INTERVAL=30  # seconds between GPU checks
 
 monitor_gpu() {
@@ -59,7 +59,7 @@ MONITOR_PID=$!
 echo "GPU monitor started in background (PID $MONITOR_PID)"
 
 # Run Python script in background and capture its PID
-timeout 4h python generate_adversarial_matrices.py --experiment_name $EXPERIMENT --temp_dir $SLURM_TMPDIR --chunk_id $SLURM_ARRAY_TASK_ID
+timeout 5h python generate_adversarial_matrices.py --experiment_name $EXPERIMENT --temp_dir $SLURM_TMPDIR --chunk_id $SLURM_ARRAY_TASK_ID
 
 # Zip the matrices
 echo "Zipping matrices..."
