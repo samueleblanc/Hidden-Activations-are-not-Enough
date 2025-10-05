@@ -182,6 +182,30 @@ def main() -> None:
 
     print("Training...", flush=True)
     for epoch in range(start_epoch, epochs+1):
+        if epoch == 60:
+            # Unfreeze the feature extractor layers
+            for layer in model.layers:
+                if isinstance(layer, nn.Conv2d):
+                    for param in layer.parameters():
+                        param.requires_grad = True
+            # Recreate optimizer with small fixed LR on all trainable params
+            small_lr = 1e-5
+            if opt == 'adam':
+                optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=small_lr, weight_decay=wd)
+            else:
+                optimizer = optim.SGD(filter(lambda p: p.requires_grad, model.parameters()), lr=small_lr, weight_decay=wd, momentum=mom)
+            # Recreate scheduler with new optimizer
+            if sched == 'step':
+                scheduler = StepLR(optimizer=optimizer, step_size=30, gamma=0.1)
+            elif sched == 'cosine':
+                scheduler = CosineAnnealingLR(optimizer, T_max=60)  # Remaining epochs
+            elif sched == 'exp':
+                scheduler = ExponentialLR(optimizer, gamma=0.95)
+            elif sched == 'multi':
+                scheduler = MultiStepLR(optimizer, milestones=[30, 50], gamma=0.1)  # Adjusted for remaining
+            else:
+                scheduler = CyclicLR(optimizer, base_lr=small_lr/10, max_lr=small_lr, step_size_up=2000)
+
         train_one_epoch(
             model = model, 
             train_loader = train_loader, 
