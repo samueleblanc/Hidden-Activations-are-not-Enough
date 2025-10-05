@@ -126,6 +126,7 @@ def main() -> None:
     else:
         raise ValueError("Experiment not specified in constants/constants.py")
 
+    print(f"Training: {experiment}", flush=True)
     device = get_device()
     train_loader, test_loader = get_dataset(
         data_set = dataset,

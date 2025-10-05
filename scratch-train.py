@@ -191,7 +191,7 @@ def save_study(study, trial):
 if __name__ == '__main__':
     # Create a study object and specify the direction
     args = parse_args()
-    print(f"Hyper-training: {args.model} on {args.dataset}")
+    print(f"Hyper-training: {args.model} on {args.dataset}", flush=True)
     storage = JournalStorage(JournalFileBackend(f'/lustre07/scratch/armenta/{args.model}_{args.dataset}_{args.version}_.log'))
     study = optuna.create_study(direction="minimize",
                                 study_name=f"{args.model}_{args.dataset}_{args.version}_",
