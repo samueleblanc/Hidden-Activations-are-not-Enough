@@ -169,8 +169,8 @@ def get_architecture(
         input_shape = (1, 28, 28),
         num_classes:int = 10,
         architecture_index:int = 0,
-        pretrained = False,
-        freeze_features = False
+        pretrained = True,
+        freeze_features = True
     ) -> Union[MLP, CNN_2D, ResNet18, AlexNet, VGG11]:
     """
         Args:
@@ -248,6 +248,8 @@ def get_model(
                 architecture_index = architecture_index,
                 input_shape = input_shape,
                 num_classes = num_classes,
+                pretrained = True,
+                freeze_features = True,
             ).to(device)
     model.load_state_dict(weight_path)
     return model
@@ -260,19 +262,14 @@ def get_input_shape(
         Args:
             data_set: The dataset to use.
         Returns:
-            The input shape.
+            The input shape. Default is imagenet size (3, 224, 224)
     """
     if data_set == 'mnist' or data_set == 'fashion':
         return (1, 28, 28)
     elif data_set == 'mnist1d':
         return (1, 1, 40)
     else:
-    #elif data_set == 'cifar10' or data_set == 'cifar100':
-    #    return (3, 32, 32)
-    #elif data_set == 'imagenet':
         return (3, 224, 224)
-    #else:
-    #    raise ValueError("Unsupported dataset.")
 
 
 def get_num_classes(
@@ -363,30 +360,6 @@ def get_dataset(
         train_set = CIFAR10(root=data_path or './data', train=True, download=True, transform=train_transform)
         test_set = CIFAR10(root=data_path or './data', train=False, download=True, transform=test_transform)
 
-        '''
-        # Use data augmentation for CIFAR-10
-        transform_train = transforms.Compose([
-            transforms.Resize((32,32)),
-            transforms.RandomHorizontalFlip(),
-            transforms.RandomRotation(7),
-            transforms.RandomAffine(0, shear=6, scale=(0.9,1.1)),
-            transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1),
-            transforms.ToTensor(),
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
-        ])
-        train_set = torchvision.datasets.CIFAR10(
-            root = data_path, 
-            train = True, 
-            transform = transform_train, 
-            download = True
-        )
-        test_set = torchvision.datasets.CIFAR10(
-            root = data_path, 
-            train = False, 
-            transform = transform, 
-            download = True
-        )
-        '''
     elif data_set == 'cifar100':
         # Use ImageNet normalization for pretrained models
         mean = [0.485, 0.456, 0.406]
@@ -407,30 +380,7 @@ def get_dataset(
 
         train_set = CIFAR100(root=data_path or './data', train=True, download=True, transform=train_transform)
         test_set = CIFAR100(root=data_path or './data', train=False, download=True, transform=test_transform)
-        '''
-        # Use data augmentation for CIFAR-100
-        transform_train = transforms.Compose([
-            transforms.Resize((32,32)),
-            transforms.RandomHorizontalFlip(),
-            transforms.RandomRotation(7),
-            transforms.RandomAffine(0, shear=6, scale=(0.9,1.1)),
-            transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1),
-            transforms.ToTensor(),
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
-        ])
-        train_set = torchvision.datasets.CIFAR100(
-            root = data_path, 
-            train = True, 
-            transform = transform_train, 
-            download = True
-        )
-        test_set = torchvision.datasets.CIFAR100(
-            root = data_path, 
-            train = False, 
-            transform = transform, 
-            download = True
-        )
-        '''
+
     elif data_set == 'imagenet':
         val_loader, val_set = get_imagenet_val_dataset(data_path or '/datashare/imagenet/ILSVRC2012', batch_size=batch_size)
         if data_loader:
@@ -438,24 +388,24 @@ def get_dataset(
         else:
             return None, val_set  # No train set, return val as test
         '''
-        preprocess = transforms.Compose([
-            transforms.Resize(256),
-            transforms.CenterCrop(224),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-        ])
-        train_set = torchvision.datasets.Imagenette(
-            root = data_path, 
-            train = True, 
-            transform = preprocess, 
-            download = True
-        )
-        test_set = torchvision.datasets.Imagenette(
-            root = data_path, 
-            train = False, 
-            transform = preprocess, 
-            download = True
-        )
+            preprocess = transforms.Compose([
+                transforms.Resize(256),
+                transforms.CenterCrop(224),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            ])
+            train_set = torchvision.datasets.Imagenette(
+                root = data_path, 
+                train = True, 
+                transform = preprocess, 
+                download = True
+            )
+            test_set = torchvision.datasets.Imagenette(
+                root = data_path, 
+                train = False, 
+                transform = preprocess, 
+                download = True
+            )
         '''
     elif data_set == "mnist1d":
         defaults = get_dataset_args()

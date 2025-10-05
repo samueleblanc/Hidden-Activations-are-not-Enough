@@ -26,7 +26,7 @@ source env_narval/bin/activate #load the virtualenv (absolute or relative path t
 #export TORCH_USE_CUDA_DSA=1
 
 # Hyperparamter tuning
-python scratch-train.py --temp_dir $SLURM_TMPDIR --model vgg --dataset cifar100
+python scratch-train.py --temp_dir $SLURM_TMPDIR --model resnet --dataset cifar10
 
 # One training saving weights at checkpoints/ hyperparameters should be in constants/constants.py
 #python training.py --experiment_name vgg_cifar100 --temp_dir $SLURM_TMPDIR

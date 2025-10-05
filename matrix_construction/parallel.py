@@ -32,7 +32,7 @@ class ParallelMatrixConstruction:
             - architecture_index: Index of model architecture
     """
     def __init__(self, dict_exp: dict,) -> None:
-        self._validate_input_dictionary(dict_exp)
+        #self._validate_input_dictionary(dict_exp)
         self.epoch: int = dict_exp["epochs"]
         self.num_samples: int = dict_exp["num_samples"]
         self.dataname: str = dict_exp["data_name"].lower()
@@ -42,7 +42,7 @@ class ParallelMatrixConstruction:
         self.architecture_index: int = dict_exp['architecture_index']
         self.device = dict_exp['device']
         self.batch_size = dict_exp['batch_size']
-        self.verbose = dict_exp['verbose']
+        self.verbose = True #dict_exp['verbose']
         self.num_classes: int = get_num_classes(self.dataname)
         self.imagenet = True if self.dataname=='imagenet' else False
 
@@ -116,7 +116,9 @@ class ParallelMatrixConstruction:
         model = get_architecture(
             input_shape=self.input_shape,
             num_classes=self.num_classes,
-            architecture_index=self.architecture_index
+            architecture_index=self.architecture_index,
+            pretrained=True,
+            freeze_features=True,
         )
         model.to(self.device)
         model.load_state_dict(state_dict)

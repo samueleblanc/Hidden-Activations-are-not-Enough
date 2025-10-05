@@ -3,7 +3,6 @@ import json
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.optim.lr_scheduler import StepLR
 from pathlib import Path
 from argparse import ArgumentParser, Namespace
 from typing import Union
@@ -74,8 +73,6 @@ def train_one_epoch(
             scheduler.step()
 
 
-
-
 def evaluate_model(
         model: Union[AlexNet, CNN_2D, MLP, ResNet18, VGG11],
         data_loader, 
@@ -139,7 +136,7 @@ def main() -> None:
 
     input_shape = get_input_shape(dataset)
     num_classes = get_num_classes(dataset)
-    model = get_architecture(input_shape, num_classes, architecture_index).to(device)
+    model = get_architecture(input_shape, num_classes, architecture_index, pretrained=True, freeze_features=True).to(device)
 
     # Define loss function and optimizer
     criterion = nn.CrossEntropyLoss().to(device)

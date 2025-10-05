@@ -50,22 +50,16 @@ def parse_args() -> Namespace:
     return parser.parse_args()
 
 
-def get_device(trial_number: int, gpu_count: int) -> torch.device:
+def get_device() -> torch.device:
     """Assign a specific GPU to each trial based on trial number."""
     if not torch.cuda.is_available():
         return torch.device("cpu")
-    if gpu_count == 0:
-        return torch.device("cpu")
-    gpu_id = trial_number % gpu_count
-    return torch.device(f"cuda:{gpu_id}")
+
+    return torch.device("cuda")
 
 
 def train_model(trial):
-    # Define hyperparameters to tune
-    trial_number = trial.number
-    gpu_count = torch.cuda.device_count()
-    device = get_device(trial_number, gpu_count)
-    print(f"Trial {trial_number}: Using {gpu_count} GPUs, assigned to {device}")
+    device = get_device()
     args = parse_args()
     batch_size = trial.suggest_categorical("batch_size", [16, 32, 64, 128])
     learning_rate = trial.suggest_float("learning_rate", 1e-5, 1e-3, log=True)
@@ -187,7 +181,7 @@ def save_study(study, trial):
     # /lustre07/ -> narval
     # /lustre04/ -> beluga
     # /          -> graham & nibi
-    study_dir = "/scratch/armenta/"
+    study_dir = "/lustre07/scratch/armenta/"
     if not os.path.exists(study_dir):
         os.makedirs(study_dir)
     args = parse_args()
@@ -197,14 +191,15 @@ def save_study(study, trial):
 if __name__ == '__main__':
     # Create a study object and specify the direction
     args = parse_args()
-    storage = JournalStorage(JournalFileBackend(f'/scratch/armenta/{args.model}_{args.dataset}_{args.version}_.log'))
+    print(f"Hyper-training: {args.model} on {args.dataset}")
+    storage = JournalStorage(JournalFileBackend(f'/lustre07/scratch/armenta/{args.model}_{args.dataset}_{args.version}_.log'))
     study = optuna.create_study(direction="minimize",
                                 study_name=f"{args.model}_{args.dataset}_{args.version}_",
                                 storage=storage,
                                 load_if_exists=True)
 
     study.optimize(train_model,
-                   n_trials=100,
+                   n_trials=1000,
                    n_jobs=4,
                    callbacks=[save_study])
 
