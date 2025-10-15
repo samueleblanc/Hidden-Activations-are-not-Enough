@@ -12,6 +12,7 @@ from mnist1d.data import make_dataset, get_dataset_args
 
 from model_zoo.mlp import MLP
 from model_zoo.cnn import CNN_2D
+from model_zoo.cnn_1d import CNN1D
 from knowledgematrix.models.alexnet import AlexNet
 from knowledgematrix.models.resnet18 import ResNet18
 from knowledgematrix.models.vgg11 import VGG11
@@ -192,7 +193,10 @@ def get_architecture(
             dropout = dropout,
         )
     """
-    if architecture_index == -4:
+    if architecture_index == -5 or architecture_index == 10:
+        model = CNN1D(input_shape=input_shape,
+                      num_classes=num_classes)
+    elif architecture_index == -4:
         print("Lenet LOADED", flush=True)
         model = CNN_2D(input_shape=input_shape,
                        num_classes=num_classes,
@@ -267,7 +271,7 @@ def get_input_shape(
     if data_set == 'mnist' or data_set == 'fashion':
         return (1, 28, 28)
     elif data_set == 'mnist1d':
-        return (1, 1, 40)
+        return (1, 40, 1)
     else:
         return (3, 224, 224)
 
@@ -410,8 +414,8 @@ def get_dataset(
     elif data_set == "mnist1d":
         defaults = get_dataset_args()
         data = make_dataset(defaults)
-        train_set = torch.from_numpy(data['x']).reshape(-1, 1, 1, 40).float()
-        test_set = torch.from_numpy(data['x_test']).reshape(-1, 1, 1, 40).float()
+        train_set = torch.from_numpy(data['x']).reshape(-1, 1, 40, 1).float()
+        test_set = torch.from_numpy(data['x_test']).reshape(-1, 1, 40, 1).float()
         train_set = list(zip(train_set, torch.from_numpy(data['y'])))
         test_set = list(zip(test_set, torch.from_numpy(data['y_test'])))
     else:
@@ -647,6 +651,15 @@ def get_parameters_baseline(dataset):
             'ocsvm': [0.05, 0.1, 0.2],
             'iforest': [150, 200, 250],
             'softmax': [0.3, 0.5, 0.7],
+            'mahalanobis': [0.9, 0.95, 0.99]
+        },
+        'mnist1d': {
+            'knn': [2, 4, 6],
+            'kde': [0.3, 0.6, 0.9],
+            'gmm': [5, 15, 25],
+            'ocsvm': [0.01, 0.05, 0.1],
+            'iforest': [30, 70, 110],
+            'softmax': [0.9, 0.95, 0.99],
             'mahalanobis': [0.9, 0.95, 0.99]
         }
     }

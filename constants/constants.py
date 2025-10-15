@@ -34,6 +34,7 @@ ARCHITECTURES = [
     # CNNs
     ((10,10,10,10), (300,)),
     ((32,64), (128,)),
+    ("CNN1D"),
     ((16,32,64), (128,)),
     ("AlexNet"),
     ("ResNet"),
@@ -145,6 +146,21 @@ DEFAULT_EXPERIMENTS = {
         'momentum': 0.356455066927686,
         'weight_decay': 0.0039547952367518496,
         'reduce_lr': 500,
+    },
+    'cnn1d_mnist1d': {
+        'architecture_index': 10,
+        'optimizer': 'adam',
+        'dataset': 'mnist1d',
+        'lr': 0.001,
+        'batch_size': 16,
+        'epochs': 15,
+        'reduce_lr_each': 50,
+        'save_every_epochs': 1,
+        'residual': False,
+        'weight_decay': 0,
+        'dropout': 0,
+        'momentum': 0.9,
+        'scheduler': 'multi'
     },
 
 

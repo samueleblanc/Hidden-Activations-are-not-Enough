@@ -7,8 +7,7 @@ import torch
 from torch.utils.data import DataLoader, Subset
 from typing import Union
 
-from matrix_construction.matrix_computation import MlpRepresentation, ConvRepresentation_2D
-from utils.utils import get_architecture, get_dataset, get_num_classes, get_device
+from utils.utils import get_architecture, get_dataset, get_num_classes
 from knowledgematrix.matrix_computer import KnowledgeMatrixComputer
 from knowledgematrix.models.alexnet import AlexNet
 from knowledgematrix.models.resnet18 import ResNet18
@@ -50,7 +49,7 @@ class ParallelMatrixConstruction:
         if self.dataname in ['cifar10', 'cifar100', 'imagenet']:
             self.input_shape = (3, 224, 224)
         elif self.dataname == 'mnist1d':
-            self.input_shape = (1, 1, 40)
+            self.input_shape = (1, 40, 1)
         elif self.dataname in ['mnist', 'fashion']:
             self.input_shape = (1, 28, 28)
         else:
@@ -145,6 +144,8 @@ class ParallelMatrixConstruction:
         The matrices are saved to disk in the following structure:
         save_path/class_label/sample_index/matrix.pt
         """
+        if self.dataname == 'mnist1d':
+            data = torch.cat(data, dim=0)
         directory = f"{self.save_path if self.save_path is not None else ''}/{out_class}/"
         os.makedirs(directory, exist_ok=True)
 
