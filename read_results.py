@@ -25,10 +25,10 @@ def parse_args(
         help = "Output file name to read results of grid search.",
     )
     parser.add_argument(
-        "--default_index",
-        type = int,
-        default = 0,
-        help = "The index for default experiment",
+        "--experiment_name",
+        type = str,
+        default = None,
+        help = "Name of experiment. Check constants/constants.py.",
     )
     parser.add_argument(
         "--temp_dir",
@@ -39,37 +39,37 @@ def parse_args(
     return parser.parse_args()
 
 
-def check_default_index_exists(
+def check_experiment_name_exists(
         df: pd.DataFrame, 
-        default_index: int
+        experiment_name: str
     ) -> bool:
     """
         Args:
             df: the dataframe to check.
-            default_index: the default index to check.
+            experiment_name: the experiment name to check.
         Returns:
-            True if the default index exists, False otherwise.
+            True if the experiment name exists, False otherwise.
     """
-    return f'default {default_index}' in df['default_index'].values
+    return f'{experiment_name}' in df['experiment_name'].values
 
 
 def get_top_10_abs_difference(
         df: pd.DataFrame, 
-        default_index: int,
+        experiment_name: str,
         baseline: bool = False
     ) -> pd.DataFrame:
     """
         Args:
             df: the dataframe to get the top 10 absolute difference from.
-            default_index: the default index to get the top 10 absolute difference from.
+            experiment_name: the experiment name to get the top 10 absolute difference from.
             baseline: whether to get the top 10 absolute difference from the baseline methods.
         Returns:
             The top 10 absolute difference.
     """
     if baseline:
-        filtered_df = df[df['default_index'] == default_index].copy()
+        filtered_df = df[df['experiment_name'] == experiment_name].copy()
     else:
-        filtered_df = df[df['default_index'] == f'default {default_index}'].copy()
+        filtered_df = df[df['experiment_name'] == f'{experiment_name}'].copy()
 
     # Convert columns to float, coercing errors to NaN
     filtered_df['good_defence'] = pd.to_numeric(filtered_df['good_defence'], errors='coerce')
@@ -90,7 +90,7 @@ def run_detect_adversarial_examples(
         t_epsilon: float, 
         epsilon: float, 
         epsilon_p: float, 
-        default_index: int, 
+        experiment_name: str, 
         top: int, 
         temp_dir:Union[str, None] = None
     ) -> None:
@@ -99,7 +99,7 @@ def run_detect_adversarial_examples(
             t_epsilon: the t_epsilon value.
             epsilon: the epsilon value.
             epsilon_p: the epsilon_p value.
-            default_index: the default index of the experiment.
+            experiment_name: the experiment name.
             top: the index of a value in the top 10 dataframe.
             temp_dir: the temporary directory.
     """
@@ -109,14 +109,14 @@ def run_detect_adversarial_examples(
         t_epsilon = t_epsilon, 
         epsilon = epsilon, 
         epsilon_p = epsilon_p, 
-        default_index = default_index, 
+        experiment_name = experiment_name, 
         temp_dir = temp_dir
     )
 
     if result is not None:
         print(f"Successfully ran script with params --t_epsilon {t_epsilon} --epsilon {epsilon} --epsilon_p {epsilon_p}")
 
-        with open(f'experiments/{default_index}/results/{top}_output_{t_epsilon}_{epsilon}_{epsilon_p}.txt', 'w') as f:
+        with open(f'experiments/{experiment_name}/results/{top}_output_{t_epsilon}_{epsilon}_{epsilon_p}.txt', 'w') as f:
             f.write(result)
 
 
@@ -127,21 +127,21 @@ def main() -> None:
     args = parse_args()
 
     if args.temp_dir is None:
-        path_output = Path(f'experiments/{args.default_index}/grid_search/grid_search_{args.default_index}.txt')
+        path_output = Path(f'experiments/{args.experiment_name}/grid_search/grid_search_{args.experiment_name}.txt')
     else:
-        path_output = Path(f'{args.temp_dir}/experiments/{args.default_index}/grid_search/grid_search_{args.default_index}.txt')
+        path_output = Path(f'{args.temp_dir}/experiments/{args.experiment_name}/grid_search/grid_search_{args.experiment_name}.txt')
 
-    Path(f'experiments/{args.default_index}/results/').mkdir(parents=True, exist_ok=True)
+    Path(f'experiments/{args.experiment_name}/results/').mkdir(parents=True, exist_ok=True)
 
     df = pd.read_csv(path_output)
 
-    # Check if the default_index exists
-    if not check_default_index_exists(df, args.default_index):
-        print(f"Error: Default index {args.default_index} does not exist in {args.output_file}.")
+    # Check if the experiment_name exists
+    if not check_experiment_name_exists(df, args.experiment_name):
+        print(f"Error: Experiment name {args.experiment_name} does not exist in {args.output_file}.")
         sys.exit(1)
 
     # Get the top 10 values for the highest absolute difference
-    top_10_abs_diff = get_top_10_abs_difference(df, args.default_index)
+    top_10_abs_diff = get_top_10_abs_difference(df, args.experiment_name)
     print("Top 10 values for highest absolute difference:")
     print(top_10_abs_diff)
 
@@ -152,7 +152,7 @@ def main() -> None:
             t_epsilon = row['t_epsilon'], 
             epsilon = row['epsilon'], 
             epsilon_p = row['epsilon_p'], 
-            default_index = args.default_index, 
+            experiment_name = args.experiment_name, 
             top = top, 
             temp_dir = args.temp_dir
         )
@@ -162,25 +162,25 @@ def main() -> None:
     
     # Read results of baseline methods
     if args.temp_dir is None:
-        path_output = Path(f'experiments/{args.default_index}/grid_search/grid_search_{args.default_index}_baseline.txt')
+        path_output = Path(f'experiments/{args.experiment_name}/grid_search/grid_search_{args.experiment_name}_baseline.txt')
     else:
-        path_output = Path(f'{args.temp_dir}/experiments/{args.default_index}/grid_search/grid_search_{args.default_index}_baseline.txt')
+        path_output = Path(f'{args.temp_dir}/experiments/{args.experiment_name}/grid_search/grid_search_{args.experiment_name}_baseline.txt')
 
     df = pd.read_csv(path_output)
 
-    top_10_abs_diff = get_top_10_abs_difference(df, args.default_index, baseline=True)
+    top_10_abs_diff = get_top_10_abs_difference(df, args.experiment_name, baseline=True)
     print("Top 10 values for highest absolute difference in baseline methods:")
     print(top_10_abs_diff)
 
     # Read results of baseline methods for matrices
     if args.temp_dir is None:
-        path_output = Path(f'experiments/{args.default_index}/grid_search/grid_search_{args.default_index}_baseline_matrices.txt')
+        path_output = Path(f'experiments/{args.experiment_name}/grid_search/grid_search_{args.experiment_name}_baseline_matrices.txt')
     else:
-        path_output = Path(f'{args.temp_dir}/experiments/{args.default_index}/grid_search/grid_search_{args.default_index}_baseline_matrices.txt')
+        path_output = Path(f'{args.temp_dir}/experiments/{args.experiment_name}/grid_search/grid_search_{args.experiment_name}_baseline_matrices.txt')
 
     df = pd.read_csv(path_output)
 
-    top_10_abs_diff = get_top_10_abs_difference(df, args.default_index, baseline=True)
+    top_10_abs_diff = get_top_10_abs_difference(df, args.experiment_name, baseline=True)
     print("Top 10 values for highest absolute difference in baseline methods for matrices:")
     print(top_10_abs_diff)
 
