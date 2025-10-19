@@ -473,10 +473,13 @@ def compute_statistics(
     """
     statistics = {}
     for j, paths in matrix_paths.items():
+        print(f"idx: {j}, paths: {paths}", flush=True)
         matrices = [torch.load(path, map_location=torch.device('cpu')) for path in paths]
+        print(f'Num of matrices: {len(matrices)}', flush=True)
         #matrices = [torch.load(path).cpu() for path in paths]
         # Stack all matrices to compute statistics across all matrices in a subfolder
         stacked_matrices = torch.stack(matrices)
+        print(f'Matrices shape: {stacked_matrices.shape}', flush=True)
         # Compute mean and std across the stacked matrices
         mean_matrix = torch.mean(stacked_matrices, dim=0)
         std_matrix = torch.std(stacked_matrices, dim=0)
@@ -501,8 +504,10 @@ def compute_train_statistics(
         original_matrices_path = f'{path}/experiments/{experiment_name}/matrices/'
     else:
         original_matrices_path = f'experiments/{experiment_name}/matrices/'
-    original_matrices_paths = find_matrices(original_matrices_path)
 
+    print(f'Path to matrices: {original_matrices_path}', flush=True)
+    original_matrices_paths = find_matrices(original_matrices_path)
+    print(f'Matrices paths: {original_matrices_paths}', flush=True)
     statistics = compute_statistics(original_matrices_paths)
 
     # Convert tensors to lists (or numbers) for JSON serialization
@@ -513,7 +518,9 @@ def compute_train_statistics(
             else:  # Otherwise, convert to a list
                 stats[key] = tensor.tolist()
 
-    os.makedirs(f'experiments/{experiment_name}/matrices/')
+    print(f'statistics after to list and item: {statistics}', flush=True)
+
+    os.makedirs(f'experiments/{experiment_name}/matrices/', exist_ok=True)
     with open(f'experiments/{experiment_name}/matrices/matrix_statistics.json', 'w') as json_file:
         json.dump(statistics, json_file, indent=4)
 
