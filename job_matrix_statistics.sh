@@ -1,9 +1,9 @@
 #!/bin/bash
 
-#SBATCH --account=def-bruestle #account to charge the calculation
-#SBATCH --time=02:00:00 #hour:minutes:seconds
+#SBATCH --account=def-ko1 #account to charge the calculation
+#SBATCH --time=01:00:00 #hour:minutes:seconds
 #SBATCH --cpus-per-task=2
-#SBATCH --mem-per-cpu=20G #memory requested
+#SBATCH --mem-per-cpu=8G #memory requested
 #SBATCH --output=slurm_out/E_mat_stats_%A.out
 #SBATCH --error=slurm_err/E_mat_stats_%A.err
 
@@ -24,15 +24,14 @@ cp experiments/$EXPERIMENT/matrices_task_3.zip $SLURM_TMPDIR/experiments/$EXPERI
 echo "Zip files ready"
 
 mkdir -p experiments/$EXPERIMENT/matrices/
-unzip -o $SLURM_TMPDIR/experiments/$EXPERIMENT/matrices_task_0.zip
-unzip -o $SLURM_TMPDIR/experiments/$EXPERIMENT/matrices_task_1.zip
-unzip -o $SLURM_TMPDIR/experiments/$EXPERIMENT/matrices_task_2.zip
-unzip -o $SLURM_TMPDIR/experiments/$EXPERIMENT/matrices_task_3.zip
+unzip "$SLURM_TMPDIR/experiments/$EXPERIMENT/matrices_task_0.zip" -d "$SLURM_TMPDIR/experiments/$EXPERIMENT/"
+unzip "$SLURM_TMPDIR/experiments/$EXPERIMENT/matrices_task_1.zip" -d "$SLURM_TMPDIR/experiments/$EXPERIMENT/"
+unzip "$SLURM_TMPDIR/experiments/$EXPERIMENT/matrices_task_2.zip" -d "$SLURM_TMPDIR/experiments/$EXPERIMENT/"
+unzip "$SLURM_TMPDIR/experiments/$EXPERIMENT/matrices_task_3.zip" -d "$SLURM_TMPDIR/experiments/$EXPERIMENT/"
 
 echo "Matrices unzipped to..."
 ls $SLURM_TMPDIR/experiments/$EXPERIMENT/matrices/
-echo "Current directory..."
-ls
+
 #cp -r experiments/$EXPERIMENT/matrices/* $SLURM_TMPDIR/experiments/$EXPERIMENT/matrices/
 echo "Matrices ready. Computing statistics."
 python compute_matrix_statistics.py --experiment_name $EXPERIMENT --temp_dir $SLURM_TMPDIR
