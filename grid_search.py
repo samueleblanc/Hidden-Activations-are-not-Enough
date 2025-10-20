@@ -47,9 +47,9 @@ def parse_args(
     )
     parser.add_argument(
         "--experiment_name",
-        default = 0,
+        default = 'alexnet_cifar10',
         type = str,
-        help = "The index for default experiment",
+        help = "The experiment name <model>_<dataset>",
     )
     parser.add_argument(
         "--nb_workers",
@@ -129,7 +129,7 @@ def run_adv_examples_script(params: tuple) -> None:
     """
     t_epsilon, epsilon, epsilon_p, experiment_name, lock, output_file, temp_dir, rej_lev_flag, baseline = params
     print(f'Running parameters: {params}', flush=True)
-    reject_path = f'experiments/{experiment_name}/rejection_levels/reject_at_{t_epsilon}_{epsilon}.json'
+    reject_path = Path(f'experiments/{experiment_name}/rejection_levels/reject_at_{t_epsilon}_{epsilon}.json')
 
     if os.path.exists(reject_path):
         print("Loading rejection level...", flush=True)
@@ -190,7 +190,7 @@ def main() -> None:
 
     experiment_path = Path(f'experiments/{args.experiment_name}/grid_search/')
     experiment_path.mkdir(parents=True, exist_ok=True)
-    output_file = experiment_path / f'grid_search_{args.experiment_name}.txt'
+    output_file = experiment_path / f'grid_search.txt'
 
     # Define the parameter grid
     if args.extensive_search == 1:
@@ -208,7 +208,7 @@ def main() -> None:
         epsilon_p_values = args.epsilon_p_values
 
     # Define the directory path
-    dir_path = f'experiments/{args.experiment_name}/rejection_levels/'
+    dir_path = Path(f'experiments/{args.experiment_name}/rejection_levels/')
 
     # Initialize an empty list to store the files with value >= 1
     files_to_keep = []

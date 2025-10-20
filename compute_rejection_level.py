@@ -32,7 +32,7 @@ def process_sample(
         path_experiment_matrix = Path(f'experiments/{experiment_name}/rejection_levels/matrices/{i}/matrix.pth')
         path_prediction = Path(f'experiments/{experiment_name}/rejection_levels/matrices/{i}/prediction.pth')
 
-    if os.path.exists(path_experiment_matrix):
+    if path_experiment_matrix.exists() and path_prediction.exists():
         mat = torch.load(path_experiment_matrix)
         pred = torch.load(path_prediction)
         a = get_ellipsoid_data(ellipsoids, pred, "std")
@@ -59,7 +59,7 @@ def compute_rejection_level(
             temp_dir: the temporary directory.
     """
     # Compute mean and std of number of (almost) zero dims
-    reject_path = f'experiments/{experiment_name}/rejection_levels/reject_at_{t_epsilon}_{epsilon}.json'
+    reject_path = Path(f'experiments/{experiment_name}/rejection_levels/reject_at_{t_epsilon}_{epsilon}.json')
     Path(f'experiments/{experiment_name}/rejection_levels/').mkdir(parents=True, exist_ok=True)
     print("Computing rejection level...", flush=True)
 
