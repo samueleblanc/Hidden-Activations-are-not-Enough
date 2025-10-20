@@ -4,9 +4,13 @@
 #SBATCH --time=00:20:00 #hour:minutes:seconds
 #SBATCH --cpus-per-task=8 #number of CPU requested
 #SBATCH --mem-per-cpu=5G #memory requested
-#SBATCH --array=0
+#SBATCH --output=slurm_out/G_grid_search_%A.out
+#SBATCH --error=slurm_err/G_grid_search_%A.err
 
 EXPERIMENT='alexnet_cifar10'
+
+mkdir -p $PWD/slurm_out
+mkdir -p $PWD/slurm_err
 
 module load StdEnv/2023 python/3.11.5 scipy-stack/2025a #load the required module
 source env_rorqual/bin/activate #load the virtualenv (absolute or relative path to where the script is submitted)
