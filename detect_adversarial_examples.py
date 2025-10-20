@@ -524,7 +524,7 @@ def reject_predicted_attacks_baseline(
                             probs = torch.nn.functional.softmax(logits, dim=1)
                             confidences = probs.max(dim=1).values.detach().cpu().numpy()
                             logits_list.extend(confidences)
-                    predictions = np.array(logits_list) < np.array(parameters['softmax'])
+                    predictions = np.array(logits_list) < np.array(parameters['softmax'][param])
                 elif method == 'mahalanobis':
                     predictions = get_min_mahalanobis_distances(current_features) < mahalanobis_threshold
                 else:
