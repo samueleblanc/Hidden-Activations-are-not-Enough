@@ -49,7 +49,7 @@ def train_one_epoch(
         criterion: nn.CrossEntropyLoss, 
         optimizer: Union[optim.SGD, optim.Adam], 
         device: torch.device,
-        scheduler: str
+        scheduler,
     ) -> None:
     """
         Args:
@@ -60,7 +60,7 @@ def train_one_epoch(
             device: the device to train on.
     """
     model.train()
-    running_loss = 0.0
+    #running_loss = 0.0
     for inputs, labels in train_loader:
         inputs, labels = inputs.to(device), labels.to(device)
         optimizer.zero_grad()
@@ -68,8 +68,8 @@ def train_one_epoch(
         loss = criterion(outputs, labels)
         loss.backward()
         optimizer.step()
-        running_loss += loss.item() * inputs.size(0)
-        if scheduler == 'cyclic':
+        #running_loss += loss.item() * inputs.size(0)
+        if isinstance(scheduler, CyclicLR):
             scheduler.step()
 
 

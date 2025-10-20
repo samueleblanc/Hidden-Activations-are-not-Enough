@@ -11,6 +11,7 @@ from argparse import ArgumentParser, Namespace
 os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 from optuna.storages import JournalStorage
 from optuna.storages.journal import JournalFileBackend
+from training import *
 
 from knowledgematrix.models.alexnet import AlexNet
 from knowledgematrix.models.resnet18 import ResNet18
@@ -33,19 +34,19 @@ def parse_args() -> Namespace:
         "--model",
         type = str,
         default = 'resnet',
-        help = "Temporary path on compute node where the dataset is saved."
+        help = "Neural net to train"
     )
     parser.add_argument(
         "--dataset",
         type = str,
         default = 'cifar10',
-        help = "Temporary path on compute node where the dataset is saved."
+        help = "Dataset nameL cifar10,100 or imagenet."
     )
     parser.add_argument(
         "--version",
         type = str,
         default = '02',
-        help = "Temporary path on compute node where the dataset is saved."
+        help = "Version of hypersearch."
     )
     return parser.parse_args()
 
@@ -122,7 +123,6 @@ def train_model(trial):
     model.train()
     # Train the model
     for epoch in range(100):
-        print("Epoch: ", epoch, flush=True)
         if epoch == 60:
             # Unfreeze the feature extractor layers
             for layer in model.layers:
@@ -146,34 +146,41 @@ def train_model(trial):
                 scheduler = MultiStepLR(optimizer, milestones=[30, 50], gamma=0.1)  # Adjusted for remaining
             else:
                 scheduler = CyclicLR(optimizer, base_lr=small_lr/10, max_lr=small_lr, step_size_up=2000)
-        for i, data in enumerate(train_loader, 0):
-            inputs, labels = data
-            inputs, labels = inputs.to(device, non_blocking=True), labels.to(device, non_blocking=True)
-            optimizer.zero_grad()
-            outputs = model(inputs)
-            loss = criterion(outputs, labels)
-            loss.backward()
-            optimizer.step()
-            #torch.cuda.synchronize()
-            if sched == 'cyclic':
-                scheduler.step()
 
-        if sched != 'cyclic':
+        train_one_epoch(
+            model=model,
+            train_loader=train_loader,
+            criterion=criterion,
+            optimizer=optimizer,
+            device=device,
+            scheduler=scheduler
+        )
+        train_loss, train_accuracy = evaluate_model(
+            model=model,
+            data_loader=train_loader,
+            criterion=criterion,
+            device=device
+        )
+        test_loss, test_accuracy = evaluate_model(
+            model=model,
+            data_loader=test_loader,
+            criterion=criterion,
+            device=device
+        )
+
+        if not isinstance(scheduler, CyclicLR):
             scheduler.step()
 
-    model.eval()
-    test_loss = 0.0
-    total = 0
-    with torch.no_grad():
-        for data in test_loader:
-            images, labels = data
-            images, labels = images.to(device, non_blocking=True), labels.to(device, non_blocking=True)
-            outputs = model(images)
-            loss = criterion(outputs, labels)
-            test_loss += loss.item() * images.size(0)
-            total += images.size(0)
+        print(f"Epoch {epoch}/{100}, Train Loss: {train_loss:.4f}, Test Loss: {test_loss:.4f}, "
+              f"Train Accuracy: {train_accuracy:.4f}, Test Accuracy: {test_accuracy:.4f}", flush=True)
 
-    test_loss = test_loss / total
+    test_loss, _ = evaluate_model(
+        model=model,
+        data_loader=test_loader,
+        criterion=criterion,
+        device=device
+    )
+
     return test_loss
 
 
@@ -200,7 +207,7 @@ if __name__ == '__main__':
 
     study.optimize(train_model,
                    n_trials=1000,
-                   n_jobs=4,
+                   #n_jobs=4,
                    callbacks=[save_study])
 
     # Print the best hyperparameters and accuracy
