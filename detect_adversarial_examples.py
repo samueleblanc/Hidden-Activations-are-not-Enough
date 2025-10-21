@@ -93,7 +93,7 @@ def reject_predicted_attacks(
     device = get_device()
 
     model = get_model(
-        path=weights_path,
+        path=Path(weights_path),
         architecture_index=architecture_index,
         input_shape=input_shape,
         num_classes=num_classes,
@@ -125,10 +125,10 @@ def reject_predicted_attacks(
     }
 
     if temp_dir is not None:
-        path_adv_matrices = f'{temp_dir}/experiments/{experiment_name}/adversarial_matrices/'
+        path_adv_matrices = Path(f'{temp_dir}/experiments/{experiment_name}/adversarial_matrices/')
         test_labels = torch.load(f'{temp_dir}/experiments/{experiment_name}/adversarial_examples/test/labels.pth').to(device)
     else:
-        path_adv_matrices = f'experiments/{experiment_name}/adversarial_matrices/'
+        path_adv_matrices = Path(f'experiments/{experiment_name}/adversarial_matrices/')
         test_labels = torch.load(f'experiments/{experiment_name}/adversarial_examples/test/labels.pth').to(device)
 
     test_acc = 0
@@ -161,7 +161,7 @@ def reject_predicted_attacks(
         matrices_cache = []
         i = 0
         while True:
-            current_matrix_path = f"{path_adv_matrices}{a}/{i}/matrix.pth"
+            current_matrix_path = path_adv_matrices / Path(f"{a}/{i}/matrix.pth")
             if not os.path.exists(current_matrix_path):
                 if i == 0:
                     print(f"Attack {a} not found (no matrices).", flush=True)
@@ -303,12 +303,6 @@ def reject_predicted_attacks_baseline(
     Baseline detectors (operates on model features).
     Caches train features and per-attack features, caches fitted sklearn detectors per param.
     """
-    output_file = Path(f'experiments/{experiment_name}/grid_search/grid_search_{experiment_name}_baseline.txt')
-
-    if not output_file.exists():
-        with open(output_file, 'w') as f:
-            f.write("method,parameter,attack,experiment_name,good_defence,wrong_rejection\n")
-
     model = get_model(
         path=weights_path,
         architecture_index=architecture_index,
@@ -430,12 +424,18 @@ def reject_predicted_attacks_baseline(
             ocsvm = OneClassSVM(kernel='rbf', nu=parameters['ocsvm'][param])
             iforest = IsolationForest(n_estimators=parameters['iforest'][param])
 
+            print('Fitting knn', flush=True)
             knn.fit(train_features_np)
+            print('Fitting kde', flush=True)
             kde.fit(train_features_np)
+            print('Fitting gmm', flush=True)
             gmm.fit(train_features_np)
+            print('Fitting ocsvm', flush=True)
             ocsvm.fit(train_features_np)
+            print('Fitting iforest', flush=True)
             iforest.fit(train_features_np)
 
+            print('Fitting mahalanobis', flush=True)
             mahalanobis_threshold = np.percentile(
                 get_min_mahalanobis_distances(train_features_np),
                 parameters['mahalanobis'][param]
@@ -444,6 +444,13 @@ def reject_predicted_attacks_baseline(
             dump((knn, kde, gmm, ocsvm, iforest, mahalanobis_threshold), cache_file)
 
         Path(f'experiments/{experiment_name}/counts_per_attack/').mkdir(parents=True, exist_ok=True)
+
+        output_file = Path(f'experiments/{experiment_name}/grid_search/baseline.txt')
+
+        if not output_file.exists():
+            with open(output_file, 'w') as f:
+                f.write("method,parameter,attack,experiment_name,good_defence,wrong_rejection\n")
+
         for method in methods:
             results = []
             for a in ["test"] + ATTACKS:
@@ -456,7 +463,7 @@ def reject_predicted_attacks_baseline(
                             print(f"Result already exists for method: {method}, parameter: {str(parameters[method][param])}, attack: {a}, skipping...", flush=True)
                             continue
 
-                print(f"\n\nEvaluating {a} examples baseline", flush=True)
+                print(f"\nEvaluating {a} examples baseline", flush=True)
 
                 if counts_file.exists():
                     with open(counts_file, 'r') as file:
@@ -495,7 +502,7 @@ def reject_predicted_attacks_baseline(
 
                 # Ensure numpy 2D
                 current_features = np.asarray(current_features).reshape(current_features.shape[0], -1)
-
+                print('Predictions on baseline...', flush=True)
                 if method == 'knn':
                     distances, _ = knn.kneighbors(current_features)
                     average_distance = distances.mean(axis=1)
@@ -551,16 +558,16 @@ def reject_predicted_attacks_baseline(
                 if verbose:
                     print(f"\nResults for {method.upper()}:")
                     if a == 'test':
-                        print(f'Wrongly rejected test data: {counts[method][str(parameters[method][param])][a]["rejected_and_not_attacked"]}')
-                        print(f'Trusted test data: {counts[method][str(parameters[method][param])][a]["not_rejected_and_not_attacked"]}')
+                        print(f'Wrongly rejected test data: {counts[method][str(parameters[method][param])][a]["rejected_and_not_attacked"]}', flush=True)
+                        print(f'Trusted test data: {counts[method][str(parameters[method][param])][a]["not_rejected_and_not_attacked"]}', flush=True)
                         if counts[method][str(parameters[method][param])][a]['not_rejected_and_not_attacked'] > 0:
                             test_acc[method][str(parameters[method][param])] /= counts[method][str(parameters[method][param])][a]['not_rejected_and_not_attacked']
                         else:
                             test_acc[method][str(parameters[method][param])] = 0
-                        print(f"Accuracy on trusted test data: {test_acc[method][str(parameters[method][param])]}")
+                        print(f"Accuracy on trusted test data: {test_acc[method][str(parameters[method][param])]}", flush=True)
                     else:
-                        print(f'Detected adversarial examples: {counts[method][str(parameters[method][param])][a]["rejected_and_attacked"]}')
-                        print(f'Missed adversarial examples: {counts[method][str(parameters[method][param])][a]["not_rejected_and_attacked"]}')
+                        print(f'Detected adversarial examples: {counts[method][str(parameters[method][param])][a]["rejected_and_attacked"]}', flush=True)
+                        print(f'Missed adversarial examples: {counts[method][str(parameters[method][param])][a]["not_rejected_and_attacked"]}', flush=True)
 
                 good_defence = 0
                 wrongly_rejected = 0
@@ -597,11 +604,6 @@ def reject_predicted_attacks_baseline_matrices(
     This function caches the concatenated matrix tensor and caches detectors per param.
     Uses global TruncatedSVD + LedoitWolf shrinkage per-class to compute stable Mahalanobis distances.
     """
-    output_file = Path(f'experiments/{experiment_name}/grid_search/grid_search_{experiment_name}_baseline_matrices.txt')
-    Path(f'experiments/{experiment_name}/grid_search/').mkdir(parents=True, exist_ok=True)
-    with open(output_file, 'w') as f:
-        f.write("method,parameter,experiment_name,good_defence,wrong_rejection\n")
-
     counts_file = Path(f'experiments/{experiment_name}/counts_per_attack/baseline_matrices_counts.json')
     test_accuracy_file = Path(f'experiments/{experiment_name}/counts_per_attack/baseline_matrices_accuracy.json')
     Path(f'experiments/{experiment_name}/counts_per_attack/').mkdir(parents=True, exist_ok=True)
@@ -800,7 +802,7 @@ def reject_predicted_attacks_baseline_matrices(
 
             iforest = IsolationForest(n_estimators=parameters['iforest'][param])
 
-
+            print('Fitting.', flush=True)
             knn.fit(train_data_np)
             print('KNN ready...', flush=True)
             kde.fit(train_data_np)
@@ -816,6 +818,11 @@ def reject_predicted_attacks_baseline_matrices(
                                                  parameters['mahalanobis'][param])
             print('MAHALANOBIS ready...', flush=True)
             dump((knn, kde, gmm, ocsvm, iforest, mahalanobis_threshold), cache_file)
+
+        output_file = Path(f'experiments/{experiment_name}/grid_search/baseline_matrices.txt')
+        Path(f'experiments/{experiment_name}/grid_search/').mkdir(parents=True, exist_ok=True)
+        with open(output_file, 'w') as f:
+            f.write("method,parameter,experiment_name,good_defence,wrong_rejection\n")
 
         for method in methods:
             results = []
@@ -845,9 +852,9 @@ def reject_predicted_attacks_baseline_matrices(
                 # Efficiently load adversarial matrices for attack `a` into a numpy array (CPU)
                 attack_mats = []
                 i = 0
-                attack_base = f'{base_path}/adversarial_matrices/{a}/' if temp_dir is not None else f'experiments/{experiment_name}/adversarial_matrices/{a}/'
+                attack_base = Path(f'{base_path}/adversarial_matrices/{a}/' if temp_dir is not None else f'experiments/{experiment_name}/adversarial_matrices/{a}/')
                 while True:
-                    mat_path = f'{attack_base}{i}/matrix.pth'
+                    mat_path = attack_base / Path(f'{i}/matrix.pth')
                     if not os.path.exists(mat_path):
                         break
                     try:
@@ -863,7 +870,7 @@ def reject_predicted_attacks_baseline_matrices(
 
                 # Convert to numpy matrix dataset (N, D)
                 attacked_np = np.stack([_ensure_np(m).reshape(-1) for m in attack_mats], axis=0)
-
+                print('Predicting baseline for matrices...', flush=True)
                 if method == 'knn':
                     distances, _ = knn.kneighbors(attacked_np)
                     average_distance = distances.mean(axis=1)
@@ -903,16 +910,16 @@ def reject_predicted_attacks_baseline_matrices(
                 if verbose:
                     print(f"\nResults for {method.upper()}:")
                     if a == 'test':
-                        print(f'Wrongly rejected test data: {counts[method][str(parameters[method][param])][a]["rejected_and_not_attacked"]}')
-                        print(f'Trusted test data: {counts[method][str(parameters[method][param])][a]["not_rejected_and_not_attacked"]}')
+                        print(f'Wrongly rejected test data: {counts[method][str(parameters[method][param])][a]["rejected_and_not_attacked"]}', flush=True)
+                        print(f'Trusted test data: {counts[method][str(parameters[method][param])][a]["not_rejected_and_not_attacked"]}', flush=True)
                         if counts[method][str(parameters[method][param])][a]['not_rejected_and_not_attacked'] > 0:
                             test_acc[method][str(parameters[method][param])] = test_acc[method][str(parameters[method][param])] / counts[method][str(parameters[method][param])][a]['not_rejected_and_not_attacked']
                         else:
                             test_acc[method][str(parameters[method][param])] = 0
-                        print(f"Accuracy on trusted test data: {test_acc[method][str(parameters[method][param])]}")
+                        print(f"Accuracy on trusted test data: {test_acc[method][str(parameters[method][param])]}", flush=True)
                     else:
-                        print(f'Detected adversarial examples: {counts[method][str(parameters[method][param])][a]["rejected_and_attacked"]}')
-                        print(f'Missed adversarial examples: {counts[method][str(parameters[method][param])][a]["not_rejected_and_attacked"]}')
+                        print(f'Detected adversarial examples: {counts[method][str(parameters[method][param])][a]["rejected_and_attacked"]}', flush=True)
+                        print(f'Missed adversarial examples: {counts[method][str(parameters[method][param])][a]["not_rejected_and_attacked"]}', flush=True)
 
                 good_defence = 0
                 wrongly_rejected = 0
@@ -956,7 +963,7 @@ def main(
         experiment = DEFAULT_EXPERIMENTS[f'{args.experiment_name}']
         architecture_index = experiment['architecture_index']
         dataset = experiment['dataset']
-        epoch = experiment['epochs'] - 1
+        epoch = experiment['epochs']
     else:
         raise ValueError("Experiment not specified in constants/constants.py")
 
@@ -966,11 +973,11 @@ def main(
     num_classes = get_num_classes(dataset)
 
     if args.temp_dir is not None:
-        weights_path = Path(f'{args.temp_dir}/experiments/{args.experiment_name}/weights') / f'epoch_{epoch}.pth'
+        weights_path = Path(f'{args.temp_dir}/experiments/{args.experiment_name}/weights') / Path(f'epoch_{epoch}.pth')
         matrices_path = Path(f'{args.temp_dir}/experiments/{args.experiment_name}/matrices/matrix_statistics.json')
         ellipsoids_file = open(f"{args.temp_dir}/experiments/{args.experiment_name}/matrices/matrix_statistics.json")
     else:
-        weights_path = Path(f'experiments/{args.experiment_name}/weights') / f'epoch_{epoch}.pth'
+        weights_path = Path(f'experiments/{args.experiment_name}/weights') / Path(f'epoch_{epoch}.pth')
         matrices_path = Path(f'experiments/{args.experiment_name}/matrices/matrix_statistics.json')
         ellipsoids_file = open(f"experiments/{args.experiment_name}/matrices/matrix_statistics.json")
 

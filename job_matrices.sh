@@ -1,8 +1,7 @@
 #!/bin/bash
 #SBATCH --account=def-assem
-#SBATCH --job-name=matrices
-#SBATCH --array=0-3
-#SBATCH --time=05:30:00  # Increased to accommodate potential longer runs
+#SBATCH --array=0
+#SBATCH --time=00:20:00  # Increased to accommodate potential longer runs
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=180G  # Increased to prevent segmentation faults
@@ -13,9 +12,9 @@ mkdir -p $SLURM_SUBMIT_DIR/slurm_out
 mkdir -p $SLURM_SUBMIT_DIR/slurm_err
 
 # Set variables
-EXPERIMENT="alexnet_cifar10"
+EXPERIMENT="resnet_cifar10"
 TASK_ID=$SLURM_ARRAY_TASK_ID
-ZIP_FILE="$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/matrices_chunk_$TASK_ID.zip"
+ZIP_FILE=$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/matrices_chunk_$TASK_ID.zip
 
 # Prepare environment
 TEMP_DIR=$SLURM_TMPDIR
@@ -25,11 +24,11 @@ source env_rorqual/bin/activate
 
 # Copy data and weights to temporary directory
 echo "Copying datasets..."
-mkdir -p "$TEMP_DIR/data/cifar-10-batches-py/"
-cp -r data/cifar-10-batches-py/* "$TEMP_DIR/data/cifar-10-batches-py/" || { echo "Failed to copy dataset"; exit 1; }
+mkdir -p $TEMP_DIR/data/cifar-10-batches-py/
+cp -r data/cifar-10-batches-py/* $TEMP_DIR/data/cifar-10-batches-py/ || { echo "Failed to copy dataset"; exit 1; }
 echo "Copying weights for task $TASK_ID..."
-mkdir -p "$TEMP_DIR/experiments/$EXPERIMENT/weights/"
-cp experiments/$EXPERIMENT/weights/* "$TEMP_DIR/experiments/$EXPERIMENT/weights/"
+mkdir -p $TEMP_DIR/experiments/$EXPERIMENT/weights/
+cp experiments/$EXPERIMENT/weights/* $TEMP_DIR/experiments/$EXPERIMENT/weights/
 
 #echo "copy imagenet.."
 #mkdir -p "$TEMP_DIR/data/ILSVRC2012/"
@@ -67,15 +66,14 @@ echo "GPU monitor started in background (PID $MONITOR_PID)"
 
 # Run Python script in the foreground
 echo "Generating matrices for task $TASK_ID..."
-timeout 5h python generate_matrices.py --temp_dir "$TEMP_DIR" --experiment "$EXPERIMENT" --chunk_id $TASK_ID --total_chunks 4 --batch_size 18816 #37632,75264, 150528=224*224*3 is max for imagenet size
-
+timeout 20m python generate_matrices.py --temp_dir $TEMP_DIR --experiment $EXPERIMENT --chunk_id $TASK_ID --total_chunks 4 --batch_size 18816
 
 # Zip the matrices directory
 echo "Zipping matrices for task $TASK_ID..."
-cd "$TEMP_DIR/experiments/$EXPERIMENT"
-zip -r "matrices_task_$TASK_ID.zip" matrices || { echo "Zipping failed"; exit 1; }
+cd $TEMP_DIR/experiments/$EXPERIMENT
+zip -r matrices_task_$TASK_ID.zip matrices || { echo "Zipping failed"; exit 1; }
 
 # Copy the zip file to $SLURM_SUBMIT_DIR
 echo "Copying zip file to $SLURM_SUBMIT_DIR..."
-cp "matrices_task_$TASK_ID.zip" "$ZIP_FILE" || { echo "Failed to copy zip file"; exit 1; }
+cp matrices_task_$TASK_ID.zip $SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/ || { echo "Failed to copy zip file"; exit 1; }
 echo "Task $TASK_ID completed successfully"

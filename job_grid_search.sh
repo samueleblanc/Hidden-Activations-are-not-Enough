@@ -1,11 +1,11 @@
 #!/bin/bash
 
-#SBATCH --account=def-ko1 #account to charge the calculation
-#SBATCH --time=00:20:00 #hour:minutes:seconds
-#SBATCH --cpus-per-task=8 #number of CPU requested
-#SBATCH --mem-per-cpu=5G #memory requested
-#SBATCH --output=slurm_out/G_grid_search_%A.out
-#SBATCH --error=slurm_err/G_grid_search_%A.err
+#SBATCH --account=def-bruestle #account to charge the calculation
+#SBATCH --time=01:00:00 #hour:minutes:seconds
+#SBATCH --cpus-per-task=4 #number of CPU requested
+#SBATCH --mem-per-cpu=17G #memory requested
+#SBATCH --output=slurm_out/H_grid_search_%A.out
+#SBATCH --error=slurm_err/H_grid_search_%A.err
 
 EXPERIMENT='alexnet_cifar10'
 
@@ -54,5 +54,5 @@ unzip $SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/matrices_task_3.zip
 
 echo "All data ready!"
 
-python grid_search.py --nb_workers=$SLURM_CPUS_PER_TASK --default_index $EXPERIMENT --temp_dir $SLURM_TMPDIR --rej_lev 1
+python grid_search.py --nb_workers $SLURM_CPUS_PER_TASK --experiment_name $EXPERIMENT --temp_dir $SLURM_TMPDIR --rej_lev 0
 echo "Grid search finished !!!"
