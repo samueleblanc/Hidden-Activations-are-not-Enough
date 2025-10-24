@@ -328,7 +328,7 @@ def reject_predicted_attacks_baseline(
     train_labels_np = _ensure_np(train_labels).astype(int)
 
     # Cache train features to avoid recomputing
-    cache_base = temp_dir if temp_dir is not None else f'experiments/{experiment_name}'
+    cache_base = f'{temp_dir}/experiments/{experiment_name}' if temp_dir is not None else f'experiments/{experiment_name}'
     cache_dir = os.path.join(cache_base, 'preprocessed')
     os.makedirs(cache_dir, exist_ok=True)
     train_features_file = os.path.join(cache_dir, f'train_features_{dataset}_n10000.npy')
@@ -612,9 +612,12 @@ def reject_predicted_attacks_baseline_matrices(
     num_train_examples_per_class = num_train_examples // num_classes
 
     print('Preparing concatenated matrices (using cache if available)...', flush=True)
-    base_path = temp_dir if temp_dir is not None else f'experiments/{experiment_name}'
-    preproc_dir = os.path.join(base_path, 'preprocessed')
-    os.makedirs(preproc_dir, exist_ok=True)
+    # TODO: create directory preprocessed in the shell script and copy the data to compute node
+    base_path = Path(temp_dir) / Path(f'experiments/{experiment_name}') if temp_dir is not None else Path(f'experiments/{experiment_name}')
+    preproc_dir = base_path / Path('preprocessed')
+    #preproc_dir = os.path.join(base_path, 'preprocessed')
+    preproc_dir.mkdir(parents=True, exist_ok=True)
+    #os.makedirs(preproc_dir, exist_ok=True)
 
     train_data_file = os.path.join(preproc_dir, f'train_matrices_n{num_train_examples}_c{num_classes}.pt')
     train_labels_file = os.path.join(preproc_dir, f'train_labels_n{num_train_examples}_c{num_classes}.pt')
@@ -683,9 +686,10 @@ def reject_predicted_attacks_baseline_matrices(
 
     print("Mahalanobis preparation (fast & stable)...", flush=True)
     base_path = f'{temp_dir}/experiments/{experiment_name}' if temp_dir is not None else f'experiments/{experiment_name}'
-    class_means_file = Path(base_path + '/counts_per_attack' + '/mah_means_proj.npz')
-    class_prec_file = Path(base_path + '/counts_per_attack' + '/mah_prec_proj.npz')
-    pca_file = Path(base_path + '/counts_per_attack' + '/mah_svd.npz')
+    class_means_file = base_path / Path('/counts_per_attack/mah_means_proj.npz')
+    class_prec_file = base_path / Path('/counts_per_attack/mah_prec_proj.npz')
+    pca_file = base_path / Path('/counts_per_attack/mah_svd.npz')
+    pca_file = base_path / Path('/counts_per_attack/mah_svd.npz')
 
     # Decide projection dimension (cap to keep memory reasonable)
     N, D = train_data_np.shape
@@ -852,7 +856,8 @@ def reject_predicted_attacks_baseline_matrices(
                 # Efficiently load adversarial matrices for attack `a` into a numpy array (CPU)
                 attack_mats = []
                 i = 0
-                attack_base = Path(f'{base_path}/adversarial_matrices/{a}/' if temp_dir is not None else f'experiments/{experiment_name}/adversarial_matrices/{a}/')
+                attack_base = Path(f'{base_path}/adversarial_matrices/{a}' if temp_dir is not None
+                                   else f'experiments/{experiment_name}/adversarial_matrices/{a}')
                 while True:
                     mat_path = attack_base / Path(f'{i}/matrix.pth')
                     if not os.path.exists(mat_path):
