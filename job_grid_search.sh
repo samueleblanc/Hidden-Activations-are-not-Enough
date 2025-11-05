@@ -1,9 +1,9 @@
 #!/bin/bash
 
-#SBATCH --account=def-ko1 #account to charge the calculation
-#SBATCH --time=05:00:00 #hour:minutes:seconds
-#SBATCH --cpus-per-task=2 #number of CPU requested
-#SBATCH --mem-per-cpu=70G #memory requested
+#SBATCH --account=def-bouchary  #account to charge the calculation
+#SBATCH --time=48:00:00 #hour:minutes:seconds
+#SBATCH --cpus-per-task=64 #number of CPU requested
+#SBATCH --mem-per-cpu=42G #memory requested
 #SBATCH --output=slurm_out/H_grid_search_%A.out
 #SBATCH --error=slurm_err/H_grid_search_%A.err
 

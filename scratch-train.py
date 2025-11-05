@@ -188,6 +188,7 @@ def save_study(study, trial):
     # /lustre07/ -> narval
     # /lustre04/ -> beluga
     # /          -> graham & nibi
+    # /lustre10/ -> rorqual
     study_dir = "/lustre07/scratch/armenta/"
     if not os.path.exists(study_dir):
         os.makedirs(study_dir)
