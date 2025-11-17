@@ -20,6 +20,12 @@ mkdir -p $SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
 echo "Copying weights..."
 cp experiments/$EXPERIMENT/weights/* $SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
 
+echo "Copying datasets..."
+#mkdir -p $SLURM_TMPDIR/data/cifar-10-batches-py/
+#cp -r data/cifar-10-batches-py/* $SLURM_TMPDIR/data/cifar-10-batches-py/
+mkdir -p $SLURM_TMPDIR/data/cifar-100-python/
+cp -r data/cifar-100-python/* $SLURM_TMPDIR/data/cifar-100-python/
+
 echo "Copying matrix statistics..."
 mkdir -p $SLURM_TMPDIR/experiments/$EXPERIMENT/matrices/
 cp experiments/$EXPERIMENT/matrices/matrix_statistics.json $SLURM_TMPDIR/experiments/$EXPERIMENT/matrices/

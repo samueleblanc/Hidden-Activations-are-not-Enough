@@ -139,29 +139,183 @@ def get_imagenet_val_dataset(
 
     return val_loader, val_set
 
+import torch
+from torch.utils.data import DataLoader
+from torchvision import datasets, transforms
 
-def get_device(trial_number: int = 1, gpu_count: int = 1, verbose=True) -> torch.device:
+def get_imagenet1k_loaders(
+    root_dir="/datashare/imagenet/ILSVRC2012",
+    batch_size=256,
+    num_workers=4,
+    image_size=224,
+):
+    """
+    Loads the ImageNet-1K (ILSVRC2012) dataset from Nibi cluster.
+    Expects structure:
+        root_dir/train/<class_name>/*.JPEG
+        root_dir/val/<class_name>/*.JPEG
+    """
+
+    # Standard ImageNet normalization
+    normalize = transforms.Normalize(
+        mean=[0.485, 0.456, 0.406],
+        std=[0.229, 0.224, 0.225],
+    )
+
+    # Transforms
+    train_transform = transforms.Compose([
+        transforms.RandomResizedCrop(image_size),
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(),
+        normalize,
+    ])
+
+    val_transform = transforms.Compose([
+        transforms.Resize(256),
+        transforms.CenterCrop(image_size),
+        transforms.ToTensor(),
+        normalize,
+    ])
+
+    train_dir = os.path.join(root_dir, "train")
+    val_dir = os.path.join(root_dir, "val")
+
+    # Load datasets
+    train_dataset = datasets.ImageFolder(train_dir, transform=train_transform)
+    val_dataset = datasets.ImageFolder(val_dir, transform=val_transform)
+
+    # Data loaders
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=num_workers,
+        pin_memory=True,
+    )
+
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=True,
+    )
+
+    print(f"Loaded {len(train_dataset)} training and {len(val_dataset)} validation images.", flush=True)
+    print(f"Number of classes: {len(train_dataset.classes)}", flush=True)
+
+    return train_loader, val_loader
+'''
+if __name__ == "__main__":
+    train_loader, val_loader = get_imagenet1k_loaders(
+        root_dir="/datashare/imagenet/ILSVRC2012",
+        batch_size=128,
+        num_workers=4,
+    )
+
+    images, labels = next(iter(train_loader))
+    print(f"Batch shape: {images.shape}, Labels shape: {labels.shape}", flush=True)
+    
+'''
+
+
+def get_imagenet_loaders(
+    root_dir="/datashare/imagenet/winter21_whole",
+    batch_size=128,
+    num_workers=8,
+    image_size=224,
+):
+    """
+    Loads ImageNet-style dataset located at root_dir (e.g., /datashare/imagenet/winter21_whole/).
+
+    Each subdirectory of root_dir should correspond to one class.
+    """
+
+    # Standard ImageNet normalization
+    normalize = transforms.Normalize(
+        mean=[0.485, 0.456, 0.406],
+        std=[0.229, 0.224, 0.225],
+    )
+
+    # Define training and validation transformations
+    train_transform = transforms.Compose([
+        transforms.RandomResizedCrop(image_size),
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(),
+        normalize,
+    ])
+
+    val_transform = transforms.Compose([
+        transforms.Resize(256),
+        transforms.CenterCrop(image_size),
+        transforms.ToTensor(),
+        normalize,
+    ])
+
+    # Load datasets (assuming a single folder with all classes)
+    train_dataset = datasets.ImageFolder(root=root_dir, transform=train_transform)
+    val_dataset = datasets.ImageFolder(root=root_dir, transform=val_transform)
+
+    # Split into train/val sets (optional, if dataset isn’t already split)
+    # 90% train, 10% validation
+    train_size = int(0.9 * len(train_dataset))
+    val_size = len(train_dataset) - train_size
+    train_dataset, val_dataset = torch.utils.data.random_split(
+        train_dataset, [train_size, val_size]
+    )
+
+    # Data loaders
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=num_workers,
+        pin_memory=True,
+    )
+
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=True,
+    )
+
+    print(f"Loaded {len(train_dataset)} training and {len(val_dataset)} validation images.")
+    print(f"Number of classes: {len(train_dataset.dataset.classes)}")
+
+    return train_loader, val_loader
+
+
+#if __name__ == "__main__":
+#    train_loader, val_loader = get_imagenet_loaders()
+
+    # Example: inspect one batch
+#    images, labels = next(iter(train_loader))
+#    print(f"Batch shape: {images.shape}, Labels shape: {labels.shape}")
+
+
+
+def get_device(trial_number: int = 1, gpu_count: int = 1) -> torch.device:
     """
         Returns:
             The device to use.
     """
     if gpu_count == 0:
+        print("DEVICE: cpu", flush=True)
         return torch.device("cpu")
         # Assign GPU based on trial number (e.g., trial 0 -> cuda:0, trial 1 -> cuda:1)
 
     if torch.cuda.is_available():
-        if verbose:
-            print("DEVICE: cuda")
+        print("DEVICE: cuda")
         gpu_id = trial_number % gpu_count
-        print(f"DEVICE: cuda:{gpu_id}")
+        print(f"DEVICE: cuda:{gpu_id}", flush=True)
         return torch.device(f"cuda:{gpu_id}")
     elif torch.backends.mps.is_available():
-        if verbose:
-            print("DEVICE: mps")
+        print("DEVICE: mps", flush=True)
         return torch.device("mps")
     else:
-        if verbose:
-            print("DEVICE: cpu")
+        print("DEVICE: cpu", flush=True)
         return torch.device("cpu")
 
 

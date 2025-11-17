@@ -1,20 +1,21 @@
 #!/bin/bash
 
 #SBATCH --account=def-assem #account to charge the calculation
-#SBATCH --time=05:30:00 #hour:minutes:seconds
+#SBATCH --time=31:00:00 #hour:minutes:seconds
 #SBATCH --array=0-3
-#SBATCH --gres=gpu:1
-#SBATCH --cpus-per-task=16
-#SBATCH --mem=180G #memory requested
+#SBATCH --gpus=h100:1
+#SBATCH --cpus-per-task=12
+#SBATCH --mem=150G  # Increased to prevent segmentation faults
 #SBATCH --output=slurm_out/F_adv_mats_%A_%a.out
 #SBATCH --error=slurm_err/F_adv_mats_%A_%a.err
+#SBATCH --exclude=fc10512
 
 
-EXPERIMENT="alexnet_cifar10"
+EXPERIMENT="vgg_cifar100"
 ZIP_FILE="$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adv_matrices_task_$SLURM_ARRAY_TASK_ID.zip"
 
 module load StdEnv/2023 python/3.11.5 scipy-stack/2025a
-source env_rorqual/bin/activate
+source env_fir/bin/activate
 
 mkdir -p $SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
 echo "Copying weights..."

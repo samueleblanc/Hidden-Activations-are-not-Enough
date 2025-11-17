@@ -32,7 +32,6 @@ class ParallelMatrixConstruction:
             - architecture_index: Index of model architecture
     """
     def __init__(self, dict_exp: dict,) -> None:
-        #self._validate_input_dictionary(dict_exp)
         self.epoch: int = dict_exp["epochs"]
         self.num_samples: int = dict_exp["num_samples"]
         self.dataname: str = dict_exp["data_name"].lower()
@@ -42,7 +41,7 @@ class ParallelMatrixConstruction:
         self.architecture_index: int = dict_exp['architecture_index']
         self.device = dict_exp['device']
         self.batch_size = dict_exp['batch_size']
-        self.verbose = True #dict_exp['verbose']
+        self.verbose = True
         self.num_classes: int = get_num_classes(self.dataname)
         self.imagenet = True if self.dataname=='imagenet' else False
 
@@ -101,6 +100,8 @@ class ParallelMatrixConstruction:
                 chunk_id=chunk_id
             )
 
+        return True
+
     def values_on_epoch(self, chunk_id: int) -> None:
         """
         Loads the model state dictionary and computes matrices for all classes in the dataset.
@@ -123,14 +124,14 @@ class ParallelMatrixConstruction:
         model.to(self.device)
         model.load_state_dict(state_dict)
 
-        self.compute_matrices_on_dataset(model, chunk_id=chunk_id)
+        return self.compute_matrices_on_dataset(model, chunk_id=chunk_id)
 
     def compute_chunk_of_matrices(
             self,
             data: torch.Tensor,
             matrix_computer: KnowledgeMatrixComputer,
             out_class: int,
-            chunk_id: int = 0
+            chunk_id: int,
     ) -> None:
         """
         Computes and saves matrices induced by a neural network for a chunk of data samples from a given class.
@@ -153,7 +154,7 @@ class ParallelMatrixConstruction:
         for i, d in enumerate(data):
             idx = chunk_id*self.chunk_size+i
             if self.verbose:
-                print(f'Matrix: {i}/{data.shape[0]}. Chunk: {chunk_id}. Class: {out_class}',flush=True)
+                print(f'Matrix: {i}/{data.shape[0]}. Chunk: {chunk_id}. Class: {out_class}', flush=True)
 
             root = os.path.join(directory, f"{idx}")
             matrix_path = os.path.join(root, "matrix.pt")

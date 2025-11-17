@@ -1,31 +1,36 @@
 #!/bin/bash
 #SBATCH --account=def-assem
-#SBATCH --array=0
+#SBATCH --array=1
 #SBATCH --time=00:20:00  # Increased to accommodate potential longer runs
-#SBATCH --gres=gpu:1
-#SBATCH --cpus-per-task=16
-#SBATCH --mem=180G  # Increased to prevent segmentation faults
+#SBATCH --gpus=h100:1
+#SBATCH --cpus-per-task=12
+#SBATCH --mem=280G  # Increased to prevent segmentation faults
 #SBATCH --output=slurm_out/B_mats_%A_%a.out
 #SBATCH --error=slurm_err/B_mats_%A_%a.err
+#SBATCH --exclude=fc10512
 
 mkdir -p $SLURM_SUBMIT_DIR/slurm_out
 mkdir -p $SLURM_SUBMIT_DIR/slurm_err
 
 # Set variables
-EXPERIMENT="resnet_cifar10"
+EXPERIMENT="vgg_cifar100"
 TASK_ID=$SLURM_ARRAY_TASK_ID
-ZIP_FILE=$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/matrices_chunk_$TASK_ID.zip
+ZIP_FILE=$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/matrices_task_$TASK_ID.zip
 
 # Prepare environment
 TEMP_DIR=$SLURM_TMPDIR
 echo "Using temporary directory: $TEMP_DIR"
 module load StdEnv/2023 python/3.11.5 scipy-stack/2025a #cuda/12.2 cudnn
-source env_rorqual/bin/activate
+source env_fir/bin/activate
 
 # Copy data and weights to temporary directory
 echo "Copying datasets..."
-mkdir -p $TEMP_DIR/data/cifar-10-batches-py/
-cp -r data/cifar-10-batches-py/* $TEMP_DIR/data/cifar-10-batches-py/ || { echo "Failed to copy dataset"; exit 1; }
+#mkdir -p $TEMP_DIR/data/cifar-10-batches-py/
+#cp -r data/cifar-10-batches-py/* $TEMP_DIR/data/cifar-10-batches-py/ || { echo "Failed to copy dataset"; exit 1; }
+
+mkdir -p $SLURM_TMPDIR/data/cifar-100-python/
+cp -r data/cifar-100-python/* $SLURM_TMPDIR/data/cifar-100-python/
+
 echo "Copying weights for task $TASK_ID..."
 mkdir -p $TEMP_DIR/experiments/$EXPERIMENT/weights/
 cp experiments/$EXPERIMENT/weights/* $TEMP_DIR/experiments/$EXPERIMENT/weights/
@@ -66,7 +71,7 @@ echo "GPU monitor started in background (PID $MONITOR_PID)"
 
 # Run Python script in the foreground
 echo "Generating matrices for task $TASK_ID..."
-timeout 20m python generate_matrices.py --temp_dir $TEMP_DIR --experiment $EXPERIMENT --chunk_id $TASK_ID --total_chunks 4 --batch_size 18816
+timeout 20m python generate_matrices.py --temp_dir $TEMP_DIR --experiment $EXPERIMENT --chunk_id $TASK_ID --total_chunks 4 --batch_size 1800 --num_samples_per_class 100
 
 # Zip the matrices directory
 echo "Zipping matrices for task $TASK_ID..."

@@ -100,7 +100,7 @@ def compute_matrices_for_rejection_level(
         device: torch.device = 'cpu',
         batch_size: int = 18816,
         chunk_id: int = 0,
-        total_chunks: int = 1,
+        total_chunks: int = 4,
     ) -> None:
 
     Path(f'experiments/{experiment_name}/rejection_levels/').mkdir(parents=True, exist_ok=True)

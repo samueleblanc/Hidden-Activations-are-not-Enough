@@ -90,7 +90,7 @@ def generate_matrices_for_attacks(
         device,
         batch_size: int = 18816,
         chunk_id: int = 0,
-        total_chunks: int = 1,
+        total_chunks: int = 4,
     ) -> None:
     """
         Calls the save_one_matrix function for each adversarial example.
@@ -191,9 +191,12 @@ def main() -> None:
         input_shape = input_shape,
         num_classes = num_classes,
         batch_size = args.batch_size,
-        device=device
+        device=device,
+        chunk_id=args.chunk_id,
+        total_chunks=args.total_chunks
     )
-    print("----ALL MATRICES OF ADVERSARIAL EXAMPLES COMPUTED----", flush=True)
+
+    print(F"----CHUNK {args.chunk_id} ADVERSARIAL MATRICES COMPUTED----", flush=True)
 
 
 if __name__ == "__main__":
