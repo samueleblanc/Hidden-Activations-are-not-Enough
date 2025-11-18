@@ -1,6 +1,6 @@
 #!/bin/bash
-#SBATCH --account=def-assem
-#SBATCH --array=1
+#SBATCH --account=def-jcbus
+#SBATCH --array=0-7
 #SBATCH --time=00:20:00  # Increased to accommodate potential longer runs
 #SBATCH --gpus=h100:1
 #SBATCH --cpus-per-task=12
@@ -71,7 +71,7 @@ echo "GPU monitor started in background (PID $MONITOR_PID)"
 
 # Run Python script in the foreground
 echo "Generating matrices for task $TASK_ID..."
-timeout 20m python generate_matrices.py --temp_dir $TEMP_DIR --experiment $EXPERIMENT --chunk_id $TASK_ID --total_chunks 4 --batch_size 1800 --num_samples_per_class 100
+timeout 20m python generate_matrices.py --temp_dir $TEMP_DIR --experiment $EXPERIMENT --chunk_id $TASK_ID --total_chunks 8 --batch_size 1800 --num_samples_per_class 100
 
 # Zip the matrices directory
 echo "Zipping matrices for task $TASK_ID..."

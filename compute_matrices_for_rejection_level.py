@@ -29,7 +29,7 @@ def parse_args(
     parser.add_argument(
         "--batch_size",
         type = int,
-        default = 18816, # for h100 gpu
+        default = 18816, # for h100 gpu alexnet 3x224x224
         help = "Batch size used by matrix computer."
     )
     parser.add_argument(

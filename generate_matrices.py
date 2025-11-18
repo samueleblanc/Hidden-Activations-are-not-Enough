@@ -67,14 +67,17 @@ def main() -> None:
     print(f"Processing chunk {chunk_id} on GPU {gpu_id}", flush=True)
 
     mat_constructer = ParallelMatrixConstruction(dict_exp)
-    mat_constructer.values_on_epoch(chunk_id=chunk_id)
+    success = mat_constructer.values_on_epoch(chunk_id=chunk_id)
 
-    done_file = os.path.join(save_path, f"done_chunk_{args.chunk_id}.txt")
-    with open(done_file, 'w') as f:
-        f.write("done")
+    if success:
+        done_file = os.path.join(save_path, f"done_chunk_{args.chunk_id}.txt")
+        with open(done_file, 'w') as f:
+            f.write("done")
 
-    print(f"Chunk {args.chunk_id} completed and saved to {save_path}", flush=True)
-    print(f"Chunk {chunk_id} completed!", flush=True)
+        print(f"Chunk {args.chunk_id} completed and saved to {save_path}", flush=True)
+        print(f"Chunk {chunk_id} completed!", flush=True)
+    else:
+        print(f'An error has occurred at chunk_id = {args.chunk_id}')
 
 
 if __name__ == '__main__':
