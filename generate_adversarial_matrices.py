@@ -49,6 +49,12 @@ def parse_args(
         default = 4,
         help = "Temporary directory to save and read data. Useful when using clusters."
     )
+    parser.add_argument(
+        "--samples_per_attack",
+        type=int,
+        default=200,
+        help="Number of adversarial examples per attack."
+    )
 
     return parser.parse_args()
 
@@ -91,6 +97,7 @@ def generate_matrices_for_attacks(
         batch_size: int = 18816,
         chunk_id: int = 0,
         total_chunks: int = 4,
+        samples_per_attack: int = 200,
     ) -> None:
     """
         Calls the save_one_matrix function for each adversarial example.
@@ -121,7 +128,7 @@ def generate_matrices_for_attacks(
         if not path_adv_examples.exists():
             print(f'Attak {attack} does NOT exists.', flush=True)
             continue
-        attacked_dataset = torch.load(path_adv_examples)
+        attacked_dataset = torch.load(path_adv_examples)[:samples_per_attack]
 
         print(f"Generating matrices for attack {attack}.", flush=True)
 
@@ -193,7 +200,8 @@ def main() -> None:
         batch_size = args.batch_size,
         device=device,
         chunk_id=args.chunk_id,
-        total_chunks=args.total_chunks
+        total_chunks=args.total_chunks,
+        samples_per_attack=args.samples_per_attack,
     )
 
     print(F"----CHUNK {args.chunk_id} ADVERSARIAL MATRICES COMPUTED----", flush=True)

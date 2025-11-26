@@ -1,7 +1,7 @@
 #!/bin/bash
 
-#SBATCH --account=def-assem #account to charge the calculation
-#SBATCH --time=00:20:00 #hour:minutes:seconds
+#SBATCH --account=def-bruestle #account to charge the calculation
+#SBATCH --time=12:00:00 #hour:minutes:seconds
 #SBATCH --array=0-15
 #SBATCH --gpus=h100:1
 #SBATCH --cpus-per-task=12
@@ -60,7 +60,7 @@ MONITOR_PID=$!
 echo "GPU monitor started in background (PID $MONITOR_PID)"
 
 # Run Python script in background and capture its PID
-timeout 5h python generate_adversarial_matrices.py --experiment_name $EXPERIMENT --temp_dir $SLURM_TMPDIR --chunk_id $SLURM_ARRAY_TASK_ID --total_chunks 16 --batch_size 1800
+timeout 11h python generate_adversarial_matrices.py --experiment_name $EXPERIMENT --temp_dir $SLURM_TMPDIR --chunk_id $SLURM_ARRAY_TASK_ID --total_chunks 16 --batch_size 1800 --samples_per_attack 500
 
 # Zip the matrices
 echo "Zipping matrices..."
