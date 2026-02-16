@@ -93,6 +93,10 @@ if [ -d "$MATRICES_DIR" ]; then
     echo "Zipping matrices from $MATRICES_DIR ..."
     cd "$ZIP_OUTPUT_DIR" || { echo "Failed to cd to $ZIP_OUTPUT_DIR"; }
     zip -r $ZIP_OUTPUT_FILE matrices || echo "Zip failed"
+
+    # Verify the zip
+    cd $SLURM_SUBMIT_DIR
+    python -m utils.data_integrity --verify-zip $ZIP_OUTPUT_DIR/$ZIP_OUTPUT_FILE || echo "Zip verification failed"
     cd - >/dev/null || true
 else
     echo "No matrices directory found at $MATRICES_DIR, skipping zipping"

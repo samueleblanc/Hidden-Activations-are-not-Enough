@@ -66,6 +66,10 @@ timeout 11h python generate_adversarial_matrices.py --experiment_name $EXPERIMEN
 echo "Zipping matrices..."
 cd $SLURM_TMPDIR/experiments/$EXPERIMENT/
 zip -r adv_matrices_task_$SLURM_ARRAY_TASK_ID.zip adversarial_matrices/
+
+# Verify the zip
+cd $SLURM_SUBMIT_DIR
+python -m utils.data_integrity --verify-zip $SLURM_TMPDIR/experiments/$EXPERIMENT/adv_matrices_task_$SLURM_ARRAY_TASK_ID.zip || { echo "Zip verification failed"; exit 1; }
 cd -
 # Copy the zip file to the permanent directory
 # echo "Zip file: $SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_matrices.zip"

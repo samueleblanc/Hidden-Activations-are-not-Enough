@@ -8,7 +8,6 @@ from torch.utils.data import DataLoader
 import shutil
 from pathlib import Path
 from typing import Union
-from mnist1d.data import make_dataset, get_dataset_args
 
 from model_zoo.mlp import MLP
 from model_zoo.cnn import CNN_2D
@@ -420,8 +419,6 @@ def get_input_shape(
     """
     if data_set == 'mnist' or data_set == 'fashion':
         return (1, 28, 28)
-    elif data_set == 'mnist1d':
-        return (1, 1, 40)
     else:
         return (3, 224, 224)
 
@@ -561,13 +558,6 @@ def get_dataset(
                 download = True
             )
         '''
-    elif data_set == "mnist1d":
-        defaults = get_dataset_args()
-        data = make_dataset(defaults)
-        train_set = torch.from_numpy(data['x']).reshape(-1, 1, 1, 40).float()
-        test_set = torch.from_numpy(data['x_test']).reshape(-1, 1, 1, 40).float()
-        train_set = list(zip(train_set, torch.from_numpy(data['y'])))
-        test_set = list(zip(test_set, torch.from_numpy(data['y_test'])))
     else:
         print(f"Dataset {data_set} not supported...")
         exit(1)
@@ -758,8 +748,8 @@ def subset(
 
 
 def zip_and_cleanup(
-        src_directory: str, 
-        zip_filename: str, 
+        src_directory: str,
+        zip_filename: str,
         clean:bool = True
     ) -> None:
     """
@@ -768,18 +758,23 @@ def zip_and_cleanup(
             zip_filename: the filename of the zip file.
             clean: whether to clean the source directory.
     """
-    # Create a zip archive
-    print("Zipping", flush=True)
-    shutil.make_archive(zip_filename, 'zip', src_directory)
+    from utils.data_integrity import zip_and_verify
 
-    # Walk the directory tree and remove files and subdirectories
-    if clean:
-        print("Cleaning", flush=True)
-        for root, dirs, files in os.walk(src_directory, topdown=False):
-            for name in files:
-                os.remove(os.path.join(root, name))
-            for name in dirs:
-                os.rmdir(os.path.join(root, name))
+    print("Zipping and verifying...", flush=True)
+    result = zip_and_verify(src_directory, zip_filename, cleanup=clean)
+    if not result["success"]:
+        print(f"WARNING: zip_and_verify failed: {result['errors']}", flush=True)
+        # Fallback to old behavior
+        print("Falling back to shutil.make_archive...", flush=True)
+        shutil.make_archive(zip_filename, 'zip', src_directory)
+        if clean:
+            for root, dirs, files in os.walk(src_directory, topdown=False):
+                for name in files:
+                    os.remove(os.path.join(root, name))
+                for name in dirs:
+                    os.rmdir(os.path.join(root, name))
+    else:
+        print(f"Zip verified: {result['file_count']} files in {result['zip_path']}", flush=True)
 
 def get_parameters_baseline(dataset):
     param_sets = {

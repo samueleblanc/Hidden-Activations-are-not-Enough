@@ -1,3 +1,4 @@
+import os
 import torch
 from argparse import ArgumentParser, Namespace
 from pathlib import Path
@@ -204,7 +205,13 @@ def main() -> None:
         samples_per_attack=args.samples_per_attack,
     )
 
-    print(F"----CHUNK {args.chunk_id} ADVERSARIAL MATRICES COMPUTED----", flush=True)
+    # Count generated .pth files as a sanity check
+    if args.temp_dir is not None:
+        adv_mat_dir = os.path.join(args.temp_dir, 'experiments', args.experiment_name, 'adversarial_matrices')
+    else:
+        adv_mat_dir = os.path.join('experiments', args.experiment_name, 'adversarial_matrices')
+    pth_count = sum(1 for _, _, files in os.walk(adv_mat_dir) for f in files if f.endswith(('.pth', '.pt'))) if os.path.isdir(adv_mat_dir) else 0
+    print(f"----CHUNK {args.chunk_id} ADVERSARIAL MATRICES COMPUTED ({pth_count} .pth files)----", flush=True)
 
 
 if __name__ == "__main__":

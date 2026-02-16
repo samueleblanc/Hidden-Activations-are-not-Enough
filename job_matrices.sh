@@ -78,6 +78,11 @@ echo "Zipping matrices for task $TASK_ID..."
 cd $TEMP_DIR/experiments/$EXPERIMENT
 zip -r matrices_task_$TASK_ID.zip matrices || { echo "Zipping failed"; exit 1; }
 
+# Verify the zip
+cd $SLURM_SUBMIT_DIR
+python -m utils.data_integrity --verify-zip $TEMP_DIR/experiments/$EXPERIMENT/matrices_task_$TASK_ID.zip || { echo "Zip verification failed"; exit 1; }
+cd $TEMP_DIR/experiments/$EXPERIMENT
+
 # Copy the zip file to $SLURM_SUBMIT_DIR
 echo "Copying zip file to $SLURM_SUBMIT_DIR..."
 cp matrices_task_$TASK_ID.zip $SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/ || { echo "Failed to copy zip file"; exit 1; }

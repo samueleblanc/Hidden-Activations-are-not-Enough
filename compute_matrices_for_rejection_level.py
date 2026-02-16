@@ -221,7 +221,13 @@ def main() -> None:
         chunk_id = args.chunk_id,
         total_chunks = args.total_chunks,
     )
-    print("---ALL MATRICES COMPUTED FOR THIS WORKER----", flush=True)
+    # Count generated .pth files as a sanity check
+    if args.temp_dir is not None:
+        rej_mat_dir = os.path.join(args.temp_dir, 'experiments', args.experiment_name, 'rejection_levels', 'matrices')
+    else:
+        rej_mat_dir = os.path.join('experiments', args.experiment_name, 'rejection_levels', 'matrices')
+    pth_count = sum(1 for _, _, files in os.walk(rej_mat_dir) for f in files if f.endswith(('.pth', '.pt'))) if os.path.isdir(rej_mat_dir) else 0
+    print(f"---ALL MATRICES COMPUTED FOR THIS WORKER ({pth_count} .pth files)----", flush=True)
 
 
 if __name__ == '__main__':

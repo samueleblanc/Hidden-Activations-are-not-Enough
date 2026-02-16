@@ -434,17 +434,4 @@ DEFAULT_EXPERIMENTS = {
         'weight_decay': 0,
         'dropout': 0,
     },
-    'experiment_22': {
-        'architecture_index': 10,
-        'optimizer': 'adam',
-        'dataset': 'mnist1d',
-        'lr': 0.001,
-        'batch_size': 16,
-        'epoch': 60,
-        'reduce_lr_each': 50,
-        'save_every_epochs': 5,
-        'residual': False,
-        'weight_decay': 0,
-        'dropout': 0
-    }
 }

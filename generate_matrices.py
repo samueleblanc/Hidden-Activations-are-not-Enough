@@ -74,7 +74,9 @@ def main() -> None:
         with open(done_file, 'w') as f:
             f.write("done")
 
-        print(f"Chunk {args.chunk_id} completed and saved to {save_path}", flush=True)
+        # Count generated .pth files as a sanity check
+        pth_count = sum(1 for _, _, files in os.walk(save_path) for f in files if f.endswith(('.pth', '.pt')))
+        print(f"Chunk {args.chunk_id} completed and saved to {save_path} ({pth_count} .pth files)", flush=True)
         print(f"Chunk {chunk_id} completed!", flush=True)
     else:
         print(f'An error has occurred at chunk_id = {args.chunk_id}')
