@@ -14,8 +14,8 @@
 # ==============================================================
 
 # --- User-configurable variables ---
-EXPERIMENT="alexnet_cifar10"
-TOTAL_CHUNKS=8
+export EXPERIMENT="alexnet_cifar10"
+export TOTAL_CHUNKS=8
 
 # --- Environment ---
 mkdir -p $SLURM_SUBMIT_DIR/slurm_out
