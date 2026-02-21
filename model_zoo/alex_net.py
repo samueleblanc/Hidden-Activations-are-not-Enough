@@ -17,11 +17,12 @@ class AlexNet(nn.Module):
         save (bool, optional): Whether to save activations during forward pass. Defaults to False.
     """
     def __init__(
-            self, 
+            self,
             input_shape,
-            num_classes: int, 
-            pretrained:bool = True, 
-            max_pool:bool = True, 
+            num_classes: int,
+            pretrained:bool = True,
+            freeze_features:bool = True,
+            max_pool:bool = True,
             save:bool = False
     ) -> None:
         super().__init__()
@@ -65,10 +66,6 @@ class AlexNet(nn.Module):
                     std = [0.229, 0.224, 0.225]
                 )
             ])
-
-        if pretrained:
-            for param in self.model.parameters():
-                param.requires_grad = False
 
         self.conv_layers = []
         self.fc_layers = []
@@ -158,6 +155,12 @@ class AlexNet(nn.Module):
 
         self.conv_layers = nn.ModuleList(self.conv_layers)
         self.fc_layers = nn.ModuleList(self.fc_layers)
+
+        if pretrained and freeze_features:
+            for layer in self.conv_layers:
+                if isinstance(layer, nn.Conv2d):
+                    for param in layer.parameters():
+                        param.requires_grad = False
 
     def forward(self, x: torch.Tensor, rep:bool=False, return_penultimate:bool=False) -> torch.Tensor:
         """
