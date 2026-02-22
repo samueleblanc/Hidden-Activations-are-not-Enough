@@ -111,13 +111,13 @@ def find_optimal_batch_size(model, sample_input, device, target_utilization=0.93
     Binary search for the largest batch_size that keeps GPU memory <= target.
     Returns (batch_size, peak_memory_bytes).
     """
-    total_mem = torch.cuda.get_device_properties(device).total_mem
-    target_mem = int(total_mem * target_utilization)
+    total_memory = torch.cuda.get_device_properties(device).total_memory
+    target_mem = int(total_memory * target_utilization)
 
     C, H, W = model.input_shape
     total_positions = C * H * W
 
-    print(f"GPU total memory: {total_mem / 1e9:.1f} GB", flush=True)
+    print(f"GPU total memory: {total_memory / 1e9:.1f} GB", flush=True)
     print(f"Target memory ({target_utilization*100:.0f}%): {target_mem / 1e9:.1f} GB", flush=True)
     print(f"Total input positions: {total_positions}", flush=True)
 
@@ -132,11 +132,11 @@ def find_optimal_batch_size(model, sample_input, device, target_utilization=0.93
         if success and peak <= target_mem:
             best_bs = test_bs
             best_peak = peak
-            print(f"  batch_size={test_bs}: OK (peak={peak/1e9:.2f} GB, {peak/total_mem*100:.1f}%)", flush=True)
+            print(f"  batch_size={test_bs}: OK (peak={peak/1e9:.2f} GB, {peak/total_memory*100:.1f}%)", flush=True)
             test_bs *= 2
         else:
             if success:
-                print(f"  batch_size={test_bs}: Over target (peak={peak/1e9:.2f} GB, {peak/total_mem*100:.1f}%)", flush=True)
+                print(f"  batch_size={test_bs}: Over target (peak={peak/1e9:.2f} GB, {peak/total_memory*100:.1f}%)", flush=True)
             else:
                 print(f"  batch_size={test_bs}: OOM", flush=True)
             break
@@ -155,7 +155,7 @@ def find_optimal_batch_size(model, sample_input, device, target_utilization=0.93
         if success and peak <= target_mem:
             best_bs = mid
             best_peak = peak
-            print(f"  batch_size={mid}: OK (peak={peak/1e9:.2f} GB, {peak/total_mem*100:.1f}%)", flush=True)
+            print(f"  batch_size={mid}: OK (peak={peak/1e9:.2f} GB, {peak/total_memory*100:.1f}%)", flush=True)
             low = mid + 1
         else:
             if success:
@@ -164,7 +164,7 @@ def find_optimal_batch_size(model, sample_input, device, target_utilization=0.93
                 print(f"  batch_size={mid}: OOM", flush=True)
             high = mid - 1
 
-    print(f"Optimal batch_size: {best_bs} (peak={best_peak/1e9:.2f} GB, {best_peak/total_mem*100:.1f}%)", flush=True)
+    print(f"Optimal batch_size: {best_bs} (peak={best_peak/1e9:.2f} GB, {best_peak/total_memory*100:.1f}%)", flush=True)
     return best_bs, best_peak
 
 
@@ -232,7 +232,7 @@ def main():
     num_classes = get_num_classes(dataset_name)
 
     gpu_name = torch.cuda.get_device_name(device)
-    gpu_mem = torch.cuda.get_device_properties(device).total_mem
+    gpu_mem = torch.cuda.get_device_properties(device).total_memory
 
     print("=" * 60, flush=True)
     print(f"  GPU Calibration: {experiment}", flush=True)
