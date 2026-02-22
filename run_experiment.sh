@@ -52,7 +52,7 @@ C_CPUS=16
 C_TIME="04:00:00"
 C_MEM="124G"
 # Step D
-D_GPU="--gres=gpu:1"
+D_GPU="--gpus=h100:1"
 D_CPUS=16
 D_TIME="09:00:00"
 D_MEM="180G"
@@ -157,7 +157,7 @@ if [ "$TEST_MODE" = "true" ]; then
     # Shorter time limits
     A_TIME="00:10:00"
     A_MEM="8G"
-    B_GPU="--gres=gpu:1"
+    B_GPU="--gpus=h100:1"
     B_CPUS=4
     B_TIME="00:15:00"
     B_MEM="32G"
@@ -165,14 +165,14 @@ if [ "$TEST_MODE" = "true" ]; then
     C_CPUS=4
     C_TIME="00:30:00"
     C_MEM="32G"
-    D_GPU="--gres=gpu:1"
+    D_GPU="--gpus=h100:1"
     D_CPUS=4
     D_TIME="00:30:00"
     D_MEM="32G"
     E_CPUS=2
     E_TIME="00:15:00"
     E_MEM="4G"
-    F_GPU="--gres=gpu:1"
+    F_GPU="--gpus=h100:1"
     F_CPUS=4
     F_TIME="00:30:00"
     F_MEM="32G"
@@ -469,7 +469,24 @@ if [ -f "\$CALIB_FILE" ]; then
     echo "Using calibrated batch_size=\$BATCH_SIZE"
 fi
 
+# GPU monitoring
+mkdir -p \$SLURM_SUBMIT_DIR/gpu-monitor/
+GPU_LOGFILE="\$SLURM_SUBMIT_DIR/gpu-monitor/\$EXPERIMENT.B.\$TASK_ID.log"
+monitor_gpu() {
+  echo "Timestamp, GPU Util (%), Mem Used (MiB), Mem Total (MiB)" > "\$GPU_LOGFILE"
+  while true; do
+    ts=\$(date +%Y-%m-%dT%H:%M:%S)
+    nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits \
+      | awk -v t="\$ts" '{print t", "\$1", "\$2", "\$3}' >> "\$GPU_LOGFILE"
+    sleep 30
+  done
+}
+monitor_gpu &
+MONITOR_PID=\$!
+
 python generate_matrices.py --temp_dir \$TEMP_DIR --experiment \$EXPERIMENT --chunk_id \$TASK_ID --total_chunks $TOTAL_CHUNKS --batch_size \$BATCH_SIZE --num_samples_per_class $NUM_SAMPLES_PER_CLASS
+
+kill \$MONITOR_PID 2>/dev/null || true
 
 cd \$TEMP_DIR/experiments/\$EXPERIMENT
 zip -r matrices_task_\$TASK_ID.zip matrices || { echo "Zipping failed"; exit 1; }
@@ -576,6 +593,21 @@ if [ -f "\$CALIB_FILE" ]; then
     echo "Using calibrated batch_size=\$BATCH_SIZE"
 fi
 
+# GPU monitoring
+mkdir -p \$SLURM_SUBMIT_DIR/gpu-monitor/
+GPU_LOGFILE="\$SLURM_SUBMIT_DIR/gpu-monitor/\$EXPERIMENT.D.\$TASK_ID.log"
+monitor_gpu() {
+  echo "Timestamp, GPU Util (%), Mem Used (MiB), Mem Total (MiB)" > "\$GPU_LOGFILE"
+  while true; do
+    ts=\$(date +%Y-%m-%dT%H:%M:%S)
+    nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits \
+      | awk -v t="\$ts" '{print t", "\$1", "\$2", "\$3}' >> "\$GPU_LOGFILE"
+    sleep 30
+  done
+}
+monitor_gpu &
+MONITOR_PID=\$!
+
 python compute_matrices_for_rejection_level.py \
     --experiment_name \$EXPERIMENT \
     --temp_dir \$SLURM_TMPDIR \
@@ -583,6 +615,8 @@ python compute_matrices_for_rejection_level.py \
     --chunk_id \$TASK_ID \
     --total_chunks $TOTAL_CHUNKS \
     --num_samples_rejection_level $NUM_SAMPLES_REJECTION_LEVEL
+
+kill \$MONITOR_PID 2>/dev/null || true
 
 MATRICES_DIR="\$SLURM_TMPDIR/experiments/\$EXPERIMENT/rejection_levels/matrices"
 ZIP_OUTPUT_DIR="\$SLURM_TMPDIR/experiments/\$EXPERIMENT/rejection_levels"
@@ -689,6 +723,21 @@ if [ -f "\$CALIB_FILE" ]; then
     echo "Using calibrated batch_size=\$BATCH_SIZE"
 fi
 
+# GPU monitoring
+mkdir -p \$SLURM_SUBMIT_DIR/gpu-monitor/
+GPU_LOGFILE="\$SLURM_SUBMIT_DIR/gpu-monitor/\$EXPERIMENT.F.\$TASK_ID.log"
+monitor_gpu() {
+  echo "Timestamp, GPU Util (%), Mem Used (MiB), Mem Total (MiB)" > "\$GPU_LOGFILE"
+  while true; do
+    ts=\$(date +%Y-%m-%dT%H:%M:%S)
+    nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits \
+      | awk -v t="\$ts" '{print t", "\$1", "\$2", "\$3}' >> "\$GPU_LOGFILE"
+    sleep 30
+  done
+}
+monitor_gpu &
+MONITOR_PID=\$!
+
 python generate_adversarial_matrices.py \
     --experiment_name \$EXPERIMENT \
     --temp_dir \$SLURM_TMPDIR \
@@ -696,6 +745,8 @@ python generate_adversarial_matrices.py \
     --total_chunks $TOTAL_CHUNKS \
     --batch_size \$BATCH_SIZE \
     --samples_per_attack $SAMPLES_PER_ATTACK
+
+kill \$MONITOR_PID 2>/dev/null || true
 
 cd \$SLURM_TMPDIR/experiments/\$EXPERIMENT/
 zip -r adv_matrices_task_\$TASK_ID.zip adversarial_matrices/ || { echo "Zipping failed"; exit 1; }
@@ -885,6 +936,21 @@ source $ENV_NAME/bin/activate
 
 $CALIB_COPY_DATA
 
+# GPU monitoring during calibration
+mkdir -p \$SLURM_SUBMIT_DIR/gpu-monitor/
+GPU_LOGFILE="\$SLURM_SUBMIT_DIR/gpu-monitor/$EXP.calibration.log"
+monitor_gpu() {
+  echo "Timestamp, GPU Util (%), Mem Used (MiB), Mem Total (MiB)" > "\$GPU_LOGFILE"
+  while true; do
+    ts=\$(date +%Y-%m-%dT%H:%M:%S)
+    nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits \
+      | awk -v t="\$ts" '{print t", "\$1", "\$2", "\$3}' >> "\$GPU_LOGFILE"
+    sleep 30
+  done
+}
+monitor_gpu &
+MONITOR_PID=\$!
+
 python calibrate.py \\
     --experiment_name $EXP \\
     --temp_dir \$SLURM_TMPDIR \\
@@ -895,6 +961,7 @@ python calibrate.py \\
     --samples_per_attack $SAMPLES_PER_ATTACK \\
     --num_samples_rejection_level $NUM_SAMPLES_REJECTION_LEVEL
 
+kill \$MONITOR_PID 2>/dev/null || true
 echo "Calibration complete for $EXP."
 CALIB_EOF
 
@@ -1299,7 +1366,21 @@ if [ -f "\$CALIB_FILE" ]; then
     BATCH_SIZE=\$(python3 -c "import json; print(json.load(open('\$CALIB_FILE'))['batch_size'])")
     echo "Using calibrated batch_size=\$BATCH_SIZE"
 fi
+mkdir -p \$SLURM_SUBMIT_DIR/gpu-monitor/
+GPU_LOGFILE="\$SLURM_SUBMIT_DIR/gpu-monitor/$EXPERIMENT.B.${CHUNK}.log"
+monitor_gpu() {
+  echo "Timestamp, GPU Util (%), Mem Used (MiB), Mem Total (MiB)" > "\$GPU_LOGFILE"
+  while true; do
+    ts=\$(date +%Y-%m-%dT%H:%M:%S)
+    nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits \
+      | awk -v t="\$ts" '{print t", "\$1", "\$2", "\$3}' >> "\$GPU_LOGFILE"
+    sleep 30
+  done
+}
+monitor_gpu &
+MONITOR_PID=\$!
 python generate_matrices.py --temp_dir \$SLURM_TMPDIR --experiment $EXPERIMENT --chunk_id $CHUNK --total_chunks $TOTAL_CHUNKS --batch_size \$BATCH_SIZE --num_samples_per_class $NUM_SAMPLES_PER_CLASS
+kill \$MONITOR_PID 2>/dev/null || true
 cd \$SLURM_TMPDIR/experiments/$EXPERIMENT
 zip -r matrices_task_${CHUNK}.zip matrices || { echo "Zip failed"; exit 1; }
 cd \$SLURM_SUBMIT_DIR
@@ -1379,7 +1460,21 @@ if [ -f "\$CALIB_FILE" ]; then
     BATCH_SIZE=\$(python3 -c "import json; print(json.load(open('\$CALIB_FILE'))['batch_size'])")
     echo "Using calibrated batch_size=\$BATCH_SIZE"
 fi
+mkdir -p \$SLURM_SUBMIT_DIR/gpu-monitor/
+GPU_LOGFILE="\$SLURM_SUBMIT_DIR/gpu-monitor/$EXPERIMENT.D.${CHUNK}.log"
+monitor_gpu() {
+  echo "Timestamp, GPU Util (%), Mem Used (MiB), Mem Total (MiB)" > "\$GPU_LOGFILE"
+  while true; do
+    ts=\$(date +%Y-%m-%dT%H:%M:%S)
+    nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits \
+      | awk -v t="\$ts" '{print t", "\$1", "\$2", "\$3}' >> "\$GPU_LOGFILE"
+    sleep 30
+  done
+}
+monitor_gpu &
+MONITOR_PID=\$!
 python compute_matrices_for_rejection_level.py --experiment_name $EXPERIMENT --temp_dir \$SLURM_TMPDIR --batch_size \$BATCH_SIZE --chunk_id $CHUNK --total_chunks $TOTAL_CHUNKS --num_samples_rejection_level $NUM_SAMPLES_REJECTION_LEVEL
+kill \$MONITOR_PID 2>/dev/null || true
 MATRICES_DIR="\$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/matrices"
 if [ -d "\$MATRICES_DIR" ]; then
     cd "\$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels"
@@ -1464,7 +1559,21 @@ if [ -f "\$CALIB_FILE" ]; then
     BATCH_SIZE=\$(python3 -c "import json; print(json.load(open('\$CALIB_FILE'))['batch_size'])")
     echo "Using calibrated batch_size=\$BATCH_SIZE"
 fi
+mkdir -p \$SLURM_SUBMIT_DIR/gpu-monitor/
+GPU_LOGFILE="\$SLURM_SUBMIT_DIR/gpu-monitor/$EXPERIMENT.F.${CHUNK}.log"
+monitor_gpu() {
+  echo "Timestamp, GPU Util (%), Mem Used (MiB), Mem Total (MiB)" > "\$GPU_LOGFILE"
+  while true; do
+    ts=\$(date +%Y-%m-%dT%H:%M:%S)
+    nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits \
+      | awk -v t="\$ts" '{print t", "\$1", "\$2", "\$3}' >> "\$GPU_LOGFILE"
+    sleep 30
+  done
+}
+monitor_gpu &
+MONITOR_PID=\$!
 python generate_adversarial_matrices.py --experiment_name $EXPERIMENT --temp_dir \$SLURM_TMPDIR --chunk_id $CHUNK --total_chunks $TOTAL_CHUNKS --batch_size \$BATCH_SIZE --samples_per_attack $SAMPLES_PER_ATTACK
+kill \$MONITOR_PID 2>/dev/null || true
 cd \$SLURM_TMPDIR/experiments/$EXPERIMENT/
 zip -r adv_matrices_task_${CHUNK}.zip adversarial_matrices/ || { echo "Zip failed"; exit 1; }
 cd \$SLURM_SUBMIT_DIR
