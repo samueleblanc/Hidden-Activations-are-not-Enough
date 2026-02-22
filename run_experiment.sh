@@ -32,6 +32,7 @@ ENV_NAME="env_rorqual"
 DRY_RUN=false
 SKIP_AUDIT=false
 TEST_MODE=false
+NO_CALIBRATE=false
 MODULES="StdEnv/2023 python/3.11.5 scipy-stack/2025a"
 
 # --- Resource profiles (normal mode) ---
@@ -72,6 +73,11 @@ G_MEM_PER_CPU="42G"
 AUDIT_CPUS=4
 AUDIT_TIME="02:00:00"
 AUDIT_MEM="100G"
+# Calibration
+CALIB_GPU="--gpus=h100:1"
+CALIB_CPUS=4
+CALIB_TIME="00:30:00"
+CALIB_MEM="32G"
 
 # ==============================================================
 # Argument parsing
@@ -102,6 +108,8 @@ while [[ $# -gt 0 ]]; do
             SKIP_AUDIT=true; shift ;;
         --test)
             TEST_MODE=true; shift ;;
+        --no-calibrate)
+            NO_CALIBRATE=true; shift ;;
         --help|-h)
             echo "Usage: bash run_experiment.sh [OPTIONS] experiment_name [experiment_name ...]"
             echo ""
@@ -117,6 +125,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --dry-run                 Generate scripts but don't submit"
             echo "  --skip-audit              Skip audit, submit full pipeline directly"
             echo "  --test                    Test mode: small samples, short time limits"
+            echo "  --no-calibrate            Skip GPU calibration, use hardcoded resource defaults"
             echo "  --help                    Show this help message"
             exit 0 ;;
         -*)
@@ -453,7 +462,14 @@ if [ -f "\$ZIP_FILE" ]; then
     unzip -o "\$TEMP_DIR/experiments/\$EXPERIMENT/matrices_task_\$TASK_ID.zip" -d "\$TEMP_DIR/experiments/\$EXPERIMENT/"
 fi
 
-python generate_matrices.py --temp_dir \$TEMP_DIR --experiment \$EXPERIMENT --chunk_id \$TASK_ID --total_chunks $TOTAL_CHUNKS --batch_size $BATCH_SIZE --num_samples_per_class $NUM_SAMPLES_PER_CLASS
+BATCH_SIZE=$BATCH_SIZE
+CALIB_FILE="\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/calibration.json"
+if [ -f "\$CALIB_FILE" ]; then
+    BATCH_SIZE=\$(python3 -c "import json; print(json.load(open('\$CALIB_FILE'))['batch_size'])")
+    echo "Using calibrated batch_size=\$BATCH_SIZE"
+fi
+
+python generate_matrices.py --temp_dir \$TEMP_DIR --experiment \$EXPERIMENT --chunk_id \$TASK_ID --total_chunks $TOTAL_CHUNKS --batch_size \$BATCH_SIZE --num_samples_per_class $NUM_SAMPLES_PER_CLASS
 
 cd \$TEMP_DIR/experiments/\$EXPERIMENT
 zip -r matrices_task_\$TASK_ID.zip matrices || { echo "Zipping failed"; exit 1; }
@@ -553,10 +569,17 @@ if [ -f "\$ZIP_FILE" ]; then
     cd -
 fi
 
+BATCH_SIZE=$BATCH_SIZE
+CALIB_FILE="\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/calibration.json"
+if [ -f "\$CALIB_FILE" ]; then
+    BATCH_SIZE=\$(python3 -c "import json; print(json.load(open('\$CALIB_FILE'))['batch_size'])")
+    echo "Using calibrated batch_size=\$BATCH_SIZE"
+fi
+
 python compute_matrices_for_rejection_level.py \
     --experiment_name \$EXPERIMENT \
     --temp_dir \$SLURM_TMPDIR \
-    --batch_size $BATCH_SIZE \
+    --batch_size \$BATCH_SIZE \
     --chunk_id \$TASK_ID \
     --total_chunks $TOTAL_CHUNKS \
     --num_samples_rejection_level $NUM_SAMPLES_REJECTION_LEVEL
@@ -659,12 +682,19 @@ if [ -f "\$ZIP_FILE" ]; then
     unzip -o "\$SLURM_TMPDIR/experiments/\$EXPERIMENT/adv_matrices_task_\$TASK_ID.zip" -d "\$SLURM_TMPDIR/experiments/\$EXPERIMENT/"
 fi
 
+BATCH_SIZE=$BATCH_SIZE
+CALIB_FILE="\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/calibration.json"
+if [ -f "\$CALIB_FILE" ]; then
+    BATCH_SIZE=\$(python3 -c "import json; print(json.load(open('\$CALIB_FILE'))['batch_size'])")
+    echo "Using calibrated batch_size=\$BATCH_SIZE"
+fi
+
 python generate_adversarial_matrices.py \
     --experiment_name \$EXPERIMENT \
     --temp_dir \$SLURM_TMPDIR \
     --chunk_id \$TASK_ID \
     --total_chunks $TOTAL_CHUNKS \
-    --batch_size $BATCH_SIZE \
+    --batch_size \$BATCH_SIZE \
     --samples_per_attack $SAMPLES_PER_ATTACK
 
 cd \$SLURM_TMPDIR/experiments/\$EXPERIMENT/
@@ -833,6 +863,55 @@ for EXP in "${EXPERIMENTS[@]}"; do
     echo ""
     echo "--- $EXP ---"
 
+    # --- Generate calibration job if needed ---
+    CALIB_DEP=""
+    if [ "$NO_CALIBRATE" = "false" ]; then
+        DATASET_FOR_CALIB=$(get_experiment_dataset "$EXP")
+        CALIB_COPY_DATA=$(get_dataset_copy_commands "$DATASET_FOR_CALIB")
+
+        cat > "$JOB_DIR/calibrate.sh" << CALIB_EOF
+#!/bin/bash
+#SBATCH --account=$ACCOUNT
+#SBATCH $CALIB_GPU
+#SBATCH --cpus-per-task=$CALIB_CPUS
+#SBATCH --time=$CALIB_TIME
+#SBATCH --mem=$CALIB_MEM
+#SBATCH --output=slurm_out/PIPE_CALIB_${EXP}_%A.out
+#SBATCH --error=slurm_err/PIPE_CALIB_${EXP}_%A.err
+
+mkdir -p \$SLURM_SUBMIT_DIR/slurm_out \$SLURM_SUBMIT_DIR/slurm_err
+module load $MODULES
+source $ENV_NAME/bin/activate
+
+$CALIB_COPY_DATA
+
+python calibrate.py \\
+    --experiment_name $EXP \\
+    --temp_dir \$SLURM_TMPDIR \\
+    --target_utilization 0.93 \\
+    --timing_samples 50 \\
+    --total_chunks $TOTAL_CHUNKS \\
+    --num_samples_per_class $NUM_SAMPLES_PER_CLASS \\
+    --samples_per_attack $SAMPLES_PER_ATTACK \\
+    --num_samples_rejection_level $NUM_SAMPLES_REJECTION_LEVEL
+
+echo "Calibration complete for $EXP."
+CALIB_EOF
+
+        if [ "$DRY_RUN" = "false" ]; then
+            # Check if calibration.json already exists on login node
+            if [ -f "experiments/$EXP/calibration.json" ]; then
+                echo "  [0] Calibration:         SKIPPED (calibration.json exists)"
+            else
+                CALIB_JOB=$(submit_job "$JOB_DIR/calibrate.sh" "")
+                CALIB_DEP="$CALIB_JOB"
+                echo "  [0] Calibration:         $CALIB_JOB"
+            fi
+        else
+            echo "  [DRY RUN] Calibration script generated: $JOB_DIR/calibrate.sh"
+        fi
+    fi
+
     if [ "$SKIP_AUDIT" = "true" ]; then
         # --skip-audit: submit full pipeline directly from login node
         if [ "$DRY_RUN" = "true" ]; then
@@ -841,7 +920,7 @@ for EXP in "${EXPERIMENTS[@]}"; do
             submit_full_pipeline "$EXP" "" 2>/dev/null || true
             echo "  Scripts generated in: $JOB_DIR/"
         else
-            submit_full_pipeline "$EXP" ""
+            submit_full_pipeline "$EXP" "$CALIB_DEP"
         fi
     else
         # Normal mode: audit -> dispatcher -> pipeline
@@ -1195,7 +1274,13 @@ if [ -f "\$ZIP_FILE" ]; then
     cp "\$ZIP_FILE" "\$SLURM_TMPDIR/experiments/$EXPERIMENT/"
     unzip -o "\$SLURM_TMPDIR/experiments/$EXPERIMENT/matrices_task_${CHUNK}.zip" -d "\$SLURM_TMPDIR/experiments/$EXPERIMENT/"
 fi
-python generate_matrices.py --temp_dir \$SLURM_TMPDIR --experiment $EXPERIMENT --chunk_id $CHUNK --total_chunks $TOTAL_CHUNKS --batch_size $BATCH_SIZE --num_samples_per_class $NUM_SAMPLES_PER_CLASS
+BATCH_SIZE=$BATCH_SIZE
+CALIB_FILE="\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/calibration.json"
+if [ -f "\$CALIB_FILE" ]; then
+    BATCH_SIZE=\$(python3 -c "import json; print(json.load(open('\$CALIB_FILE'))['batch_size'])")
+    echo "Using calibrated batch_size=\$BATCH_SIZE"
+fi
+python generate_matrices.py --temp_dir \$SLURM_TMPDIR --experiment $EXPERIMENT --chunk_id $CHUNK --total_chunks $TOTAL_CHUNKS --batch_size \$BATCH_SIZE --num_samples_per_class $NUM_SAMPLES_PER_CLASS
 cd \$SLURM_TMPDIR/experiments/$EXPERIMENT
 zip -r matrices_task_${CHUNK}.zip matrices || { echo "Zip failed"; exit 1; }
 cd \$SLURM_SUBMIT_DIR
@@ -1269,7 +1354,13 @@ if [ -f "\$ZIP_FILE" ]; then
     unzip -o "matrices_task_${CHUNK}.zip"
     cd -
 fi
-python compute_matrices_for_rejection_level.py --experiment_name $EXPERIMENT --temp_dir \$SLURM_TMPDIR --batch_size $BATCH_SIZE --chunk_id $CHUNK --total_chunks $TOTAL_CHUNKS --num_samples_rejection_level $NUM_SAMPLES_REJECTION_LEVEL
+BATCH_SIZE=$BATCH_SIZE
+CALIB_FILE="\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/calibration.json"
+if [ -f "\$CALIB_FILE" ]; then
+    BATCH_SIZE=\$(python3 -c "import json; print(json.load(open('\$CALIB_FILE'))['batch_size'])")
+    echo "Using calibrated batch_size=\$BATCH_SIZE"
+fi
+python compute_matrices_for_rejection_level.py --experiment_name $EXPERIMENT --temp_dir \$SLURM_TMPDIR --batch_size \$BATCH_SIZE --chunk_id $CHUNK --total_chunks $TOTAL_CHUNKS --num_samples_rejection_level $NUM_SAMPLES_REJECTION_LEVEL
 MATRICES_DIR="\$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/matrices"
 if [ -d "\$MATRICES_DIR" ]; then
     cd "\$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels"
@@ -1348,7 +1439,13 @@ if [ -f "\$ZIP_FILE" ]; then
     cp "\$ZIP_FILE" "\$SLURM_TMPDIR/experiments/$EXPERIMENT/"
     unzip -o "\$SLURM_TMPDIR/experiments/$EXPERIMENT/adv_matrices_task_${CHUNK}.zip" -d "\$SLURM_TMPDIR/experiments/$EXPERIMENT/"
 fi
-python generate_adversarial_matrices.py --experiment_name $EXPERIMENT --temp_dir \$SLURM_TMPDIR --chunk_id $CHUNK --total_chunks $TOTAL_CHUNKS --batch_size $BATCH_SIZE --samples_per_attack $SAMPLES_PER_ATTACK
+BATCH_SIZE=$BATCH_SIZE
+CALIB_FILE="\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/calibration.json"
+if [ -f "\$CALIB_FILE" ]; then
+    BATCH_SIZE=\$(python3 -c "import json; print(json.load(open('\$CALIB_FILE'))['batch_size'])")
+    echo "Using calibrated batch_size=\$BATCH_SIZE"
+fi
+python generate_adversarial_matrices.py --experiment_name $EXPERIMENT --temp_dir \$SLURM_TMPDIR --chunk_id $CHUNK --total_chunks $TOTAL_CHUNKS --batch_size \$BATCH_SIZE --samples_per_attack $SAMPLES_PER_ATTACK
 cd \$SLURM_TMPDIR/experiments/$EXPERIMENT/
 zip -r adv_matrices_task_${CHUNK}.zip adversarial_matrices/ || { echo "Zip failed"; exit 1; }
 cd \$SLURM_SUBMIT_DIR
@@ -1464,9 +1561,9 @@ DISPATCH_BODY
             echo "  [DRY RUN] Would submit audit + dispatcher for $EXP"
             echo "  Scripts generated in: $JOB_DIR/"
         else
-            AUDIT_JOB=$(submit_job "$JOB_DIR/audit.sh" "")
+            AUDIT_JOB=$(submit_job "$JOB_DIR/audit.sh" "$CALIB_DEP")
             DISPATCH_JOB=$(submit_job "$JOB_DIR/dispatch.sh" "$AUDIT_JOB")
-            echo "  [*] Audit:               $AUDIT_JOB"
+            echo "  [*] Audit:               $AUDIT_JOB (depends on: ${CALIB_DEP:-none})"
             echo "  [*] Dispatcher:          $DISPATCH_JOB (depends on $AUDIT_JOB)"
         fi
     fi
@@ -1482,6 +1579,7 @@ echo "=============================================================="
 echo ""
 echo "  Experiments: ${EXPERIMENTS[*]}"
 echo "  Mode: $([ "$SKIP_AUDIT" = "true" ] && echo "skip-audit" || echo "audit+dispatch")"
+echo "  Calibration: $([ "$NO_CALIBRATE" = "true" ] && echo "disabled" || echo "enabled")"
 echo "  Test mode: $TEST_MODE"
 echo "  Dry run: $DRY_RUN"
 echo ""

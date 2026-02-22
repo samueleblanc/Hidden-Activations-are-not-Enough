@@ -75,8 +75,66 @@ bash run_experiment.sh alexnet_cifar10
 The orchestrator automatically:
 - Downloads datasets and pretrained weights if missing
 - Validates experiment names against `constants/constants.py`
+- Calibrates GPU batch_size and estimates pipeline duration (saved for reuse)
 - Submits all pipeline stages with correct Slurm dependency chains
 - Runs a final audit to verify all outputs
+
+---
+
+## GPU Calibration
+
+The orchestrator includes an automatic GPU calibration step that runs **before** the pipeline to find the optimal `batch_size` for matrix computation.
+
+### What it does
+
+1. **Trains the model for 2 epochs** with the experiment's architecture to measure training time and memory
+2. **Binary-searches for the largest `batch_size`** that achieves >93% GPU utilization (H100)
+3. **Computes ~50 knowledge matrices** to measure average time per matrix
+4. **Saves results** to `experiments/{experiment}/calibration.json` for reuse
+
+### How it works
+
+```
+First run:   Calibration job (H100, ~30 min) → saves calibration.json → pipeline uses it
+Second run:  Calibration.json exists → skipped → pipeline starts immediately
+```
+
+All pipeline steps (B, D, F) read the calibrated `batch_size` from `calibration.json` at runtime. Time and memory requests for SLURM jobs are estimated from calibration data with safety padding (+15% time, +20% memory).
+
+### Manual control
+
+```bash
+# Run with calibration (default)
+bash run_experiment.sh --skip-audit alexnet_cifar10
+
+# Skip calibration, use hardcoded defaults
+bash run_experiment.sh --skip-audit --no-calibrate --batch-size 18816 alexnet_cifar10
+
+# Force re-calibration (delete old results first)
+rm experiments/alexnet_cifar10/calibration.json
+bash run_experiment.sh --skip-audit alexnet_cifar10
+
+# Run calibration standalone
+python calibrate.py --experiment_name alexnet_cifar10 --temp_dir $SLURM_TMPDIR
+```
+
+### Calibration output
+
+```
+experiments/alexnet_cifar10/calibration.json
+```
+```json
+{
+  "batch_size": 18816,
+  "peak_matrix_memory_bytes": 79886131405,
+  "avg_seconds_per_matrix": 2.34,
+  "slurm_resources": {
+    "A": {"time": "00:28:00", "mem": "6G"},
+    "B": {"time": "00:08:00", "mem": "96G"},
+    ...
+  }
+}
+```
 
 ---
 
@@ -129,6 +187,7 @@ bash run_experiment.sh [OPTIONS] experiment_name [experiment_name ...]
 | `--test-size N` | `-1` (all) | Test set size for adversarial examples |
 | `--env ENV_NAME` | `env_rorqual` | Python virtual environment name |
 | `--skip-audit` | off | Skip audit, submit full pipeline |
+| `--no-calibrate` | off | Skip GPU calibration, use hardcoded resource defaults |
 | `--test` | off | Test mode with small samples and short limits |
 | `--dry-run` | off | Generate scripts without submitting |
 
@@ -386,6 +445,7 @@ The pipeline handles errors gracefully:
 ```
 .
 |-- run_experiment.sh              <- Pipeline orchestrator (start here)
+|-- calibrate.py                   <- GPU calibration (batch_size + timing)
 |-- training.py                    <- Step A: model training
 |-- generate_matrices.py           <- Step B: knowledge matrix computation
 |-- generate_adversarial_examples.py <- Step C: adversarial attacks
