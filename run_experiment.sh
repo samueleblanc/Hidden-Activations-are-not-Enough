@@ -912,6 +912,25 @@ CALIB_EOF
         fi
     fi
 
+    # --- Load calibrated resource profiles if available ---
+    CALIB_FILE="experiments/$EXP/calibration.json"
+    if [ -f "$CALIB_FILE" ] && [ "$NO_CALIBRATE" = "false" ]; then
+        echo "  Loading calibrated resources from $CALIB_FILE"
+        A_TIME=$(python3 -c "import json; print(json.load(open('$CALIB_FILE'))['slurm_resources']['A']['time'])")
+        A_MEM=$(python3 -c "import json; print(json.load(open('$CALIB_FILE'))['slurm_resources']['A']['mem'])")
+        B_TIME=$(python3 -c "import json; print(json.load(open('$CALIB_FILE'))['slurm_resources']['B']['time'])")
+        B_MEM=$(python3 -c "import json; print(json.load(open('$CALIB_FILE'))['slurm_resources']['B']['mem'])")
+        D_TIME=$(python3 -c "import json; print(json.load(open('$CALIB_FILE'))['slurm_resources']['D']['time'])")
+        D_MEM=$(python3 -c "import json; print(json.load(open('$CALIB_FILE'))['slurm_resources']['D']['mem'])")
+        F_TIME=$(python3 -c "import json; print(json.load(open('$CALIB_FILE'))['slurm_resources']['F']['time'])")
+        F_MEM=$(python3 -c "import json; print(json.load(open('$CALIB_FILE'))['slurm_resources']['F']['mem'])")
+        BATCH_SIZE=$(python3 -c "import json; print(json.load(open('$CALIB_FILE'))['batch_size'])")
+        echo "    A: time=$A_TIME mem=$A_MEM"
+        echo "    B: time=$B_TIME mem=$B_MEM  batch_size=$BATCH_SIZE"
+        echo "    D: time=$D_TIME mem=$D_MEM"
+        echo "    F: time=$F_TIME mem=$F_MEM"
+    fi
+
     if [ "$SKIP_AUDIT" = "true" ]; then
         # --skip-audit: submit full pipeline directly from login node
         if [ "$DRY_RUN" = "true" ]; then
