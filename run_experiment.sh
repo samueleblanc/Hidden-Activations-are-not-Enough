@@ -28,7 +28,7 @@ NUM_SAMPLES_PER_CLASS=100
 SAMPLES_PER_ATTACK=500
 NUM_SAMPLES_REJECTION_LEVEL=10000
 TEST_SIZE=-1
-ENV_NAME="env_rorqual"
+ENV_NAME="env"
 DRY_RUN=false
 SKIP_AUDIT=false
 TEST_MODE=false
@@ -37,10 +37,10 @@ MODULES="StdEnv/2023 python/3.11.5 scipy-stack/2025a"
 
 # --- Resource profiles (normal mode) ---
 # Step A
-A_GPU="--gpus=a100_2g.10gb:1"
-A_CPUS=3
-A_TIME="00:30:00"
-A_MEM="31G"
+A_GPU="--gpus=H100-1g.10gb :1"
+A_CPUS=2
+A_TIME="06:00:00"
+A_MEM="15G"
 # Step B
 B_GPU="--gpus=h100:1"
 B_CPUS=12
