@@ -136,22 +136,33 @@ def compute_matrices_for_rejection_level(
 
     # iterate only over the slice for this chunk
     model.eval()
+    failed_indices = []
     for i in range(start, end):
-        im = exp_dataset_train[i].unsqueeze(0).to(device)
-        with torch.no_grad():
-            pred = torch.argmax(model.forward(im)).cpu()
+        try:
+            im = exp_dataset_train[i].unsqueeze(0).to(device)
+            with torch.no_grad():
+                pred = torch.argmax(model.forward(im)).cpu()
 
-        args = (exp_dataset_train[i].to(device),
-                exp_dataset_labels[i].to(device),
-                experiment_name,
-                i,
-                temp_dir,
-                batch_size,
-                matrix_computer,
-                pred
-                )
-        print(f'Chunk {chunk_id} - Matrix {i}/{N}', flush=True)
-        compute_one_matrix(args)
+            args = (exp_dataset_train[i].to(device),
+                    exp_dataset_labels[i].to(device),
+                    experiment_name,
+                    i,
+                    temp_dir,
+                    batch_size,
+                    matrix_computer,
+                    pred
+                    )
+            print(f'Chunk {chunk_id} - Matrix {i}/{N}', flush=True)
+            compute_one_matrix(args)
+        except Exception as e:
+            failed_indices.append(i)
+            print(f'ERROR: Chunk {chunk_id} - Matrix {i}/{N} FAILED: {type(e).__name__}: {e}', flush=True)
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            continue
+
+    if failed_indices:
+        print(f'WARNING: Chunk {chunk_id} had {len(failed_indices)} failed matrices: {failed_indices}', flush=True)
 
 
 def main() -> None:

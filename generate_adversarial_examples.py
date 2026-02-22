@@ -173,7 +173,7 @@ def apply_attack(
         torch.save(torch.cat(adv_saved), attack_save_path)
         torch.save(torch.cat(wrong_preds_saved), wrong_pred_save_path)
     else:
-        raise ValueError(f'Non successful attack method: {attack_name}')
+        print(f'WARNING: Attack {attack_name} produced 0 misclassified examples. Skipping.', flush=True)
 
     # cleanup
     del adv_saved, wrong_preds_saved, model, attack_instance
@@ -209,14 +209,20 @@ def generate_adversarial_examples(
     exp_labels_test = exp_labels_test.detach().clone()
 
     for attack_name in ["test"] + ATTACKS:
-        apply_attack(attack_name,
-                     exp_dataset_test,
-                     exp_labels_test,
-                     weights_path,
-                     architecture_index,
-                     experiment_dir,
-                     input_shape,
-                     num_classes)
+        try:
+            apply_attack(attack_name,
+                         exp_dataset_test,
+                         exp_labels_test,
+                         weights_path,
+                         architecture_index,
+                         experiment_dir,
+                         input_shape,
+                         num_classes)
+        except Exception as e:
+            print(f'ERROR: Attack {attack_name} failed entirely: {type(e).__name__}: {e}', flush=True)
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            continue
 
 
 def main() -> None:

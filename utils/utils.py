@@ -1,5 +1,7 @@
 import os
+import inspect
 import torch
+import torch.nn as nn
 import json
 import random
 import torchvision
@@ -356,18 +358,19 @@ def get_architecture(
                        bias=False,
                        activation="relu",
                        pooling="avg")
-    elif architecture_index == -3:
-        model = AlexNet(
-            input_shape, num_classes, pretrained=pretrained, freeze_features=freeze_features
-        )
-    elif architecture_index == -2:
-        model = ResNet18(
-            input_shape, num_classes, pretrained=pretrained, freeze_features=freeze_features
-        )
-    elif architecture_index == -1:
-        model = VGG11(
-            input_shape, num_classes, pretrained=pretrained, freeze_features=freeze_features
-        )
+    elif architecture_index in (-3, -2, -1):
+        arch_map = {-3: AlexNet, -2: ResNet18, -1: VGG11}
+        cls = arch_map[architecture_index]
+        sig = inspect.signature(cls.__init__)
+        if 'freeze_features' in sig.parameters:
+            model = cls(input_shape, num_classes, pretrained=pretrained, freeze_features=freeze_features)
+        else:
+            model = cls(input_shape, num_classes, pretrained=pretrained)
+            if freeze_features and pretrained:
+                for layer in model.layers:
+                    if isinstance(layer, nn.Conv2d):
+                        for param in layer.parameters():
+                            param.requires_grad = False
     else:
         model = CNN_2D(
             input_shape = input_shape,

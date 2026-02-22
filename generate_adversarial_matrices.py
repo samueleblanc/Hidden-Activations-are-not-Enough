@@ -153,15 +153,26 @@ def generate_matrices_for_attacks(
 
         # iterate only over the slice for this chunk
         model.eval()
+        failed_indices = []
         for i in range(start, end):
-            print(f'Chunk {chunk_id} - Matrix {i}/{N}', flush=True)
-            save_one_matrix(attacked_dataset[i].to(device),
-                            attack,
-                            i,
-                            experiment_name,
-                            matrix_computer,
-                            temp_dir,
-                            device)
+            try:
+                print(f'Chunk {chunk_id} - Matrix {i}/{N}', flush=True)
+                save_one_matrix(attacked_dataset[i].to(device),
+                                attack,
+                                i,
+                                experiment_name,
+                                matrix_computer,
+                                temp_dir,
+                                device)
+            except Exception as e:
+                failed_indices.append(i)
+                print(f'ERROR: Chunk {chunk_id} - Attack {attack} - Matrix {i}/{N} FAILED: {type(e).__name__}: {e}', flush=True)
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                continue
+
+        if failed_indices:
+            print(f'WARNING: Chunk {chunk_id} - Attack {attack} had {len(failed_indices)} failed matrices: {failed_indices}', flush=True)
 
 def main() -> None:
     """

@@ -1,210 +1,408 @@
-# Hidden Activations Are Not Enough:
+# Hidden Activations Are Not Enough
+
 ## A General Approach to Neural Network Predictions
 
-This repository refers to the paper <a href="https://arxiv.org/abs/2409.13163" target="_blank">Hidden Activations Are Not Enough: A General Approach to Neural Network Predictions</a> by Samuel Leblanc, Aiky Rasolomanana, and Marco Armenta.
+This repository implements the paper [Hidden Activations Are Not Enough: A General Approach to Neural Network Predictions](https://arxiv.org/abs/2409.13163) by Samuel Leblanc, Aiky Rasolomanana, and Marco Armenta.
 
-Here is a simplified version of what this code does. Given a neural network and a data sample, we can compute a quiver representation and from it a matrix. We use these induced matrices to detect adversarial examples by converting new data samples fed to the network into matrices and comparing them to statistics taken on a subset of the training set.
+Given a neural network and a data sample, we compute a **knowledge matrix** (via quiver representations). These matrices capture the full linear behavior of the network at each input point. We use them to detect adversarial examples by comparing new samples' matrices against per-class statistics (mean and standard deviation) computed from the training set.
 
-You will find code to train MLPs or 2D CNNs; generate quiver representations on these networks and their corresponding matrices; computation of matrix statistics per class, i.e., mean and standard deviation; generate adversarial examples and the matrices they induce; compute a rejection level based on a subset of the train set (either MNIST, FashionMNIST, or CIFAR-10, although other datasets may be added too) and the detection algorithm explained in the paper through a grid search.
+---
 
-## Repository content
+## Pipeline Overview
 
-* [constants](constants/constants.py): contains the MLP and CNN architectures used with the 20 different hyperparameters used to train them, as well as the adversarial attack methods used. 
-* [matrix_construction](matrix_construction): contains the functions for constructing the matrices induced by a neural network. 
-* [mlp](model_zoo/mlp.py): contains the MLP model that saves activations and pre-activations of neurons on a single forward pass to later construct a quiver representation and the induced matrices. 
-* [cnn](model_zoo/cnn.py): contains the CNN model that saves activations and pre-activations of neurons on a single forward pass to later construct a quiver representation and the induced matrices. 
-* [test_mlp_rep](unit_test/test_mlp_rep.py): contains unit testing for constructing an induced quiver representation for random inputs on random MLP architectures. 
-* [utils](utils/utils.py): contains utils for datasets, models, computation of mean and standard deviation of matrices, etc.
-
-## Setting up 
-On a local computer, create a virtual environment and install requirements. It must be named `matrix`, as later scripts will use this environment name.
-
-```bash
-virtualenv matrix
-source matrix/bin/activate
-pip install -r requirements.txt
-```
-If you have access to a SLURM cluster, the environment should be named `ENV`.
-For Alliance clusters, load these modules
-`module load StdEnv/2020 python/3.9.6 scipy-stack/2023a`
-The scipy-stack module includes: `NumPy, SciPy, Matplotlib, dateutil, pytz, IPython, pyzmq, tornado, pandas, Sympy, nose`
-Then create the environment and install dependencies as follows:
-```bash
-virtualenv ENV
-source ENV/bin/activate
-pip install --no-index --upgrade pip
-pip install -r requirements-slurm.txt
-```
-
-## Running experiments
-
-For a fixed index `idx` between 0 and 16 you train the corresponding default experiment with a MLP specified in `constants/constants.py`. To train a CNN, use an index `idx` between 17 and 19. 
-By specifying their architecture and training hyperparameters, you can manually add more default experiments to the DEFAULT_EXPERIMENTS dictionary in `constants/constants.py`.
-
-Only the training is done on GPU. Every other script runs on CPUs in parallel according to the variable `--nb_workers`.
-Default experiments 0 through 8 can easily be run on a laptop or desktop computer.
-Default experiments 13, 14, 15 and 16 require a 40 GB GPU to train.
-
-### Hierarchy of experiment directory
-
-The subsequent scripts will create a directory `experiments` in which a subdirectory `experiments/{idx}/` will contain all the metadata for the default experiment with index `idx`.
-
-### Order for running scripts
-Here is a diagram with the order to run the scripts (or job if using a SLURM cluster). Below is the description of what each script does and how to run it. Parallel paths can be run in parallel.
+The experiment pipeline has 7 stages with the following dependency structure:
 
 ```mermaid
 flowchart TD
-    A[A] --> B[B]
-    A --> C[C]
-    A --> D[D]
-    B --> E[E]
-    C --> F[F] 
-    E --> G[G]
+    A["<b>A. Train Model</b><br/>training.py<br/><i>GPU, ~30 min</i>"]
+    B["<b>B. Knowledge Matrices</b><br/>generate_matrices.py<br/><i>x8 chunks, H100 GPU</i>"]
+    C["<b>C. Adversarial Examples</b><br/>generate_adversarial_examples.py<br/><i>GPU, ~4 hrs</i>"]
+    D["<b>D. Rejection Level Matrices</b><br/>compute_matrices_for_rejection_level.py<br/><i>x8 chunks, GPU</i>"]
+    E["<b>E. Matrix Statistics</b><br/>compute_matrix_statistics.py<br/><i>CPU only, ~1 hr</i>"]
+    F["<b>F. Adversarial Matrices</b><br/>generate_adversarial_matrices.py<br/><i>x8 chunks, H100 GPU</i>"]
+    G["<b>G. Grid Search & Detection</b><br/>grid_search.py<br/><i>64 CPUs, ~48 hrs</i>"]
+
+    A --> B
+    A --> C
+    A --> D
+    B --> E
+    C --> F
+    E --> G
     F --> G
     D --> G
-    G --> H[H]
-    H --> I[I]
 ```
 
-## A. Train the networks
-```mermaid
-flowchart LR
-    A[A]
-```
-To train a network corresponding to a default index `idx` run the training script like this:
-```bash
-python training.py --default_index {idx}
-```
-This will save the weights and training history in `experiments/{idx}/weights/`.
-If you have access to a SLURM cluster, run the following job
-```bash
-sbatch job_training.sh
-```
-The variable `$SLURM_ARRAY_TASK_ID` determines the index of the experiment. You need to specify an account to charge the computations inside the job script. The job script copies the necessary data for the job to the compute node for smooth computation.
-## B. Generate matrices
-```mermaid
-flowchart LR
-    A[B]
-```
-To generate matrices on a trained network run the following:
-```bash
-python generate_matrices.py --default_index {idx} --num_samples_per_class {num} --nb_workers {workers}
-```
-By default, `num=1000` and `workers=8`. This will create and save all the matrices in the directory `experiments/{idx}/matrices/{k}/{i}/` where `k` runs over all the classes in the dataset and `i` goes from 0 to `num-1`. 
-If you have access to a SLURM cluster, run the following job
-```bash
-sbatch job_matrices.sh
-```
-The variable `$SLURM_ARRAY_TASK_ID` determines the index of the experiment. You need to specify an account to charge the computations inside the job script. The job script copies the necessary data for the job to the compute node for smooth computation.
-## C. Generate adversarial examples
-```mermaid
-flowchart LR
-    A[C]
-```
-To generate adversarial examples on the 21 attack methods specified in `constants/constants.py` run the following:
-```bash
-python generate_adversarial_examples.py --default_index {idx} --test_size {ts} --nb_workers {workers}
-```
-By default, `ts=-1`, takes the whole test set to compute adversarial examples.
-This will create files `experiments/{idx}/adversarial_examples/{attack_method}/adversarial_examples.pth` which contain all the generated adversarial examples per `attack_method`.
-If you have access to a SLURM cluster, run the following job
-```bash
-sbatch job_generate_adv_ex.sh
-```
-The variable `$SLURM_ARRAY_TASK_ID` determines the index of the experiment. You need to specify an account to charge the computations inside the job script. The job script copies the necessary data for the job to the compute node for smooth computation.
-## D. Compute matrices for rejection level
-```mermaid
-flowchart LR
-    A[D]
-```
-To generate matrices from a random subset of the train data to later compute the rejection level as specified in the paper, run the following:
-```bash
-python compute_matrices_for_rejection_level.py --default_index {idx} --num_samples_rejection_level {N} --nb_workers {workers}
-```
-By default, `N=10k`. This will create files `experiments/{idx}/rejection_levels/matrices/{i}/matrix.pth` together with the corresponding prediction of the network `experiments/{idx}/rejection_levels/matrices/{i}/prediction.pth`, where `i` goes from 0 to `N-1`.
-If you have access to a SLURM cluster, run the following job
-```bash
-sbatch job_gen_mat_rej_lev.sh
-```
-The variable `$SLURM_ARRAY_TASK_ID` determines the index of the experiment. You need to specify an account to charge the computations inside the job script. The job script copies the necessary data for the job to the compute node for smooth computation.
-## E. Compute matrix statistics
-```mermaid
-flowchart LR
-    A[E]
-```
-To compute matrix statistics, i.e., mean and standard deviation matrices per class run the following:
-```bash
-python compute_matrix_statistics.py --default_index {idx}
-```
-This will create the following JSON file `experiments/{idx}/matrices/matrix_statistics.json`.
-If you have access to a SLURM cluster, run the following job
-```bash
-sbatch job_matrix_statistics.sh
-```
-The variable `$SLURM_ARRAY_TASK_ID` determines the index of the experiment. You need to specify an account to charge the computations inside the job script. The job script copies the necessary data for the job to the compute node for smooth computations. This script does not require parallel computation and only 1 CPU will suffice.
-## F. Generate adversarial matrices
-```mermaid
-flowchart LR
-    A[F]
-```
-To generate the matrices of each adversarial example generated in step 4 run the following:
-```bash
-python generate_adversarial_matrices.py --default_index {idx} --nb_workers {workers}
-```
-This will create files `experiments/{idx}/adversarial_matrices/{attack_method}/{i}/matrix.pth` corresponding to the different `attack_method`s where `i` runs from 0 to the total number of adversarial examples generated per attack method.
-If you have access to a SLURM cluster, run the following job
-```bash
-sbatch job_generate_adv_mats.sh
-```
-The variable `$SLURM_ARRAY_TASK_ID` determines the index of the experiment. You need to specify an account to charge the computations inside the job script. The job script copies the necessary data for the job to the compute node for smooth computation.
-## G. Compute rejection levels
-```mermaid
-flowchart LR
-    A[G]
-```
-To run a grid search to compute several rejection levels run the following:
-```bash
-python grid_search.py --default_index {idx} --rej_lev 1 --nb_workers {workers}
-```
-This will create files `experiments/{idx}/rejection_levels/reject_at_{s}_{d1}.json` for different values of `s, d1`.
-If you have access to a SLURM cluster, run the following job
-```bash
-sbatch job_grid_search.sh
-```
-The variable `$SLURM_ARRAY_TASK_ID` determines the index of the experiment. You need to specify an account to charge the computations inside the job script. The job script copies the necessary data for the job to the compute node for smooth computation.
+> Parallel paths (B, C, D) run simultaneously after training completes.
 
-**WARNING** You have to manually change the variable `--rej_lev 1` at the bottom of the shell file to compute rejection levels.
+---
 
-## H. Detect adversarial examples
-```mermaid
-flowchart LR
-    A[H]
-```
-To run the detection algorithm using the pre-computed rejection levels run the following:
-```bash
-python grid_search.py --default_index {idx} --rej_lev 0 --nb_workers {workers}
-```
-This will create a file `experiments/{idx}/grid_search/grid_search_{idx}.txt` which contains the percentages of good defence and wrong rejection for each combination of the parameters `s, d1, d2`.
-If you have access to a SLURM cluster, run the following job
-```bash
-sbatch job_grid_search.sh
-```
-The variable `$SLURM_ARRAY_TASK_ID` determines the index of the experiment. You need to specify an account to charge the computations inside the job script. The job script copies the necessary data for the job to the compute node for smooth computation.
+## Quick Start
 
-**WARNING** You have to manually change the variable `--rej_lev 0` at the bottom of the shell file to run the detection algorithm with the pre-computed rejection levels.
+### 1. Environment Setup
 
-### I. Read results
-```mermaid
-flowchart LR
-    A[I]
-```
-To filter the results from the grid search run the following:
+**Local machine:**
 ```bash
-python read_results.py --default_index {idx}
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
 ```
-This will create files `experiments/{idx}/results/{i}_output_{s}_{d1}_{d2}.txt` containing the output of the detection algorithm ran with parameters `s, d1, d2` with the top 3 results given by `i=0,1,2`.
-If you have access to a SLURM cluster, run the following job
+
+**Compute Canada / Alliance cluster:**
 ```bash
-sbatch job_read_results.sh
+module load StdEnv/2023 python/3.11.5 scipy-stack/2025a
+virtualenv env_rorqual
+source env_rorqual/bin/activate
+pip install --no-index --upgrade pip
+pip install -r requirements-slurm.txt
+pip install git+https://github.com/samueleblanc/knowledgematrix.git
 ```
-The variable `$SLURM_ARRAY_TASK_ID` determines the index of the experiment. You need to specify an account to charge the computations inside the job script. The job script copies the necessary data for the job to the compute node for smooth computation. This script does not require parallel computation and only 1 CPU will suffice.
+
+### 2. Run an Experiment (Automated)
+
+The **orchestrator** handles the entire pipeline with a single command:
+
+```bash
+# Full pipeline for one experiment
+bash run_experiment.sh --skip-audit alexnet_cifar10
+
+# Multiple experiments
+bash run_experiment.sh --skip-audit alexnet_cifar10 resnet_cifar10 vgg_cifar100
+
+# With checkpointing (audits what's already done, runs only missing steps)
+bash run_experiment.sh alexnet_cifar10
+```
+
+The orchestrator automatically:
+- Downloads datasets and pretrained weights if missing
+- Validates experiment names against `constants/constants.py`
+- Submits all pipeline stages with correct Slurm dependency chains
+- Runs a final audit to verify all outputs
+
+---
+
+## Testing the Pipeline
+
+Use `--test` mode to validate the entire pipeline end-to-end with tiny sample sizes:
+
+```bash
+# Quick test (~15 min total)
+bash run_experiment.sh --test --skip-audit alexnet_cifar10
+
+# Dry run (generates scripts without submitting)
+bash run_experiment.sh --test --skip-audit --dry-run alexnet_cifar10
+```
+
+**Test mode parameters:**
+
+| Parameter | Normal | Test |
+|-----------|--------|------|
+| Chunks | 8 | 2 |
+| Batch size | 1800 | 100 |
+| Samples/class | 100 | 10 |
+| Samples/attack | 500 | 10 |
+| Rejection level samples | 10,000 | 100 |
+| Adv example test size | 10,000 | 100 |
+
+After a test run, check the generated scripts:
+```bash
+ls experiments/alexnet_cifar10/orchestrator_jobs/
+```
+
+---
+
+## Orchestrator Reference
+
+```
+bash run_experiment.sh [OPTIONS] experiment_name [experiment_name ...]
+```
+
+### Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--account ACCOUNT` | `def-assem` | Slurm billing account |
+| `--total-chunks N` | `8` | Parallel chunks for matrix jobs |
+| `--batch-size N` | `1800` | Matrix computation batch size |
+| `--samples-per-class N` | `100` | Training samples per class for matrices |
+| `--samples-per-attack N` | `500` | Adversarial examples per attack method |
+| `--samples-rejection-level N` | `10000` | Samples for rejection level computation |
+| `--test-size N` | `-1` (all) | Test set size for adversarial examples |
+| `--env ENV_NAME` | `env_rorqual` | Python virtual environment name |
+| `--skip-audit` | off | Skip audit, submit full pipeline |
+| `--test` | off | Test mode with small samples and short limits |
+| `--dry-run` | off | Generate scripts without submitting |
+
+### Modes
+
+**Audit mode** (default): Submits an audit job to check what's already computed, then a dispatcher job that reads the audit results and only submits the missing pipeline steps.
+
+**Skip-audit mode** (`--skip-audit`): Submits the full pipeline A-G directly. Use for fresh experiments where nothing is precomputed.
+
+### Pre-flight Checks
+
+The orchestrator runs these checks on the login node before submitting jobs:
+
+1. Validates experiment names exist in `DEFAULT_EXPERIMENTS`
+2. Checks for required datasets, downloads if missing (CIFAR-10/100, MNIST)
+3. Checks for pretrained weights (AlexNet/ResNet/VGG ImageNet), downloads if missing
+
+---
+
+## Slurm Resource Profiles
+
+| Step | GPU | CPUs | Memory | Time |
+|------|-----|------|--------|------|
+| A. Training | A100 (10GB) | 3 | 31 GB | 30 min |
+| B. Matrices (x8) | H100 | 12 | 280 GB | 20 min |
+| C. Adversarial Examples | 1 GPU | 16 | 124 GB | 4 hrs |
+| D. Rejection Levels (x8) | 1 GPU | 16 | 180 GB | 9 hrs |
+| E. Matrix Statistics | -- | 2 | 16 GB | 1 hr |
+| F. Adv Matrices (x8) | H100 | 12 | 280 GB | 12 hrs |
+| G. Grid Search | -- | 64 | 2.6 TB | 48 hrs |
+
+---
+
+## Running Individual Steps
+
+Each step can be run manually if needed.
+
+### A. Train the Network
+```bash
+python training.py --experiment_name alexnet_cifar10 --temp_dir $SLURM_TMPDIR
+```
+Outputs: `experiments/alexnet_cifar10/weights/epoch_*.pth`
+
+### B. Generate Knowledge Matrices
+```bash
+python generate_matrices.py --experiment alexnet_cifar10 --chunk_id 0 --total_chunks 8 \
+    --batch_size 1800 --num_samples_per_class 100 --temp_dir $SLURM_TMPDIR
+```
+Outputs: `experiments/alexnet_cifar10/matrices/{class}/{sample}/matrix.pt`
+
+### C. Generate Adversarial Examples
+```bash
+python generate_adversarial_examples.py --experiment_name alexnet_cifar10 \
+    --temp_dir $SLURM_TMPDIR
+```
+Outputs: `experiments/alexnet_cifar10/adversarial_examples/{attack}/adversarial_examples.pth`
+
+### D. Compute Rejection Level Matrices
+```bash
+python compute_matrices_for_rejection_level.py --experiment_name alexnet_cifar10 \
+    --chunk_id 0 --total_chunks 8 --batch_size 1800 --temp_dir $SLURM_TMPDIR
+```
+Outputs: `experiments/alexnet_cifar10/rejection_levels/matrices/{i}/matrix.pth`
+
+### E. Compute Matrix Statistics
+```bash
+python compute_matrix_statistics.py --experiment_name alexnet_cifar10 --temp_dir $SLURM_TMPDIR
+```
+Outputs: `experiments/alexnet_cifar10/matrices/matrix_statistics.json`
+
+### F. Generate Adversarial Matrices
+```bash
+python generate_adversarial_matrices.py --experiment_name alexnet_cifar10 \
+    --chunk_id 0 --total_chunks 8 --batch_size 1800 --samples_per_attack 500 \
+    --temp_dir $SLURM_TMPDIR
+```
+Outputs: `experiments/alexnet_cifar10/adversarial_matrices/{attack}/{i}/matrix.pth`
+
+### G. Grid Search and Detection
+```bash
+python grid_search.py --experiment_name alexnet_cifar10 --rej_lev 0 \
+    --nb_workers 64 --temp_dir $SLURM_TMPDIR
+```
+Outputs: `experiments/alexnet_cifar10/grid_search/`, `experiments/alexnet_cifar10/rejection_levels/reject_at_*.json`
+
+---
+
+## Experiment Directory Structure
+
+```
+experiments/alexnet_cifar10/
+|
+|-- weights/
+|   |-- epoch_10.pth
+|   |-- epoch_20.pth
+|   |-- ...
+|   +-- epoch_70.pth                       <- Step A
+|
+|-- matrices/
+|   |-- 0/                                 <- Class 0
+|   |   |-- 0/matrix.pt
+|   |   |-- 1/matrix.pt
+|   |   +-- ...
+|   |-- 1/                                 <- Class 1
+|   |   +-- ...
+|   +-- matrix_statistics.json             <- Step E
+|
+|-- matrices_task_0.zip                    <- Step B (chunk 0)
+|-- matrices_task_1.zip
+|-- ...
+|-- matrices_task_7.zip                    <- Step B (chunk 7)
+|
+|-- adversarial_examples/
+|   |-- test/
+|   |   |-- adversarial_examples.pth
+|   |   +-- labels.pth
+|   |-- GN/
+|   |   |-- adversarial_examples.pth
+|   |   +-- wrong_predictions.pth
+|   |-- FGSM/
+|   |-- PGD/
+|   +-- ...                                <- Step C (17 attacks)
+|
+|-- adversarial_matrices/
+|   |-- test/0/matrix.pth
+|   |-- GN/0/matrix.pth
+|   +-- ...
+|
+|-- adv_matrices_task_0.zip                <- Step F (chunk 0)
+|-- ...
+|-- adv_matrices_task_7.zip                <- Step F (chunk 7)
+|
+|-- rejection_levels/
+|   |-- exp_dataset_train.pth
+|   |-- exp_dataset_labels.pth
+|   |-- matrices/
+|   |   |-- 0/matrix.pth
+|   |   |-- 0/prediction.pth
+|   |   +-- ...
+|   |-- matrices_task_0.zip                <- Step D (chunk 0)
+|   |-- ...
+|   +-- reject_at_*.json                   <- Step G
+|
+|-- grid_search/
+|   +-- grid_search.txt                    <- Step G (final results)
+|
+|-- audit_report.json                      <- Data integrity report
+|-- recovery_plan.sh                       <- Auto-generated recovery plan
++-- orchestrator_jobs/                     <- Generated Slurm scripts
+```
+
+---
+
+## Available Experiments
+
+Experiments are defined in `constants/constants.py`. Key experiments:
+
+| Name | Architecture | Dataset | Epochs |
+|------|-------------|---------|--------|
+| `alexnet_cifar10` | AlexNet (pretrained) | CIFAR-10 | 70 |
+| `resnet_cifar10` | ResNet18 | CIFAR-10 | 100 |
+| `resnet_cifar100` | ResNet18 | CIFAR-100 | 100 |
+| `vgg_cifar100` | VGG11 | CIFAR-100 | 150 |
+| `mlp_mnist` | MLP (512x3) | MNIST | 5 |
+| `lenet_cifar10` | LeNet CNN | CIFAR-10 | 507 |
+
+### Adding New Experiments
+
+Add an entry to `DEFAULT_EXPERIMENTS` in `constants/constants.py`:
+
+```python
+'my_experiment': {
+    'dataset': 'cifar10',           # mnist, fashion, cifar10, cifar100, imagenet
+    'architecture_index': -3,       # -3=AlexNet, -2=ResNet18, -1=VGG11, -4=LeNet
+    'epochs': 50,
+    'batch_size': 32,
+    'lr': 0.001,
+    'optimizer': 'adam',            # adam, sgd
+    'momentum': 0.0,
+    'weight_decay': 0.001,
+    'scheduler': 'multi',          # step, cosine, exp, multi, cyclic
+}
+```
+
+Then run:
+```bash
+bash run_experiment.sh --skip-audit my_experiment
+```
+
+---
+
+## Adversarial Attacks
+
+The pipeline tests 17 adversarial attack methods (from `torchattacks`):
+
+| Category | Attacks |
+|----------|---------|
+| Noise | GN (Gaussian Noise) |
+| Gradient-based | FGSM, PGD, EOTPGD, MIFGSM, VMIFGSM |
+| Optimization-based | CW (Carlini-Wagner), DeepFool, Pixle |
+| AutoAttack family | APGD, APGDT, FAB, Square |
+| Other | SPSA, EADL1, EADEN |
+
+Attacks that fail to produce any misclassified examples are automatically skipped (logged as warnings). Individual attack failures do not crash the pipeline.
+
+---
+
+## Data Integrity and Auditing
+
+The audit system (`utils/data_integrity.py`) verifies all experiment artifacts:
+
+```bash
+# Run a standalone audit
+sbatch job_audit.sh
+
+# Run recovery for failed steps
+bash job_recovery.sh
+```
+
+The audit checks:
+- All matrix zip files exist and are valid
+- `.pth` tensors inside zips can be loaded (random 10% sample)
+- All adversarial example files exist
+- Matrix statistics JSON exists
+- Grid search results exist
+
+Recovery plans are auto-generated with dependency propagation (e.g., if Step B fails, Steps E and G are also flagged for re-run).
+
+---
+
+## Error Resilience
+
+The pipeline handles errors gracefully:
+
+- **Numerical errors** in matrix computation (NaN/Inf from activation ratios): automatically replaced with zeros, individual matrices that fail entirely are skipped with a warning
+- **Adversarial attack failures**: attacks that crash or produce 0 adversarial examples are skipped, logged, and the pipeline continues
+- **Zip corruption**: verified before copying to permanent storage; corrupted files trigger re-computation
+
+---
+
+## Troubleshooting
+
+| Problem | Solution |
+|---------|----------|
+| `TypeError: AlexNet.__init__() got an unexpected keyword argument 'freeze_features'` | Update the `knowledgematrix` package: `pip install --upgrade git+https://github.com/samueleblanc/knowledgematrix.git` |
+| `FileNotFoundError: pretrained-weights.pth` | Run the orchestrator, which downloads pretrained weights automatically. Or manually: `python -c "from torchvision.models import alexnet, AlexNet_Weights; import torch; torch.save(alexnet(weights=AlexNet_Weights.DEFAULT).state_dict(), 'experiments/alexnet_imagenet/weights/pretrained-weights.pth')"` |
+| Out of memory on GPU | Reduce `--batch-size` (e.g., from 1800 to 900) |
+| Job timeout | Increase time limits in the orchestrator or individual job scripts |
+| Missing dataset on compute node | The orchestrator downloads datasets during pre-flight checks. For manual runs: `python -c "from torchvision.datasets import CIFAR10; CIFAR10(root='./data', train=True, download=True)"` |
+
+---
+
+## Repository Structure
+
+```
+.
+|-- run_experiment.sh              <- Pipeline orchestrator (start here)
+|-- training.py                    <- Step A: model training
+|-- generate_matrices.py           <- Step B: knowledge matrix computation
+|-- generate_adversarial_examples.py <- Step C: adversarial attacks
+|-- compute_matrices_for_rejection_level.py <- Step D: rejection level matrices
+|-- compute_matrix_statistics.py   <- Step E: per-class statistics
+|-- generate_adversarial_matrices.py <- Step F: matrices for adversarial examples
+|-- grid_search.py                 <- Step G: grid search and detection
+|-- constants/
+|   +-- constants.py               <- Experiment configs, architectures, attacks
+|-- utils/
+|   |-- utils.py                   <- Model loading, datasets, utilities
+|   +-- data_integrity.py          <- Zip verification, experiment auditing
+|-- matrix_construction/
+|   |-- parallel.py                <- Parallel matrix computation
+|   +-- matrix_computation.py      <- Core matrix computation logic
+|-- model_zoo/                     <- Local model implementations
+|-- unit_test/                     <- Unit tests
+|-- job_*.sh                       <- Individual Slurm job scripts
++-- experiments/                   <- Experiment outputs (auto-created)
+```
