@@ -354,6 +354,26 @@ Log filenames follow the pattern: `PIPE_{step}_{experiment}_{jobid}.out` (e.g., 
 
 GPU monitoring logs are saved to `gpu-monitor/` with the pattern `{experiment}.{step}.{chunk}.log`.
 
+### Collecting Test Diagnostics
+
+After a test run, collect all errors and outputs into a single file for debugging:
+
+```bash
+# After running --test mode
+bash collect_test_logs.sh
+
+# After running normal mode
+bash collect_test_logs.sh normal
+```
+
+This produces `test_diagnostics.txt` containing:
+- Recent job summary (states, exit codes, elapsed time)
+- Calibration output and JSON
+- All non-empty error logs (last 50 lines each)
+- All step outputs (last 30 lines each)
+
+Share this single file when reporting issues.
+
 ---
 
 ## Available Experiments
@@ -461,6 +481,7 @@ The pipeline handles errors gracefully:
 .
 |-- run_experiment.sh              <- Pipeline orchestrator (start here)
 |-- calibrate.py                   <- GPU calibration (batch_size + timing)
+|-- collect_test_logs.sh           <- Collect test diagnostics into one file
 |-- training.py                    <- Step A: model training
 |-- generate_matrices.py           <- Step B: knowledge matrix computation
 |-- generate_adversarial_examples.py <- Step C: adversarial attacks

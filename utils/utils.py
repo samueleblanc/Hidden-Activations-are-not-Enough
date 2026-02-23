@@ -400,12 +400,14 @@ def get_model(
             The model to use.
     """
     weight_path = torch.load(str(path), map_location=torch.device(device))
+    # Use pretrained=False to avoid internet downloads on compute nodes.
+    # The state_dict loaded below overwrites all weights anyway.
     model = get_architecture(
                 architecture_index = architecture_index,
                 input_shape = input_shape,
                 num_classes = num_classes,
-                pretrained = True,
-                freeze_features = True,
+                pretrained = False,
+                freeze_features = False,
             ).to(device)
     model.load_state_dict(weight_path)
     return model

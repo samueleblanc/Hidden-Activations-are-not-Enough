@@ -114,12 +114,14 @@ class ParallelMatrixConstruction:
 
         state_dict = torch.load(model_path, map_location=self.device)
 
+        # Use pretrained=False to avoid internet downloads on compute nodes.
+        # The state_dict loaded below overwrites all weights anyway.
         model = get_architecture(
             input_shape=self.input_shape,
             num_classes=self.num_classes,
             architecture_index=self.architecture_index,
-            pretrained=True,
-            freeze_features=True,
+            pretrained=False,
+            freeze_features=False,
         )
         model.to(self.device)
         model.load_state_dict(state_dict)
