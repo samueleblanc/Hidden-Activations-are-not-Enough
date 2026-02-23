@@ -137,7 +137,28 @@ def main() -> None:
 
     input_shape = get_input_shape(dataset)
     num_classes = get_num_classes(dataset)
-    model = get_architecture(input_shape, num_classes, architecture_index, pretrained=True, freeze_features=True).to(device)
+    # Create model without pretrained (avoids internet downloads on compute nodes)
+    model = get_architecture(input_shape, num_classes, architecture_index, pretrained=False, freeze_features=False).to(device)
+
+    # Load pretrained weights from local file if available (for transfer learning)
+    arch_pretrained_paths = {-3: 'alexnet_imagenet', -2: 'resnet_imagenet', -1: 'vgg_imagenet'}
+    if architecture_index in arch_pretrained_paths:
+        pretrained_path = Path(f'experiments/{arch_pretrained_paths[architecture_index]}/weights/pretrained-weights.pth')
+        if args.temp_dir:
+            temp_path = Path(f'{args.temp_dir}/experiments/{arch_pretrained_paths[architecture_index]}/weights/pretrained-weights.pth')
+            if temp_path.exists():
+                pretrained_path = temp_path
+        if pretrained_path.exists():
+            print(f"Loading pretrained weights from: {pretrained_path}", flush=True)
+            state_dict = torch.load(str(pretrained_path), map_location=device)
+            model.load_state_dict(state_dict, strict=False)
+            # Freeze conv layers for transfer learning
+            for layer in model.layers:
+                if isinstance(layer, nn.Conv2d):
+                    for param in layer.parameters():
+                        param.requires_grad = False
+        else:
+            print(f"WARNING: Pretrained weights not found at {pretrained_path}. Training from scratch.", flush=True)
 
     # Define loss function and optimizer
     criterion = nn.CrossEntropyLoss().to(device)

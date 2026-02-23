@@ -371,6 +371,8 @@ def get_architecture(
                     if isinstance(layer, nn.Conv2d):
                         for param in layer.parameters():
                             param.requires_grad = False
+        # Defensive: ensure input_shape is correct for KnowledgeMatrixComputer
+        model.input_shape = input_shape
     else:
         model = CNN_2D(
             input_shape = input_shape,

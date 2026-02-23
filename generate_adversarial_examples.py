@@ -80,36 +80,23 @@ def apply_attack(
     ds = TensorDataset(data, labels)
     loader = DataLoader(ds, batch_size=batch_size, shuffle=False, pin_memory=True)
 
-    # build attack instance once (some attacks accept keyword args to reduce iterations/steps)
-    attacks_classes = dict(
-        zip(
-            ["test"] + ATTACKS,
-            [torchattacks.VANILA(model),
-             torchattacks.GN(model),
-             torchattacks.FGSM(model),
-             torchattacks.PGD(model),
-             torchattacks.EOTPGD(model),
-             torchattacks.MIFGSM(model),
-             torchattacks.VMIFGSM(model),
-             torchattacks.CW(model),
-             torchattacks.DeepFool(model),
-             torchattacks.Pixle(model),
-             torchattacks.APGD(model),
-             torchattacks.APGDT(model),
-             torchattacks.FAB(model),
-             torchattacks.Square(model),
-             torchattacks.SPSA(model),
-             #torchattacks.JSMA(model),
-             torchattacks.EADL1(model),
-             torchattacks.EADEN(model)
-            ]
-        )
-    )
-
-    attack_instance = attacks_classes.get(attack_name)
-    if attack_instance is None:
+    # Build attack instance lazily (handles missing attacks in different torchattacks versions)
+    attack_map = {
+        "test": "VANILA", "GN": "GN", "FGSM": "FGSM", "PGD": "PGD",
+        "EOTPGD": "EOTPGD", "MIFGSM": "MIFGSM", "VMIFGSM": "VMIFGSM",
+        "CW": "CW", "DeepFool": "DeepFool", "Pixle": "Pixle",
+        "APGD": "APGD", "APGDT": "APGDT", "FAB": "FAB", "Square": "Square",
+        "SPSA": "SPSA", "EADL1": "EADL1", "EADEN": "EADEN",
+    }
+    attack_cls_name = attack_map.get(attack_name)
+    if attack_cls_name is None:
         print(f"Unknown attack {attack_name}")
         return
+    attack_cls = getattr(torchattacks, attack_cls_name, None)
+    if attack_cls is None:
+        print(f"WARNING: Attack {attack_name} ({attack_cls_name}) not available in torchattacks {torchattacks.__version__}. Skipping.", flush=True)
+        return
+    attack_instance = attack_cls(model)
 
     if attack_name == "test":
         # run on entire dataset in batches but save everything

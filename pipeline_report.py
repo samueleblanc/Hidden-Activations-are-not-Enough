@@ -161,41 +161,78 @@ def check_step_completion(experiment, total_chunks):
 
 # ── Section 4: Error Analysis ────────────────────────────────────────────
 
-def analyze_errors(jobs, slurm_err_dir, sacct_data):
+def read_last_lines(filepath, n=50):
+    """Read the last n lines of a file."""
+    try:
+        with open(filepath) as f:
+            lines = f.readlines()
+        return "".join(lines[-n:])
+    except Exception:
+        return ""
+
+
+def analyze_errors(jobs, slurm_out_dir, slurm_err_dir, sacct_data):
     errors = []
+    seen_jobs = set()
+
     for job in jobs:
         jid = job["job_id"]
+        if jid in seen_jobs:
+            continue
+        seen_jobs.add(jid)
+
         info = sacct_data.get(jid, {})
         state = info.get("state", "UNKNOWN")
-        if state in ("COMPLETED",) or state == "UNKNOWN":
-            continue
-
-        err_pattern = os.path.join(slurm_err_dir, f"*_{jid}.err")
-        err_files = glob.glob(err_pattern)
-        last_lines = ""
-        category = "Unknown"
-
-        if err_files:
-            try:
-                with open(err_files[0]) as f:
-                    lines = f.readlines()
-                last_lines = "".join(lines[-30:])
-            except Exception:
-                last_lines = "(could not read error file)"
-
-            for cat_name, pat in ERROR_PATTERNS:
-                if pat.search(last_lines):
-                    category = cat_name
-                    break
-
         step_label = STEP_LABELS.get(job["step"], job["step"])
         chunk_str = f" chunk {job['chunk']}" if job["chunk"] is not None else ""
 
-        errors.append({
-            "job_id": jid, "step": f"{step_label}{chunk_str}",
-            "state": state, "category": category,
-            "last_lines": last_lines,
-        })
+        # For FAILED/TIMEOUT/CANCELLED jobs: scan .err files (existing behavior)
+        if state not in ("COMPLETED", "UNKNOWN"):
+            err_pattern = os.path.join(slurm_err_dir, f"*_{jid}.err")
+            err_files = glob.glob(err_pattern)
+            last_lines = ""
+            category = "Unknown"
+
+            if err_files:
+                last_lines = read_last_lines(err_files[0], 30)
+                if not last_lines:
+                    last_lines = "(could not read error file)"
+
+                for cat_name, pat in ERROR_PATTERNS:
+                    if pat.search(last_lines):
+                        category = cat_name
+                        break
+
+            errors.append({
+                "job_id": jid, "step": f"{step_label}{chunk_str}",
+                "state": state, "category": category,
+                "last_lines": last_lines,
+            })
+            continue
+
+        # For COMPLETED jobs: scan .err and .out files for runtime errors
+        for ext, directory in [("err", slurm_err_dir), ("out", slurm_out_dir)]:
+            pattern = os.path.join(directory, f"*_{jid}.{ext}")
+            files = glob.glob(pattern)
+            for f in files:
+                content = read_last_lines(f, 50)
+                if re.search(r'ERROR:|FAILED:|Traceback|RuntimeError|AttributeError|urllib\.error', content):
+                    category = "Unknown"
+                    for cat_name, pat in ERROR_PATTERNS:
+                        if pat.search(content):
+                            category = cat_name
+                            break
+                    errors.append({
+                        "job_id": jid, "step": f"{step_label}{chunk_str}",
+                        "state": f"{state} (Runtime Error)",
+                        "category": category,
+                        "last_lines": content,
+                    })
+                    break  # one error entry per job is enough
+            else:
+                continue
+            break  # break outer loop if inner found an error
+
     return errors
 
 
@@ -468,7 +505,7 @@ def main():
     sacct_data = query_sacct(set(job_ids))
     calibration = read_calibration(experiment)
     step_a_ok, integrity_report, epochs = check_step_completion(experiment, total_chunks)
-    errors = analyze_errors(jobs, slurm_err_dir, sacct_data)
+    errors = analyze_errors(jobs, slurm_out_dir, slurm_err_dir, sacct_data)
     gpu_data = parse_gpu_logs(experiment, total_chunks)
     recommendations = generate_recommendations(step_a_ok, integrity_report)
 
