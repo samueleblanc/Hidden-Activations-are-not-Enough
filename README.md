@@ -374,6 +374,27 @@ This produces `test_diagnostics.txt` containing:
 
 Share this single file when reporting issues.
 
+### Pipeline Reports
+
+Generate a comprehensive report of how the pipeline ran — job statuses, artifact verification, error analysis, GPU monitoring, and recovery recommendations:
+
+```bash
+# After a normal pipeline run
+python pipeline_report.py --experiment alexnet_cifar10
+
+# After a test run (reads from slurm_out_test/)
+python pipeline_report.py --experiment alexnet_cifar10 --test --total-chunks 2
+```
+
+Reports are saved to `reports/{experiment}_report_{timestamp}.txt` and never overwrite each other. Each report contains:
+
+1. **Job Status Summary** — state, exit code, elapsed time, memory for every job
+2. **Calibration Results** — batch_size, GPU utilization, estimated step durations
+3. **Pipeline Step Completion** — per-step artifact verification (OK/MISSING/CORRUPT)
+4. **Error Analysis** — categorized errors (OOM, timeout, network, etc.) with log excerpts
+5. **GPU Monitoring Summary** — peak/average utilization and memory from gpu-monitor logs
+6. **Recovery Recommendations** — what to re-run, with dependency propagation
+
 ---
 
 ## Available Experiments
@@ -481,6 +502,7 @@ The pipeline handles errors gracefully:
 .
 |-- run_experiment.sh              <- Pipeline orchestrator (start here)
 |-- calibrate.py                   <- GPU calibration (batch_size + timing)
+|-- pipeline_report.py             <- Post-run pipeline report (job status, errors, recommendations)
 |-- collect_test_logs.sh           <- Collect test diagnostics into one file
 |-- training.py                    <- Step A: model training
 |-- generate_matrices.py           <- Step B: knowledge matrix computation
