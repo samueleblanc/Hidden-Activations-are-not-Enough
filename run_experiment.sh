@@ -34,10 +34,12 @@ SKIP_AUDIT=false
 TEST_MODE=false
 NO_CALIBRATE=false
 MODULES="StdEnv/2023 python/3.11.5 scipy-stack/2025a"
+SLURM_OUT_DIR="slurm_out"
+SLURM_ERR_DIR="slurm_err"
 
 # --- Resource profiles (normal mode) ---
 # Step A
-A_GPU="--gpus=H100-1g.10gb :1"
+A_GPU="--gpus=h100:1"
 A_CPUS=2
 A_TIME="06:00:00"
 A_MEM="15G"
@@ -154,7 +156,11 @@ if [ "$TEST_MODE" = "true" ]; then
     SAMPLES_PER_ATTACK=10
     NUM_SAMPLES_REJECTION_LEVEL=100
     TEST_SIZE=100
+    # Separate log directories for test mode
+    SLURM_OUT_DIR="slurm_out_test"
+    SLURM_ERR_DIR="slurm_err_test"
     # Shorter time limits
+    A_GPU="--gpus=h100:1"
     A_TIME="00:10:00"
     A_MEM="8G"
     B_GPU="--gpus=h100:1"
@@ -413,10 +419,10 @@ submit_full_pipeline() {
 #SBATCH --cpus-per-task=$A_CPUS
 #SBATCH --time=$A_TIME
 #SBATCH --mem=$A_MEM
-#SBATCH --output=slurm_out/PIPE_A_${EXP}_%A.out
-#SBATCH --error=slurm_err/PIPE_A_${EXP}_%A.err
+#SBATCH --output=$SLURM_OUT_DIR/PIPE_A_${EXP}_%A.out
+#SBATCH --error=$SLURM_ERR_DIR/PIPE_A_${EXP}_%A.err
 
-mkdir -p \$SLURM_SUBMIT_DIR/slurm_out \$SLURM_SUBMIT_DIR/slurm_err
+mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
 module load $MODULES
 source $ENV_NAME/bin/activate
 
@@ -440,10 +446,10 @@ STEPA_EOF
 #SBATCH --cpus-per-task=$B_CPUS
 #SBATCH --time=$B_TIME
 #SBATCH --mem=$B_MEM
-#SBATCH --output=slurm_out/PIPE_B_${EXP}_c${CHUNK}_%A.out
-#SBATCH --error=slurm_err/PIPE_B_${EXP}_c${CHUNK}_%A.err
+#SBATCH --output=$SLURM_OUT_DIR/PIPE_B_${EXP}_c${CHUNK}_%A.out
+#SBATCH --error=$SLURM_ERR_DIR/PIPE_B_${EXP}_c${CHUNK}_%A.err
 
-mkdir -p \$SLURM_SUBMIT_DIR/slurm_out \$SLURM_SUBMIT_DIR/slurm_err
+mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
 module load $MODULES
 source $ENV_NAME/bin/activate
 
@@ -518,10 +524,10 @@ STEPB_EOF
 #SBATCH --cpus-per-task=$C_CPUS
 #SBATCH --time=$C_TIME
 #SBATCH --mem=$C_MEM
-#SBATCH --output=slurm_out/PIPE_C_${EXP}_%A.out
-#SBATCH --error=slurm_err/PIPE_C_${EXP}_%A.err
+#SBATCH --output=$SLURM_OUT_DIR/PIPE_C_${EXP}_%A.out
+#SBATCH --error=$SLURM_ERR_DIR/PIPE_C_${EXP}_%A.err
 
-mkdir -p \$SLURM_SUBMIT_DIR/slurm_out \$SLURM_SUBMIT_DIR/slurm_err
+mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
 module load $MODULES
 source $ENV_NAME/bin/activate
 
@@ -554,10 +560,10 @@ STEPC_EOF
 #SBATCH --cpus-per-task=$D_CPUS
 #SBATCH --time=$D_TIME
 #SBATCH --mem=$D_MEM
-#SBATCH --output=slurm_out/PIPE_D_${EXP}_c${CHUNK}_%A.out
-#SBATCH --error=slurm_err/PIPE_D_${EXP}_c${CHUNK}_%A.err
+#SBATCH --output=$SLURM_OUT_DIR/PIPE_D_${EXP}_c${CHUNK}_%A.out
+#SBATCH --error=$SLURM_ERR_DIR/PIPE_D_${EXP}_c${CHUNK}_%A.err
 
-mkdir -p \$SLURM_SUBMIT_DIR/slurm_out \$SLURM_SUBMIT_DIR/slurm_err
+mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
 module load $MODULES
 source $ENV_NAME/bin/activate
 
@@ -654,10 +660,10 @@ STEPD_EOF
 #SBATCH --cpus-per-task=$E_CPUS
 #SBATCH --time=$E_TIME
 #SBATCH --mem-per-cpu=$E_MEM
-#SBATCH --output=slurm_out/PIPE_E_${EXP}_%A.out
-#SBATCH --error=slurm_err/PIPE_E_${EXP}_%A.err
+#SBATCH --output=$SLURM_OUT_DIR/PIPE_E_${EXP}_%A.out
+#SBATCH --error=$SLURM_ERR_DIR/PIPE_E_${EXP}_%A.err
 
-mkdir -p \$SLURM_SUBMIT_DIR/slurm_out \$SLURM_SUBMIT_DIR/slurm_err
+mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
 module load $MODULES
 source $ENV_NAME/bin/activate
 
@@ -692,10 +698,10 @@ STEPE_EOF
 #SBATCH --cpus-per-task=$F_CPUS
 #SBATCH --time=$F_TIME
 #SBATCH --mem=$F_MEM
-#SBATCH --output=slurm_out/PIPE_F_${EXP}_c${CHUNK}_%A.out
-#SBATCH --error=slurm_err/PIPE_F_${EXP}_c${CHUNK}_%A.err
+#SBATCH --output=$SLURM_OUT_DIR/PIPE_F_${EXP}_c${CHUNK}_%A.out
+#SBATCH --error=$SLURM_ERR_DIR/PIPE_F_${EXP}_c${CHUNK}_%A.err
 
-mkdir -p \$SLURM_SUBMIT_DIR/slurm_out \$SLURM_SUBMIT_DIR/slurm_err
+mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
 module load $MODULES
 source $ENV_NAME/bin/activate
 
@@ -772,10 +778,10 @@ STEPF_EOF
 #SBATCH --cpus-per-task=$G_CPUS
 #SBATCH --time=$G_TIME
 #SBATCH --mem-per-cpu=$G_MEM_PER_CPU
-#SBATCH --output=slurm_out/PIPE_G_${EXP}_%A.out
-#SBATCH --error=slurm_err/PIPE_G_${EXP}_%A.err
+#SBATCH --output=$SLURM_OUT_DIR/PIPE_G_${EXP}_%A.out
+#SBATCH --error=$SLURM_ERR_DIR/PIPE_G_${EXP}_%A.err
 
-mkdir -p \$SLURM_SUBMIT_DIR/slurm_out \$SLURM_SUBMIT_DIR/slurm_err
+mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
 module load $MODULES
 source $ENV_NAME/bin/activate
 export OMP_NUM_THREADS=\$SLURM_CPUS_PER_TASK
@@ -841,10 +847,10 @@ STEPG_EOF
 #SBATCH --cpus-per-task=$AUDIT_CPUS
 #SBATCH --time=$AUDIT_TIME
 #SBATCH --mem=$AUDIT_MEM
-#SBATCH --output=slurm_out/PIPE_AUDIT_${EXP}_%A.out
-#SBATCH --error=slurm_err/PIPE_AUDIT_${EXP}_%A.err
+#SBATCH --output=$SLURM_OUT_DIR/PIPE_AUDIT_${EXP}_%A.out
+#SBATCH --error=$SLURM_ERR_DIR/PIPE_AUDIT_${EXP}_%A.err
 
-mkdir -p \$SLURM_SUBMIT_DIR/slurm_out \$SLURM_SUBMIT_DIR/slurm_err
+mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
 module load $MODULES
 source $ENV_NAME/bin/activate
 
@@ -905,7 +911,7 @@ echo "=============================================================="
 echo "  Pipeline Orchestrator — Submission"
 echo "=============================================================="
 
-mkdir -p slurm_out slurm_err
+mkdir -p "$SLURM_OUT_DIR" "$SLURM_ERR_DIR"
 
 for EXP in "${EXPERIMENTS[@]}"; do
     JOB_DIR="experiments/$EXP/orchestrator_jobs"
@@ -927,10 +933,10 @@ for EXP in "${EXPERIMENTS[@]}"; do
 #SBATCH --cpus-per-task=$CALIB_CPUS
 #SBATCH --time=$CALIB_TIME
 #SBATCH --mem=$CALIB_MEM
-#SBATCH --output=slurm_out/PIPE_CALIB_${EXP}_%A.out
-#SBATCH --error=slurm_err/PIPE_CALIB_${EXP}_%A.err
+#SBATCH --output=$SLURM_OUT_DIR/PIPE_CALIB_${EXP}_%A.out
+#SBATCH --error=$SLURM_ERR_DIR/PIPE_CALIB_${EXP}_%A.err
 
-mkdir -p \$SLURM_SUBMIT_DIR/slurm_out \$SLURM_SUBMIT_DIR/slurm_err
+mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
 module load $MODULES
 source $ENV_NAME/bin/activate
 
@@ -951,15 +957,16 @@ monitor_gpu() {
 monitor_gpu &
 MONITOR_PID=\$!
 
+# Always use full params for calibration (even in test mode) so results are reusable
 python calibrate.py \\
     --experiment_name $EXP \\
     --temp_dir \$SLURM_TMPDIR \\
     --target_utilization 0.93 \\
     --timing_samples 50 \\
-    --total_chunks $TOTAL_CHUNKS \\
-    --num_samples_per_class $NUM_SAMPLES_PER_CLASS \\
-    --samples_per_attack $SAMPLES_PER_ATTACK \\
-    --num_samples_rejection_level $NUM_SAMPLES_REJECTION_LEVEL
+    --total_chunks 8 \\
+    --num_samples_per_class 100 \\
+    --samples_per_attack 500 \\
+    --num_samples_rejection_level 10000
 
 kill \$MONITOR_PID 2>/dev/null || true
 echo "Calibration complete for $EXP."
@@ -1018,10 +1025,10 @@ CALIB_EOF
 #SBATCH --cpus-per-task=$AUDIT_CPUS
 #SBATCH --time=$AUDIT_TIME
 #SBATCH --mem=$AUDIT_MEM
-#SBATCH --output=slurm_out/PIPE_PREAUDIT_${EXP}_%A.out
-#SBATCH --error=slurm_err/PIPE_PREAUDIT_${EXP}_%A.err
+#SBATCH --output=$SLURM_OUT_DIR/PIPE_PREAUDIT_${EXP}_%A.out
+#SBATCH --error=$SLURM_ERR_DIR/PIPE_PREAUDIT_${EXP}_%A.err
 
-mkdir -p \$SLURM_SUBMIT_DIR/slurm_out \$SLURM_SUBMIT_DIR/slurm_err
+mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
 module load $MODULES
 source $ENV_NAME/bin/activate
 
@@ -1206,10 +1213,12 @@ AUDIT_EOF
 #SBATCH --cpus-per-task=1
 #SBATCH --time=00:15:00
 #SBATCH --mem=1G
-#SBATCH --output=slurm_out/PIPE_DISPATCH___EXP___%A.out
-#SBATCH --error=slurm_err/PIPE_DISPATCH___EXP___%A.err
+#SBATCH --output=__SLURM_OUT_DIR__/PIPE_DISPATCH___EXP___%A.out
+#SBATCH --error=__SLURM_ERR_DIR__/PIPE_DISPATCH___EXP___%A.err
 
-mkdir -p $SLURM_SUBMIT_DIR/slurm_out $SLURM_SUBMIT_DIR/slurm_err
+SLURM_OUT_DIR="__SLURM_OUT_DIR__"
+SLURM_ERR_DIR="__SLURM_ERR_DIR__"
+mkdir -p $SLURM_SUBMIT_DIR/$SLURM_OUT_DIR $SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
 
 EXPERIMENT="__EXP__"
 ACCOUNT="__ACCOUNT__"
@@ -1323,9 +1332,9 @@ if [ "$RECOVER_STEP_A" = "true" ]; then
 #SBATCH --cpus-per-task=$A_CPUS
 #SBATCH --time=$A_TIME
 #SBATCH --mem=$A_MEM
-#SBATCH --output=slurm_out/REC_A_${EXPERIMENT}_%A.out
-#SBATCH --error=slurm_err/REC_A_${EXPERIMENT}_%A.err
-mkdir -p \$SLURM_SUBMIT_DIR/slurm_out \$SLURM_SUBMIT_DIR/slurm_err
+#SBATCH --output=$SLURM_OUT_DIR/REC_A_${EXPERIMENT}_%A.out
+#SBATCH --error=$SLURM_ERR_DIR/REC_A_${EXPERIMENT}_%A.err
+mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
 module load $MODULES
 source $ENV_NAME/bin/activate
 $COPY_DATA
@@ -1347,9 +1356,9 @@ if [ "$RECOVER_STEP_B" = "true" ]; then
 #SBATCH --cpus-per-task=$B_CPUS
 #SBATCH --time=$B_TIME
 #SBATCH --mem=$B_MEM
-#SBATCH --output=slurm_out/REC_B_${EXPERIMENT}_c${CHUNK}_%A.out
-#SBATCH --error=slurm_err/REC_B_${EXPERIMENT}_c${CHUNK}_%A.err
-mkdir -p \$SLURM_SUBMIT_DIR/slurm_out \$SLURM_SUBMIT_DIR/slurm_err
+#SBATCH --output=$SLURM_OUT_DIR/REC_B_${EXPERIMENT}_c${CHUNK}_%A.out
+#SBATCH --error=$SLURM_ERR_DIR/REC_B_${EXPERIMENT}_c${CHUNK}_%A.err
+mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
 module load $MODULES
 source $ENV_NAME/bin/activate
 $COPY_DATA
@@ -1405,9 +1414,9 @@ if [ "$RECOVER_STEP_C" = "true" ]; then
 #SBATCH --cpus-per-task=$C_CPUS
 #SBATCH --time=$C_TIME
 #SBATCH --mem=$C_MEM
-#SBATCH --output=slurm_out/REC_C_${EXPERIMENT}_%A.out
-#SBATCH --error=slurm_err/REC_C_${EXPERIMENT}_%A.err
-mkdir -p \$SLURM_SUBMIT_DIR/slurm_out \$SLURM_SUBMIT_DIR/slurm_err
+#SBATCH --output=$SLURM_OUT_DIR/REC_C_${EXPERIMENT}_%A.out
+#SBATCH --error=$SLURM_ERR_DIR/REC_C_${EXPERIMENT}_%A.err
+mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
 module load $MODULES
 source $ENV_NAME/bin/activate
 $COPY_DATA
@@ -1434,9 +1443,9 @@ if [ "$RECOVER_STEP_D" = "true" ]; then
 #SBATCH --cpus-per-task=$D_CPUS
 #SBATCH --time=$D_TIME
 #SBATCH --mem=$D_MEM
-#SBATCH --output=slurm_out/REC_D_${EXPERIMENT}_c${CHUNK}_%A.out
-#SBATCH --error=slurm_err/REC_D_${EXPERIMENT}_c${CHUNK}_%A.err
-mkdir -p \$SLURM_SUBMIT_DIR/slurm_out \$SLURM_SUBMIT_DIR/slurm_err
+#SBATCH --output=$SLURM_OUT_DIR/REC_D_${EXPERIMENT}_c${CHUNK}_%A.out
+#SBATCH --error=$SLURM_ERR_DIR/REC_D_${EXPERIMENT}_c${CHUNK}_%A.err
+mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
 module load $MODULES
 source $ENV_NAME/bin/activate
 $COPY_DATA
@@ -1507,9 +1516,9 @@ if [ "$RECOVER_STEP_E" = "true" ]; then
 #SBATCH --cpus-per-task=$E_CPUS
 #SBATCH --time=$E_TIME
 #SBATCH --mem-per-cpu=$E_MEM
-#SBATCH --output=slurm_out/REC_E_${EXPERIMENT}_%A.out
-#SBATCH --error=slurm_err/REC_E_${EXPERIMENT}_%A.err
-mkdir -p \$SLURM_SUBMIT_DIR/slurm_out \$SLURM_SUBMIT_DIR/slurm_err
+#SBATCH --output=$SLURM_OUT_DIR/REC_E_${EXPERIMENT}_%A.out
+#SBATCH --error=$SLURM_ERR_DIR/REC_E_${EXPERIMENT}_%A.err
+mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
 module load $MODULES
 source $ENV_NAME/bin/activate
 mkdir -p \$SLURM_TMPDIR/experiments/$EXPERIMENT/matrices/
@@ -1538,9 +1547,9 @@ if [ "$RECOVER_STEP_F" = "true" ]; then
 #SBATCH --cpus-per-task=$F_CPUS
 #SBATCH --time=$F_TIME
 #SBATCH --mem=$F_MEM
-#SBATCH --output=slurm_out/REC_F_${EXPERIMENT}_c${CHUNK}_%A.out
-#SBATCH --error=slurm_err/REC_F_${EXPERIMENT}_c${CHUNK}_%A.err
-mkdir -p \$SLURM_SUBMIT_DIR/slurm_out \$SLURM_SUBMIT_DIR/slurm_err
+#SBATCH --output=$SLURM_OUT_DIR/REC_F_${EXPERIMENT}_c${CHUNK}_%A.out
+#SBATCH --error=$SLURM_ERR_DIR/REC_F_${EXPERIMENT}_c${CHUNK}_%A.err
+mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
 module load $MODULES
 source $ENV_NAME/bin/activate
 $COPY_DATA
@@ -1597,9 +1606,9 @@ if [ "$RECOVER_STEP_G" = "true" ]; then
 #SBATCH --cpus-per-task=$G_CPUS
 #SBATCH --time=$G_TIME
 #SBATCH --mem-per-cpu=$G_MEM_PER_CPU
-#SBATCH --output=slurm_out/REC_G_${EXPERIMENT}_%A.out
-#SBATCH --error=slurm_err/REC_G_${EXPERIMENT}_%A.err
-mkdir -p \$SLURM_SUBMIT_DIR/slurm_out \$SLURM_SUBMIT_DIR/slurm_err
+#SBATCH --output=$SLURM_OUT_DIR/REC_G_${EXPERIMENT}_%A.out
+#SBATCH --error=$SLURM_ERR_DIR/REC_G_${EXPERIMENT}_%A.err
+mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
 module load $MODULES
 source $ENV_NAME/bin/activate
 export OMP_NUM_THREADS=\$SLURM_CPUS_PER_TASK
@@ -1683,6 +1692,8 @@ DISPATCH_BODY
         sed -i "s|__AUDIT_CPUS__|$AUDIT_CPUS|g" "$JOB_DIR/dispatch.sh"
         sed -i "s|__AUDIT_TIME__|$AUDIT_TIME|g" "$JOB_DIR/dispatch.sh"
         sed -i "s|__AUDIT_MEM__|$AUDIT_MEM|g" "$JOB_DIR/dispatch.sh"
+        sed -i "s|__SLURM_OUT_DIR__|$SLURM_OUT_DIR|g" "$JOB_DIR/dispatch.sh"
+        sed -i "s|__SLURM_ERR_DIR__|$SLURM_ERR_DIR|g" "$JOB_DIR/dispatch.sh"
 
         # Submit
         if [ "$DRY_RUN" = "true" ]; then

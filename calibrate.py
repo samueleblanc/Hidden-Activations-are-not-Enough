@@ -257,12 +257,29 @@ def main():
     )
     sample_data, _ = subset(train_set, min(args.timing_samples + 10, len(train_set)), input_shape)
 
-    # --- Create model with random/pretrained weights ---
+    # --- Create model (pretrained=False to avoid internet download on compute nodes) ---
     print("\nCreating model...", flush=True)
+
+    # Check for trained weights on disk
+    weights_path = Path(f'experiments/{experiment}/weights/epoch_{total_epochs}.pth')
+    if args.temp_dir:
+        temp_weights = Path(f'{args.temp_dir}/experiments/{experiment}/weights/epoch_{total_epochs}.pth')
+        if temp_weights.exists():
+            weights_path = temp_weights
+
+    # Create model WITHOUT pretrained (avoids internet download on compute nodes)
     model = get_architecture(
         input_shape, num_classes, architecture_index,
-        pretrained=True, freeze_features=True
+        pretrained=False, freeze_features=False
     ).to(device)
+
+    # If trained weights exist, load them for more realistic calibration
+    if weights_path.exists():
+        print(f"Loading trained weights from: {weights_path}", flush=True)
+        state_dict = torch.load(str(weights_path), map_location=device)
+        model.load_state_dict(state_dict)
+    else:
+        print("No trained weights found. Using random weights for calibration.", flush=True)
 
     # --- Step 1: Train 2 epochs, measure time/memory ---
     print("\n--- Step 1: Training (2 epochs) ---", flush=True)

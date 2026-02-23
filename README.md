@@ -341,6 +341,21 @@ experiments/alexnet_cifar10/
 
 ---
 
+## Logs
+
+Slurm job output and error logs are saved in separate directories depending on the mode:
+
+| Mode | Output logs | Error logs |
+|------|------------|------------|
+| Normal | `slurm_out/` | `slurm_err/` |
+| Test (`--test`) | `slurm_out_test/` | `slurm_err_test/` |
+
+Log filenames follow the pattern: `PIPE_{step}_{experiment}_{jobid}.out` (e.g., `PIPE_B_alexnet_cifar10_c0_7248997.out`).
+
+GPU monitoring logs are saved to `gpu-monitor/` with the pattern `{experiment}.{step}.{chunk}.log`.
+
+---
+
 ## Available Experiments
 
 Experiments are defined in `constants/constants.py`. Key experiments:
