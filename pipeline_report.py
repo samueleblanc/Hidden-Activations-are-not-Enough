@@ -227,7 +227,7 @@ def parse_gpu_logs(experiment, total_chunks):
                             continue
         except Exception:
             continue
-        if utils_list:
+        if utils_list and mems_list:
             results[label] = {
                 "peak_util": max(utils_list),
                 "avg_util": sum(utils_list) / len(utils_list),
