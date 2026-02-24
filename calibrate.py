@@ -257,29 +257,19 @@ def main():
     )
     sample_data, _ = subset(train_set, min(args.timing_samples + 10, len(train_set)), input_shape)
 
-    # --- Create model (pretrained=False to avoid internet download on compute nodes) ---
+    # --- Create model with random weights ---
+    # pretrained=False avoids internet downloads on compute nodes.
+    # No state_dict loading — calibration measures memory/timing based on
+    # architecture and tensor shapes, not weight values.
     print("\nCreating model...", flush=True)
-
-    # Check for trained weights on disk
-    weights_path = Path(f'experiments/{experiment}/weights/epoch_{total_epochs}.pth')
-    if args.temp_dir:
-        temp_weights = Path(f'{args.temp_dir}/experiments/{experiment}/weights/epoch_{total_epochs}.pth')
-        if temp_weights.exists():
-            weights_path = temp_weights
-
-    # Create model WITHOUT pretrained (avoids internet download on compute nodes)
     model = get_architecture(
         input_shape, num_classes, architecture_index,
         pretrained=False, freeze_features=False
     ).to(device)
 
-    # If trained weights exist, load them for more realistic calibration
-    if weights_path.exists():
-        print(f"Loading trained weights from: {weights_path}", flush=True)
-        state_dict = torch.load(str(weights_path), map_location=device)
-        model.load_state_dict(state_dict)
-    else:
-        print("No trained weights found. Using random weights for calibration.", flush=True)
+    # Defensive: ensure input_shape is correct for KnowledgeMatrixComputer
+    model.input_shape = input_shape
+    print(f"Model input_shape: {model.input_shape}", flush=True)
 
     # --- Step 1: Train 2 epochs, measure time/memory ---
     print("\n--- Step 1: Training (2 epochs) ---", flush=True)
