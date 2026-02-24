@@ -126,6 +126,18 @@ def main() -> None:
     else:
         raise ValueError("Experiment not specified in constants/constants.py")
 
+    # Check if training is already complete — skip if final weights exist
+    weights_dir = Path(f'experiments/{experiment}/weights')
+    if args.temp_dir:
+        temp_weights_dir = Path(f'{args.temp_dir}/experiments/{experiment}/weights')
+        if temp_weights_dir.exists():
+            weights_dir = temp_weights_dir
+    final_weights = weights_dir / f'epoch_{epochs}.pth'
+    if final_weights.exists():
+        print(f"Training already completed. Weights found: {final_weights}", flush=True)
+        print(f"Skipping training for {experiment}.", flush=True)
+        return
+
     print(f"Training: {experiment}", flush=True)
     device = get_device()
     train_loader, test_loader = get_dataset(
