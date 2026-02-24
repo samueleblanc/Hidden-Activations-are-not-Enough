@@ -83,7 +83,7 @@ def save_one_matrix(
         matrix_save_path = Path(f'experiments/{experiment_name}/adversarial_matrices') / f'{attack}' / f'{i}/matrix.pth'
 
     if not matrix_save_path.exists():
-        mat = matrix_computer.forward(im.unsqueeze(0).to(device))
+        mat = matrix_computer.forward(im.to(device))
         matrix_save_path.parent.mkdir(parents=True, exist_ok=True)
         torch.save(mat.cpu(), matrix_save_path)
 

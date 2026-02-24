@@ -82,7 +82,7 @@ def compute_one_matrix(args: tuple) -> None:
     if os.path.exists(path_experiment_matrix):
         return
 
-    mat = matrix_computer.forward(im.unsqueeze(0))
+    mat = matrix_computer.forward(im)
 
     torch.save(pred.cpu().detach(), path_prediction)
     torch.save(mat.cpu().detach(), path_experiment_matrix)

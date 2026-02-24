@@ -163,8 +163,6 @@ class ParallelMatrixConstruction:
             if os.path.exists(matrix_path):
                 # if matrix was already computed, pass to next sample of data
                 continue
-            # TODO: maybe do unsqueeze inside forward method of matrix computer
-            d = d.unsqueeze(0)
             matrix = matrix_computer.forward(d)
             os.makedirs(root)
             torch.save(matrix, matrix_path)

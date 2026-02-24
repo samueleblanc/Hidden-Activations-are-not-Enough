@@ -96,7 +96,7 @@ def probe_batch_size(model, sample_input, batch_size, device):
 
     try:
         mc = KnowledgeMatrixComputer(model, batch_size=batch_size, device=device)
-        mc.forward(sample_input.unsqueeze(0).to(device))
+        mc.forward(sample_input.to(device))
         peak = torch.cuda.max_memory_allocated(device)
         return True, peak
     except RuntimeError as e:
@@ -179,7 +179,7 @@ def time_matrix_computation(model, dataset_tensor, batch_size, device, n_samples
     times = []
 
     for i in range(n):
-        im = dataset_tensor[i].unsqueeze(0).to(device)
+        im = dataset_tensor[i].to(device)
         torch.cuda.empty_cache()
 
         start = time.time()
