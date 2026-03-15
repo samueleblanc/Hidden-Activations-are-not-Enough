@@ -685,11 +685,10 @@ def reject_predicted_attacks_baseline_matrices(
     }
 
     print("Mahalanobis preparation (fast & stable)...", flush=True)
-    base_path = f'{temp_dir}/experiments/{experiment_name}' if temp_dir is not None else f'experiments/{experiment_name}'
-    class_means_file = base_path / Path('/counts_per_attack/mah_means_proj.npz')
-    class_prec_file = base_path / Path('/counts_per_attack/mah_prec_proj.npz')
-    pca_file = base_path / Path('/counts_per_attack/mah_svd.npz')
-    pca_file = base_path / Path('/counts_per_attack/mah_svd.npz')
+    base_path_str = f'{temp_dir}/experiments/{experiment_name}' if temp_dir is not None else f'experiments/{experiment_name}'
+    class_means_file = Path(base_path_str) / 'counts_per_attack' / 'mah_means_proj.npz'
+    class_prec_file = Path(base_path_str) / 'counts_per_attack' / 'mah_prec_proj.npz'
+    pca_file = Path(base_path_str) / 'counts_per_attack' / 'mah_svd.npz'
 
     # Decide projection dimension (cap to keep memory reasonable)
     N, D = train_data_np.shape
@@ -825,8 +824,9 @@ def reject_predicted_attacks_baseline_matrices(
 
         output_file = Path(f'experiments/{experiment_name}/grid_search/baseline_matrices.txt')
         Path(f'experiments/{experiment_name}/grid_search/').mkdir(parents=True, exist_ok=True)
-        with open(output_file, 'w') as f:
-            f.write("method,parameter,experiment_name,good_defence,wrong_rejection\n")
+        if not output_file.exists():
+            with open(output_file, 'w') as f:
+                f.write("method,parameter,experiment_name,good_defence,wrong_rejection\n")
 
         for method in methods:
             results = []

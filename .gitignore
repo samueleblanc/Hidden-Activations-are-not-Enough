@@ -10,4 +10,5 @@ matrix/
 .idea/
 README-integrity.md
 env/
-requirements-local.txt
+requirements-local.txtCLAUDE.md
+README-responses.md

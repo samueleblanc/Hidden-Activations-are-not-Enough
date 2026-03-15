@@ -310,6 +310,20 @@ submit_job_afterany() {
     echo "$job_id"
 }
 
+enforce_min_time() {
+    # Ensures SLURM time is at least 30 minutes (HH:MM:SS)
+    local time_str="$1"
+    local min_seconds=1800  # 30 minutes
+    local h m s
+    IFS=: read -r h m s <<< "$time_str"
+    local total=$(( 10#$h * 3600 + 10#$m * 60 + 10#$s ))
+    if [ "$total" -lt "$min_seconds" ]; then
+        echo "00:30:00"
+    else
+        echo "$time_str"
+    fi
+}
+
 # Determine dataset dirs to copy based on experiment
 get_dataset_copy_commands() {
     local dataset="$1"
@@ -1492,6 +1506,12 @@ CALIB_EOF
         echo "    B: time=$B_TIME mem=$B_MEM  batch_size=$BATCH_SIZE"
         echo "    D: time=$D_TIME mem=$D_MEM"
         echo "    F: time=$F_TIME mem=$F_MEM"
+
+        # Enforce minimum 30-minute floor on calibrated times
+        A_TIME=$(enforce_min_time "$A_TIME")
+        B_TIME=$(enforce_min_time "$B_TIME")
+        D_TIME=$(enforce_min_time "$D_TIME")
+        F_TIME=$(enforce_min_time "$F_TIME")
     fi
 
     if [ "$SKIP_AUDIT" = "true" ]; then

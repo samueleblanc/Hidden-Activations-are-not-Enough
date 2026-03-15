@@ -41,36 +41,42 @@ ARCHITECTURES = [
 ]
 
 ATTACKS = [
-    "GN", 
-    "FGSM", 
-    # "RFGSM", 
-    "PGD", 
-    "EOTPGD", 
-    # "FFGSM", 
-    # "TPGD",
-    "MIFGSM", 
-    # "UPGD", 
-    # "DIFGSM", 
-    # "NIFGSM",
-    # "PGDRS", 
-    "VMIFGSM",  
-    # "VNIFGSM",
-    "CW", 
-    # "PGDL2",
-    # "PGDRSL2",
-    "DeepFool", 
-    # "SparseFool", 
-    # "OnePixel", 
-    "Pixle",
-    "APGD",
-    "APGDT",
-    "FAB",
-    "Square",
-    "SPSA", # X
-    #"JSMA",
-    "EADL1",
-    "EADEN"
+    # --- Gradient-based attacks ---
+    "GN",           # Gaussian Noise (baseline)
+    "FGSM",         # Fast Gradient Sign Method (Goodfellow et al., 2015)
+    "PGD",          # Projected Gradient Descent (Madry et al., 2018)
+    "EOTPGD",       # Expectation Over Transformation PGD
+    "MIFGSM",       # Momentum Iterative FGSM (Dong et al., 2018)
+    "VMIFGSM",      # Variance-reduced MI-FGSM
+    "CW",           # Carlini & Wagner L2 (Carlini & Wagner, 2017)
+    "DeepFool",     # DeepFool (Moosavi-Dezfooli et al., 2016)
+    # --- AutoAttack ensemble (Croce & Hein, ICML 2020) ---
+    # The full AutoAttack suite: APGD-CE + APGD-T + FAB + Square
+    "APGD",         # Auto-PGD with CE loss (APGD-CE)
+    "APGDT",        # Auto-PGD with targeted DLR loss (APGD-T)
+    "FAB",          # Fast Adaptive Boundary attack
+    "Square",       # Square Attack (gradient-free, score-based)
+    # --- Gradient-free / perturbation-based attacks ---
+    "Pixle",        # Pixle attack (perturbation-free, pixel remapping)
+    "SPSA",         # Simultaneous Perturbation Stochastic Approximation (gradient-free)
+    # --- Elastic-net attacks ---
+    "EADL1",        # Elastic-net Attack L1 (Chen et al., 2018)
+    "EADEN",        # Elastic-net Attack Decision-based
 ]
+
+# AutoAttack ensemble components for verification against Croce & Hein (ICML 2020):
+# APGD-CE (APGD), APGD-T (APGDT), FAB, Square
+# torchattacks uses default AutoAttack parameterization matching the original paper.
+AUTOATTACK_COMPONENTS = ["APGD", "APGDT", "FAB", "Square"]
+
+# Attack categories for paper presentation
+ATTACK_CATEGORIES = {
+    "gradient_based": ["FGSM", "PGD", "EOTPGD", "MIFGSM", "VMIFGSM", "CW", "DeepFool"],
+    "autoattack":     ["APGD", "APGDT", "FAB", "Square"],
+    "gradient_free":  ["Square", "SPSA", "Pixle"],
+    "elastic_net":    ["EADL1", "EADEN"],
+    "baseline_noise": ["GN"],
+}
 
 DEFAULT_EXPERIMENTS = {
     'resnet_cifar100': { # accuracy: 0.5017
@@ -123,6 +129,17 @@ DEFAULT_EXPERIMENTS = {
         'optimizer': 'sgd',
         'momentum': 0.6215073814724885,
         'weight_decay': 6.914150600886057e-05,
+    },
+    'vgg_cifar10': {
+        'epochs': 100,
+        'dataset': 'cifar10',
+        'batch_size': 32,
+        'lr': 0.00012344300494603974,
+        'optimizer': 'adam',
+        'momentum': 0.0,
+        'weight_decay': 0.0001391604103021994,
+        'scheduler': 'multi',
+        'architecture_index': -1,
     },
     'vgg_cifar100': {
         'epochs': 150,

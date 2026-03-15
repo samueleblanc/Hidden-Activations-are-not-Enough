@@ -1,0 +1,19 @@
+\begin{table}[t]
+\centering
+\caption{Comparison of detection method properties. Our knowledge matrix approach is the only method that is simultaneously architecture-agnostic, attack-agnostic, requires no retraining, and provides theoretical guarantees.}
+\label{tab:method_comparison}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{l|ccccc}
+\toprule
+Property & Mahalanobis & LID & DkNN & Feature Squeeze & \textbf{Ours} \\
+& \cite{lee2018} & \cite{ma2018} & \cite{papernot2018} & \cite{xu2018} & \\
+\midrule
+Architecture-agnostic & \xmark & \xmark & \xmark & \xmark & \cmark \\
+Attack-agnostic & \xmark & \xmark & Partial & \xmark & \cmark \\
+No retraining needed & \cmark & \xmark & \xmark & \cmark & \cmark \\
+No auxiliary network & \cmark & \cmark & \cmark & \cmark & \cmark \\
+Theoretical guarantees & \xmark & \xmark & \xmark & \xmark & \cmark \\
+Demonstrated MLP+CNN & --- & --- & --- & --- & \cmark \\
+\bottomrule
+\end{tabular}}
+\end{table}
