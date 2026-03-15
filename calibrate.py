@@ -37,7 +37,7 @@ def parse_args():
     parser = ArgumentParser(description="GPU calibration for matrix computation pipeline")
     parser.add_argument("--experiment_name", type=str, required=True)
     parser.add_argument("--temp_dir", type=str, default=None)
-    parser.add_argument("--target_utilization", type=float, default=0.93)
+    parser.add_argument("--target_utilization", type=float, default=0.85)
     parser.add_argument("--timing_samples", type=int, default=50)
     parser.add_argument("--total_chunks", type=int, default=8)
     parser.add_argument("--num_samples_per_class", type=int, default=100)
@@ -106,7 +106,7 @@ def probe_batch_size(model, sample_input, batch_size, device):
         raise
 
 
-def find_optimal_batch_size(model, sample_input, device, target_utilization=0.93):
+def find_optimal_batch_size(model, sample_input, device, target_utilization=0.85):
     """
     Binary search for the largest batch_size that keeps GPU memory <= target.
     Returns (batch_size, peak_memory_bytes).

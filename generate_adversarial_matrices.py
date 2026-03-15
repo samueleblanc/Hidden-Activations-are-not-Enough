@@ -86,6 +86,8 @@ def save_one_matrix(
         mat = matrix_computer.forward(im.to(device))
         matrix_save_path.parent.mkdir(parents=True, exist_ok=True)
         torch.save(mat.cpu(), matrix_save_path)
+        del mat
+        torch.cuda.empty_cache()
 
 def generate_matrices_for_attacks(
         experiment_name: str,

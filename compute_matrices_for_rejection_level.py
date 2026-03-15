@@ -86,6 +86,8 @@ def compute_one_matrix(args: tuple) -> None:
 
     torch.save(pred.cpu().detach(), path_prediction)
     torch.save(mat.cpu().detach(), path_experiment_matrix)
+    del mat
+    torch.cuda.empty_cache()
 
 
 def compute_matrices_for_rejection_level(

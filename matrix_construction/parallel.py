@@ -166,3 +166,5 @@ class ParallelMatrixConstruction:
             matrix = matrix_computer.forward(d)
             os.makedirs(root)
             torch.save(matrix, matrix_path)
+            del matrix
+            torch.cuda.empty_cache()
