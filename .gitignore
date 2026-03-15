@@ -6,3 +6,8 @@ json
 os
 torch
 matrix/
+.DS_Store
+.idea/
+README-integrity.md
+env/
+requirements-local.txt

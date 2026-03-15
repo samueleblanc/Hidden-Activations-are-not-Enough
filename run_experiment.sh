@@ -10,12 +10,9 @@
 #           -> E(MatStats),F(AdvMatrices) -> G(GridSearch)
 #
 # Usage:
-#   bash run_experiment.sh alexnet_cifar10
-#   bash run_experiment.sh --test alexnet_cifar10
-#   bash run_experiment.sh --skip-audit alexnet_cifar10 resnet_cifar10
-#   bash run_experiment.sh --dry-run --test alexnet_cifar10
+#   bash run_experiment.sh
 #
-# Run from the project root directory on a login node.
+# Edit variables below to change experiment, mode, etc.
 # ==============================================================
 
 set -euo pipefail
@@ -30,12 +27,16 @@ NUM_SAMPLES_REJECTION_LEVEL=10000
 TEST_SIZE=-1
 ENV_NAME="env"
 DRY_RUN=false
-SKIP_AUDIT=false
+SKIP_AUDIT=true
 TEST_MODE=false
 NO_CALIBRATE=false
 MODULES="StdEnv/2023 python/3.11.5 scipy-stack/2025a"
 SLURM_OUT_DIR="slurm_out"
 SLURM_ERR_DIR="slurm_err"
+# --- Incremental save settings ---
+SAVE_INTERVAL=1000          # Incremental save every N new matrices
+SAVE_CHECK_SECONDS=60       # How often background process checks
+SAVE_GRACE_SECONDS=180      # Seconds before wall time to trigger emergency save
 
 # --- Resource profiles (normal mode) ---
 # Step A
@@ -84,66 +85,7 @@ CALIB_MEM="32G"
 # ==============================================================
 # Argument parsing
 # ==============================================================
-EXPERIMENTS=()
-
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        --account)
-            ACCOUNT="$2"; shift 2 ;;
-        --total-chunks)
-            TOTAL_CHUNKS="$2"; shift 2 ;;
-        --batch-size)
-            BATCH_SIZE="$2"; shift 2 ;;
-        --samples-per-class)
-            NUM_SAMPLES_PER_CLASS="$2"; shift 2 ;;
-        --samples-per-attack)
-            SAMPLES_PER_ATTACK="$2"; shift 2 ;;
-        --samples-rejection-level)
-            NUM_SAMPLES_REJECTION_LEVEL="$2"; shift 2 ;;
-        --test-size)
-            TEST_SIZE="$2"; shift 2 ;;
-        --env)
-            ENV_NAME="$2"; shift 2 ;;
-        --dry-run)
-            DRY_RUN=true; shift ;;
-        --skip-audit)
-            SKIP_AUDIT=true; shift ;;
-        --test)
-            TEST_MODE=true; shift ;;
-        --no-calibrate)
-            NO_CALIBRATE=true; shift ;;
-        --help|-h)
-            echo "Usage: bash run_experiment.sh [OPTIONS] experiment_name [experiment_name ...]"
-            echo ""
-            echo "Options:"
-            echo "  --account ACCOUNT         Slurm account (default: def-assem)"
-            echo "  --total-chunks N          Number of chunks for parallel jobs (default: 8)"
-            echo "  --batch-size N            Matrix computation batch size (default: 1800)"
-            echo "  --samples-per-class N     Samples per class for matrices (default: 100)"
-            echo "  --samples-per-attack N    Adversarial samples per attack (default: 500)"
-            echo "  --samples-rejection-level N  Rejection level samples (default: 10000)"
-            echo "  --test-size N             Test set size for adv examples (default: -1 = all)"
-            echo "  --env ENV_NAME            Virtual environment name (default: env_rorqual)"
-            echo "  --dry-run                 Generate scripts but don't submit"
-            echo "  --skip-audit              Skip audit, submit full pipeline directly"
-            echo "  --test                    Test mode: small samples, short time limits"
-            echo "  --no-calibrate            Skip GPU calibration, use hardcoded resource defaults"
-            echo "  --help                    Show this help message"
-            exit 0 ;;
-        -*)
-            echo "ERROR: Unknown option: $1"
-            exit 1 ;;
-        *)
-            EXPERIMENTS+=("$1"); shift ;;
-    esac
-done
-
-if [ ${#EXPERIMENTS[@]} -eq 0 ]; then
-    echo "ERROR: No experiment names provided."
-    echo "Usage: bash run_experiment.sh [OPTIONS] experiment_name [experiment_name ...]"
-    echo "Run 'bash run_experiment.sh --help' for options."
-    exit 1
-fi
+EXPERIMENTS=("alexnet_cifar10")
 
 # ==============================================================
 # Test mode overrides
@@ -356,6 +298,18 @@ submit_job() {
     echo "$job_id"
 }
 
+submit_job_afterany() {
+    local script="$1"
+    local deps="$2"
+    local sbatch_cmd="sbatch --parsable"
+    if [ -n "$deps" ]; then
+        sbatch_cmd="sbatch --parsable --dependency=afterany:${deps}"
+    fi
+    local job_id
+    job_id=$($sbatch_cmd "$script")
+    echo "$job_id"
+}
+
 # Determine dataset dirs to copy based on experiment
 get_dataset_copy_commands() {
     local dataset="$1"
@@ -395,6 +349,31 @@ print(DEFAULT_EXPERIMENTS.get('$1', {}).get('dataset', 'cifar10'))
 "
 }
 
+get_experiment_epochs() {
+    python3 -c "
+from constants.constants import DEFAULT_EXPERIMENTS
+print(DEFAULT_EXPERIMENTS.get('$1', {}).get('epochs', 0))
+"
+}
+
+get_experiment_num_classes() {
+    python3 -c "
+from constants.constants import DEFAULT_EXPERIMENTS
+d = DEFAULT_EXPERIMENTS.get('$1', {}).get('dataset', 'cifar10')
+print({'cifar10':10,'cifar100':100,'mnist':10,'fashion':10,'imagenet':1000}.get(d, 10))
+"
+}
+
+read_checkpoint_status() {
+    # $1 = checkpoint file path
+    # Returns: complete, partial, or missing
+    if [ -f "$1" ]; then
+        python3 -c "import json; print(json.load(open('$1')).get('status','partial'))"
+    else
+        echo "missing"
+    fi
+}
+
 submit_full_pipeline() {
     # Submits the full A->G pipeline for a single experiment.
     # Used by both --skip-audit and the dispatcher.
@@ -408,6 +387,15 @@ submit_full_pipeline() {
 
     # Track job IDs
     local JOB_A="" JOB_B_IDS="" JOB_C="" JOB_D_IDS="" JOB_E="" JOB_F_IDS="" JOB_G=""
+
+    # Checkpoint support: compute experiment metadata
+    local EPOCH NUM_CLASSES B_CHUNK_TOTAL NUM_ATTACKS
+    EPOCH=$(get_experiment_epochs "$EXP")
+    NUM_CLASSES=$(get_experiment_num_classes "$EXP")
+    B_CHUNK_TOTAL=$((NUM_CLASSES * (NUM_SAMPLES_PER_CLASS / TOTAL_CHUNKS)))
+    NUM_ATTACKS=$(python3 -c "from constants.constants import ATTACKS; print(len(ATTACKS) + 1)")
+    local CKPT_BASE="experiments/$EXP/checkpoints"
+    mkdir -p "$CKPT_BASE"
 
     # ==========================================================
     # Step A: Training
@@ -430,10 +418,25 @@ $COPY_DATA
 
 python training.py --experiment_name $EXP --temp_dir \$SLURM_TMPDIR
 echo "Step A (training) complete for $EXP."
+
+# Write checkpoint
+CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints"
+mkdir -p "\$CKPT_DIR"
+if [ -f "\$SLURM_TMPDIR/experiments/$EXP/weights/epoch_${EPOCH}.pth" ] || \
+   [ -f "\$SLURM_SUBMIT_DIR/experiments/$EXP/weights/epoch_${EPOCH}.pth" ]; then
+    printf '{"status":"complete","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_A.json"
+fi
 STEPA_EOF
 
-    JOB_A=$(submit_job "$JOB_DIR/step_A.sh" "$DEP_PREFIX")
-    echo "  [A] Training:            $JOB_A"
+    CKPT_A="$CKPT_BASE/step_A.json"
+    A_STATUS=$(read_checkpoint_status "$CKPT_A")
+    if [ "$A_STATUS" = "complete" ] || [ -f "experiments/$EXP/weights/epoch_${EPOCH}.pth" ]; then
+        echo "  [A] Training:            SKIPPED (already complete)"
+        JOB_A=""
+    else
+        JOB_A=$(submit_job "$JOB_DIR/step_A.sh" "$DEP_PREFIX")
+        echo "  [A] Training:            $JOB_A"
+    fi
 
     # ==========================================================
     # Step B: Generate matrices (per chunk)
@@ -448,6 +451,7 @@ STEPA_EOF
 #SBATCH --mem=$B_MEM
 #SBATCH --output=$SLURM_OUT_DIR/PIPE_B_${EXP}_c${CHUNK}_%A.out
 #SBATCH --error=$SLURM_ERR_DIR/PIPE_B_${EXP}_c${CHUNK}_%A.err
+#SBATCH --signal=B:USR1@$SAVE_GRACE_SECONDS
 
 mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
 module load $MODULES
@@ -490,9 +494,52 @@ monitor_gpu() {
 monitor_gpu &
 MONITOR_PID=\$!
 
+LAST_SAVED_COUNT=0
+incremental_save() {
+    while true; do
+        sleep $SAVE_CHECK_SECONDS
+        CURRENT=\$(find "\$TEMP_DIR/experiments/\$EXPERIMENT/matrices" -name "*.pth" -o -name "*.pt" 2>/dev/null | wc -l)
+        if [ "\$CURRENT" -ge \$((LAST_SAVED_COUNT + $SAVE_INTERVAL)) ]; then
+            echo "[INCREMENTAL] \$CURRENT matrices (\$((CURRENT - LAST_SAVED_COUNT)) new). Saving..."
+            sleep 2
+            cd "\$TEMP_DIR/experiments/\$EXPERIMENT"
+            zip -rq "matrices_task_\$TASK_ID.zip" matrices 2>/dev/null || { echo "[INCREMENTAL] zip failed"; cd -; continue; }
+            cp "matrices_task_\$TASK_ID.zip" "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/matrices_task_\$TASK_ID.zip.tmp" 2>/dev/null && \
+            mv "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/matrices_task_\$TASK_ID.zip.tmp" "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/matrices_task_\$TASK_ID.zip" 2>/dev/null || \
+            { echo "[INCREMENTAL] copy failed"; cd -; continue; }
+            printf '{"status":"partial","completed":%d,"total":%d,"timestamp":"%s"}\n' \
+                "\$CURRENT" "$B_CHUNK_TOTAL" "\$(date -Iseconds)" > "\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints/step_B_chunk_${CHUNK}.json"
+            LAST_SAVED_COUNT=\$CURRENT
+            echo "[INCREMENTAL] Done."
+            cd - > /dev/null
+        fi
+    done
+}
+incremental_save &
+SAVE_PID=\$!
+
+emergency_save() {
+    echo "[EMERGENCY] Wall time approaching. Final save..."
+    kill \$SAVE_PID 2>/dev/null; wait \$SAVE_PID 2>/dev/null || true
+    kill \$MONITOR_PID 2>/dev/null || true
+    sleep 2
+    cd "\$TEMP_DIR/experiments/\$EXPERIMENT"
+    zip -rq "matrices_task_\$TASK_ID.zip" matrices 2>/dev/null || true
+    cp "matrices_task_\$TASK_ID.zip" "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/matrices_task_\$TASK_ID.zip.tmp" 2>/dev/null && \
+    mv "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/matrices_task_\$TASK_ID.zip.tmp" "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/matrices_task_\$TASK_ID.zip" 2>/dev/null || true
+    COMPLETED=\$(find "\$TEMP_DIR/experiments/\$EXPERIMENT/matrices" -name "*.pth" -o -name "*.pt" 2>/dev/null | wc -l)
+    printf '{"status":"partial","completed":%d,"total":%d,"timestamp":"%s"}\n' \
+        "\$COMPLETED" "$B_CHUNK_TOTAL" "\$(date -Iseconds)" > "\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints/step_B_chunk_${CHUNK}.json"
+    echo "[EMERGENCY] Saved \$COMPLETED matrices."
+    kill 0 2>/dev/null; exit 0
+}
+trap emergency_save USR1
+
 python generate_matrices.py --temp_dir \$TEMP_DIR --experiment \$EXPERIMENT --chunk_id \$TASK_ID --total_chunks $TOTAL_CHUNKS --batch_size \$BATCH_SIZE --num_samples_per_class $NUM_SAMPLES_PER_CLASS
 
+kill \$SAVE_PID 2>/dev/null; wait \$SAVE_PID 2>/dev/null || true
 kill \$MONITOR_PID 2>/dev/null || true
+trap - USR1
 
 cd \$TEMP_DIR/experiments/\$EXPERIMENT
 zip -r matrices_task_\$TASK_ID.zip matrices || { echo "Zipping failed"; exit 1; }
@@ -502,12 +549,31 @@ python -m utils.data_integrity --verify-zip \$TEMP_DIR/experiments/\$EXPERIMENT/
 
 cp \$TEMP_DIR/experiments/\$EXPERIMENT/matrices_task_\$TASK_ID.zip \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/ || { echo "Copy failed"; exit 1; }
 echo "Step B chunk $CHUNK complete for $EXP."
+
+# Write checkpoint
+CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints"
+mkdir -p "\$CKPT_DIR"
+COMPLETED=\$(find "\$SLURM_TMPDIR/experiments/$EXP/matrices" -name "*.pth" -o -name "*.pt" 2>/dev/null | wc -l)
+TOTAL=$B_CHUNK_TOTAL
+STATUS="complete"
+[ "\$COMPLETED" -lt "\$TOTAL" ] && STATUS="partial"
+printf '{"status":"%s","completed":%d,"total":%d,"timestamp":"%s"}\n' "\$STATUS" "\$COMPLETED" "\$TOTAL" "\$(date -Iseconds)" > "\$CKPT_DIR/step_B_chunk_${CHUNK}.json"
 STEPB_EOF
 
-        JOB_ID=$(submit_job "$JOB_DIR/step_B_chunk_${CHUNK}.sh" "$JOB_A")
+        CKPT_B="$CKPT_BASE/step_B_chunk_${CHUNK}.json"
+        B_STATUS=$(read_checkpoint_status "$CKPT_B")
+        if [ "$B_STATUS" = "complete" ]; then
+            echo "  [B] Matrices chunk $CHUNK: SKIPPED (complete)"
+            continue
+        fi
+        if [ "$B_STATUS" = "partial" ]; then
+            REMAINING=$(python3 -c "import json; c=json.load(open('$CKPT_B')); print(c['total']-c['completed'])")
+            echo "  [B] Matrices chunk $CHUNK: RESUMING ($REMAINING remaining)"
+        fi
+        JOB_ID=$(submit_job "$JOB_DIR/step_B_chunk_${CHUNK}.sh" "${JOB_A:-}")
         JOB_B_IDS="${JOB_B_IDS:+$JOB_B_IDS:}$JOB_ID"
+        echo "  [B] Matrices chunk $CHUNK: $JOB_ID"
     done
-    echo "  [B] Matrices (x$TOTAL_CHUNKS): ${JOB_B_IDS//:/, }"
 
     # ==========================================================
     # Step C: Adversarial examples
@@ -544,15 +610,29 @@ python generate_adversarial_examples.py --experiment_name \$EXPERIMENT --temp_di
 mkdir -p \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adversarial_examples/
 cp -r \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adversarial_examples/* \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adversarial_examples/ 2>/dev/null || true
 echo "Step C (adversarial examples) complete for $EXP."
+
+# Write checkpoint
+CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints"
+mkdir -p "\$CKPT_DIR"
+printf '{"status":"complete","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_C.json"
 STEPC_EOF
 
-    JOB_C=$(submit_job "$JOB_DIR/step_C.sh" "$JOB_A")
-    echo "  [C] Adv examples:        $JOB_C"
+    CKPT_C="$CKPT_BASE/step_C.json"
+    if [ "$(read_checkpoint_status "$CKPT_C")" = "complete" ]; then
+        echo "  [C] Adv examples:        SKIPPED (complete)"
+        JOB_C=""
+    else
+        JOB_C=$(submit_job "$JOB_DIR/step_C.sh" "${JOB_A:-}")
+        echo "  [C] Adv examples:        $JOB_C"
+    fi
 
     # ==========================================================
     # Step D: Rejection level matrices (per chunk)
     # ==========================================================
+    local D_BASE=$((NUM_SAMPLES_REJECTION_LEVEL / TOTAL_CHUNKS))
+    local D_REM=$((NUM_SAMPLES_REJECTION_LEVEL % TOTAL_CHUNKS))
     for CHUNK in $(seq 0 $((TOTAL_CHUNKS - 1))); do
+        if [ "$CHUNK" -lt "$D_REM" ]; then D_CHUNK_TOTAL=$((D_BASE + 1)); else D_CHUNK_TOTAL=$D_BASE; fi
         cat > "$JOB_DIR/step_D_chunk_${CHUNK}.sh" << STEPD_EOF
 #!/bin/bash
 #SBATCH --account=$ACCOUNT
@@ -562,6 +642,7 @@ STEPC_EOF
 #SBATCH --mem=$D_MEM
 #SBATCH --output=$SLURM_OUT_DIR/PIPE_D_${EXP}_c${CHUNK}_%A.out
 #SBATCH --error=$SLURM_ERR_DIR/PIPE_D_${EXP}_c${CHUNK}_%A.err
+#SBATCH --signal=B:USR1@$SAVE_GRACE_SECONDS
 
 mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
 module load $MODULES
@@ -614,6 +695,47 @@ monitor_gpu() {
 monitor_gpu &
 MONITOR_PID=\$!
 
+LAST_SAVED_COUNT=0
+incremental_save() {
+    while true; do
+        sleep $SAVE_CHECK_SECONDS
+        CURRENT=\$(find "\$SLURM_TMPDIR/experiments/\$EXPERIMENT/rejection_levels/matrices" -name "*.pth" -o -name "*.pt" 2>/dev/null | wc -l)
+        if [ "\$CURRENT" -ge \$((LAST_SAVED_COUNT + $SAVE_INTERVAL)) ]; then
+            echo "[INCREMENTAL] \$CURRENT matrices (\$((CURRENT - LAST_SAVED_COUNT)) new). Saving..."
+            sleep 2
+            cd "\$SLURM_TMPDIR/experiments/\$EXPERIMENT/rejection_levels"
+            zip -rq "\$ZIP_OUTPUT_FILE" matrices 2>/dev/null || { echo "[INCREMENTAL] zip failed"; cd -; continue; }
+            cp "\$ZIP_OUTPUT_FILE" "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/rejection_levels/\$ZIP_OUTPUT_FILE.tmp" 2>/dev/null && \
+            mv "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/rejection_levels/\$ZIP_OUTPUT_FILE.tmp" "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/rejection_levels/\$ZIP_OUTPUT_FILE" 2>/dev/null || \
+            { echo "[INCREMENTAL] copy failed"; cd -; continue; }
+            printf '{"status":"partial","completed":%d,"total":%d,"timestamp":"%s"}\n' \
+                "\$CURRENT" "$D_CHUNK_TOTAL" "\$(date -Iseconds)" > "\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints/step_D_chunk_${CHUNK}.json"
+            LAST_SAVED_COUNT=\$CURRENT
+            echo "[INCREMENTAL] Done."
+            cd - > /dev/null
+        fi
+    done
+}
+incremental_save &
+SAVE_PID=\$!
+
+emergency_save() {
+    echo "[EMERGENCY] Wall time approaching. Final save..."
+    kill \$SAVE_PID 2>/dev/null; wait \$SAVE_PID 2>/dev/null || true
+    kill \$MONITOR_PID 2>/dev/null || true
+    sleep 2
+    cd "\$SLURM_TMPDIR/experiments/\$EXPERIMENT/rejection_levels"
+    zip -rq "\$ZIP_OUTPUT_FILE" matrices 2>/dev/null || true
+    cp "\$ZIP_OUTPUT_FILE" "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/rejection_levels/\$ZIP_OUTPUT_FILE.tmp" 2>/dev/null && \
+    mv "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/rejection_levels/\$ZIP_OUTPUT_FILE.tmp" "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/rejection_levels/\$ZIP_OUTPUT_FILE" 2>/dev/null || true
+    COMPLETED=\$(find "\$SLURM_TMPDIR/experiments/\$EXPERIMENT/rejection_levels/matrices" -name "*.pth" -o -name "*.pt" 2>/dev/null | wc -l)
+    printf '{"status":"partial","completed":%d,"total":%d,"timestamp":"%s"}\n' \
+        "\$COMPLETED" "$D_CHUNK_TOTAL" "\$(date -Iseconds)" > "\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints/step_D_chunk_${CHUNK}.json"
+    echo "[EMERGENCY] Saved \$COMPLETED matrices."
+    kill 0 2>/dev/null; exit 0
+}
+trap emergency_save USR1
+
 python compute_matrices_for_rejection_level.py \
     --experiment_name \$EXPERIMENT \
     --temp_dir \$SLURM_TMPDIR \
@@ -622,7 +744,9 @@ python compute_matrices_for_rejection_level.py \
     --total_chunks $TOTAL_CHUNKS \
     --num_samples_rejection_level $NUM_SAMPLES_REJECTION_LEVEL
 
+kill \$SAVE_PID 2>/dev/null; wait \$SAVE_PID 2>/dev/null || true
 kill \$MONITOR_PID 2>/dev/null || true
+trap - USR1
 
 MATRICES_DIR="\$SLURM_TMPDIR/experiments/\$EXPERIMENT/rejection_levels/matrices"
 ZIP_OUTPUT_DIR="\$SLURM_TMPDIR/experiments/\$EXPERIMENT/rejection_levels"
@@ -644,12 +768,31 @@ for F in exp_dataset_train.pth exp_dataset_labels.pth; do
     [ -f "\$SRC" ] && cp "\$SRC" "\$DEST_DIR"
 done
 echo "Step D chunk $CHUNK complete for $EXP."
+
+# Write checkpoint
+CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints"
+mkdir -p "\$CKPT_DIR"
+COMPLETED=\$(find "\$SLURM_TMPDIR/experiments/$EXP/rejection_levels/matrices" -name "*.pth" -o -name "*.pt" 2>/dev/null | wc -l)
+TOTAL=$D_CHUNK_TOTAL
+STATUS="complete"
+[ "\$COMPLETED" -lt "\$TOTAL" ] && STATUS="partial"
+printf '{"status":"%s","completed":%d,"total":%d,"timestamp":"%s"}\n' "\$STATUS" "\$COMPLETED" "\$TOTAL" "\$(date -Iseconds)" > "\$CKPT_DIR/step_D_chunk_${CHUNK}.json"
 STEPD_EOF
 
-        JOB_ID=$(submit_job "$JOB_DIR/step_D_chunk_${CHUNK}.sh" "$JOB_A")
+        CKPT_D="$CKPT_BASE/step_D_chunk_${CHUNK}.json"
+        D_STATUS=$(read_checkpoint_status "$CKPT_D")
+        if [ "$D_STATUS" = "complete" ]; then
+            echo "  [D] Rej level chunk $CHUNK: SKIPPED (complete)"
+            continue
+        fi
+        if [ "$D_STATUS" = "partial" ]; then
+            REMAINING=$(python3 -c "import json; c=json.load(open('$CKPT_D')); print(c['total']-c['completed'])")
+            echo "  [D] Rej level chunk $CHUNK: RESUMING ($REMAINING remaining)"
+        fi
+        JOB_ID=$(submit_job "$JOB_DIR/step_D_chunk_${CHUNK}.sh" "${JOB_A:-}")
         JOB_D_IDS="${JOB_D_IDS:+$JOB_D_IDS:}$JOB_ID"
+        echo "  [D] Rej level chunk $CHUNK: $JOB_ID"
     done
-    echo "  [D] Rejection levels (x$TOTAL_CHUNKS): ${JOB_D_IDS//:/, }"
 
     # ==========================================================
     # Step E: Matrix statistics (depends on all B jobs)
@@ -682,15 +825,29 @@ python compute_matrix_statistics.py --experiment_name \$EXPERIMENT --temp_dir \$
 # Copy result back
 cp \$SLURM_TMPDIR/experiments/\$EXPERIMENT/matrices/matrix_statistics.json \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/matrices/ 2>/dev/null || true
 echo "Step E (matrix statistics) complete for $EXP."
+
+# Write checkpoint
+CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints"
+mkdir -p "\$CKPT_DIR"
+printf '{"status":"complete","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_E.json"
 STEPE_EOF
 
-    JOB_E=$(submit_job "$JOB_DIR/step_E.sh" "$JOB_B_IDS")
-    echo "  [E] Matrix statistics:   $JOB_E"
+    CKPT_E="$CKPT_BASE/step_E.json"
+    if [ "$(read_checkpoint_status "$CKPT_E")" = "complete" ]; then
+        echo "  [E] Matrix statistics:   SKIPPED (complete)"
+        JOB_E=""
+    else
+        JOB_E=$(submit_job "$JOB_DIR/step_E.sh" "${JOB_B_IDS:-}")
+        echo "  [E] Matrix statistics:   $JOB_E"
+    fi
 
     # ==========================================================
     # Step F: Adversarial matrices (per chunk, depends on C)
     # ==========================================================
+    local F_BASE=$((SAMPLES_PER_ATTACK / TOTAL_CHUNKS))
+    local F_REM=$((SAMPLES_PER_ATTACK % TOTAL_CHUNKS))
     for CHUNK in $(seq 0 $((TOTAL_CHUNKS - 1))); do
+        if [ "$CHUNK" -lt "$F_REM" ]; then F_CHUNK_TOTAL=$((NUM_ATTACKS * (F_BASE + 1))); else F_CHUNK_TOTAL=$((NUM_ATTACKS * F_BASE)); fi
         cat > "$JOB_DIR/step_F_chunk_${CHUNK}.sh" << STEPF_EOF
 #!/bin/bash
 #SBATCH --account=$ACCOUNT
@@ -700,6 +857,7 @@ STEPE_EOF
 #SBATCH --mem=$F_MEM
 #SBATCH --output=$SLURM_OUT_DIR/PIPE_F_${EXP}_c${CHUNK}_%A.out
 #SBATCH --error=$SLURM_ERR_DIR/PIPE_F_${EXP}_c${CHUNK}_%A.err
+#SBATCH --signal=B:USR1@$SAVE_GRACE_SECONDS
 
 mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
 module load $MODULES
@@ -744,6 +902,47 @@ monitor_gpu() {
 monitor_gpu &
 MONITOR_PID=\$!
 
+LAST_SAVED_COUNT=0
+incremental_save() {
+    while true; do
+        sleep $SAVE_CHECK_SECONDS
+        CURRENT=\$(find "\$SLURM_TMPDIR/experiments/\$EXPERIMENT/adversarial_matrices" -name "*.pth" -o -name "*.pt" 2>/dev/null | wc -l)
+        if [ "\$CURRENT" -ge \$((LAST_SAVED_COUNT + $SAVE_INTERVAL)) ]; then
+            echo "[INCREMENTAL] \$CURRENT matrices (\$((CURRENT - LAST_SAVED_COUNT)) new). Saving..."
+            sleep 2
+            cd "\$SLURM_TMPDIR/experiments/\$EXPERIMENT"
+            zip -rq "adv_matrices_task_\$TASK_ID.zip" adversarial_matrices 2>/dev/null || { echo "[INCREMENTAL] zip failed"; cd -; continue; }
+            cp "adv_matrices_task_\$TASK_ID.zip" "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adv_matrices_task_\$TASK_ID.zip.tmp" 2>/dev/null && \
+            mv "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adv_matrices_task_\$TASK_ID.zip.tmp" "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adv_matrices_task_\$TASK_ID.zip" 2>/dev/null || \
+            { echo "[INCREMENTAL] copy failed"; cd -; continue; }
+            printf '{"status":"partial","completed":%d,"total":%d,"timestamp":"%s"}\n' \
+                "\$CURRENT" "$F_CHUNK_TOTAL" "\$(date -Iseconds)" > "\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints/step_F_chunk_${CHUNK}.json"
+            LAST_SAVED_COUNT=\$CURRENT
+            echo "[INCREMENTAL] Done."
+            cd - > /dev/null
+        fi
+    done
+}
+incremental_save &
+SAVE_PID=\$!
+
+emergency_save() {
+    echo "[EMERGENCY] Wall time approaching. Final save..."
+    kill \$SAVE_PID 2>/dev/null; wait \$SAVE_PID 2>/dev/null || true
+    kill \$MONITOR_PID 2>/dev/null || true
+    sleep 2
+    cd "\$SLURM_TMPDIR/experiments/\$EXPERIMENT"
+    zip -rq "adv_matrices_task_\$TASK_ID.zip" adversarial_matrices 2>/dev/null || true
+    cp "adv_matrices_task_\$TASK_ID.zip" "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adv_matrices_task_\$TASK_ID.zip.tmp" 2>/dev/null && \
+    mv "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adv_matrices_task_\$TASK_ID.zip.tmp" "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adv_matrices_task_\$TASK_ID.zip" 2>/dev/null || true
+    COMPLETED=\$(find "\$SLURM_TMPDIR/experiments/\$EXPERIMENT/adversarial_matrices" -name "*.pth" -o -name "*.pt" 2>/dev/null | wc -l)
+    printf '{"status":"partial","completed":%d,"total":%d,"timestamp":"%s"}\n' \
+        "\$COMPLETED" "$F_CHUNK_TOTAL" "\$(date -Iseconds)" > "\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints/step_F_chunk_${CHUNK}.json"
+    echo "[EMERGENCY] Saved \$COMPLETED matrices."
+    kill 0 2>/dev/null; exit 0
+}
+trap emergency_save USR1
+
 python generate_adversarial_matrices.py \
     --experiment_name \$EXPERIMENT \
     --temp_dir \$SLURM_TMPDIR \
@@ -752,7 +951,9 @@ python generate_adversarial_matrices.py \
     --batch_size \$BATCH_SIZE \
     --samples_per_attack $SAMPLES_PER_ATTACK
 
+kill \$SAVE_PID 2>/dev/null; wait \$SAVE_PID 2>/dev/null || true
 kill \$MONITOR_PID 2>/dev/null || true
+trap - USR1
 
 cd \$SLURM_TMPDIR/experiments/\$EXPERIMENT/
 zip -r adv_matrices_task_\$TASK_ID.zip adversarial_matrices/ || { echo "Zipping failed"; exit 1; }
@@ -762,12 +963,31 @@ python -m utils.data_integrity --verify-zip \$SLURM_TMPDIR/experiments/\$EXPERIM
 
 cp \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adv_matrices_task_\$TASK_ID.zip \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/ || { echo "Copy failed"; exit 1; }
 echo "Step F chunk $CHUNK complete for $EXP."
+
+# Write checkpoint
+CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints"
+mkdir -p "\$CKPT_DIR"
+COMPLETED=\$(find "\$SLURM_TMPDIR/experiments/$EXP/adversarial_matrices" -name "*.pth" -o -name "*.pt" 2>/dev/null | wc -l)
+TOTAL=$F_CHUNK_TOTAL
+STATUS="complete"
+[ "\$COMPLETED" -lt "\$TOTAL" ] && STATUS="partial"
+printf '{"status":"%s","completed":%d,"total":%d,"timestamp":"%s"}\n' "\$STATUS" "\$COMPLETED" "\$TOTAL" "\$(date -Iseconds)" > "\$CKPT_DIR/step_F_chunk_${CHUNK}.json"
 STEPF_EOF
 
-        JOB_ID=$(submit_job "$JOB_DIR/step_F_chunk_${CHUNK}.sh" "$JOB_C")
+        CKPT_F="$CKPT_BASE/step_F_chunk_${CHUNK}.json"
+        F_STATUS=$(read_checkpoint_status "$CKPT_F")
+        if [ "$F_STATUS" = "complete" ]; then
+            echo "  [F] Adv matrices chunk $CHUNK: SKIPPED (complete)"
+            continue
+        fi
+        if [ "$F_STATUS" = "partial" ]; then
+            REMAINING=$(python3 -c "import json; c=json.load(open('$CKPT_F')); print(c['total']-c['completed'])")
+            echo "  [F] Adv matrices chunk $CHUNK: RESUMING ($REMAINING remaining)"
+        fi
+        JOB_ID=$(submit_job "$JOB_DIR/step_F_chunk_${CHUNK}.sh" "${JOB_C:-}")
         JOB_F_IDS="${JOB_F_IDS:+$JOB_F_IDS:}$JOB_ID"
+        echo "  [F] Adv matrices chunk $CHUNK: $JOB_ID"
     done
-    echo "  [F] Adv matrices (x$TOTAL_CHUNKS): ${JOB_F_IDS//:/, }"
 
     # ==========================================================
     # Step G: Grid search (depends on E + all F + all D)
@@ -828,15 +1048,26 @@ mkdir -p \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/grid_search/
 cp -r \$SLURM_TMPDIR/experiments/\$EXPERIMENT/grid_search/* \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/grid_search/ 2>/dev/null || true
 cp -r \$SLURM_TMPDIR/experiments/\$EXPERIMENT/rejection_levels/reject_at_* \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/rejection_levels/ 2>/dev/null || true
 echo "Step G (grid search) complete for $EXP."
+
+# Write checkpoint
+CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints"
+mkdir -p "\$CKPT_DIR"
+printf '{"status":"complete","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_G.json"
 STEPG_EOF
 
-    # Build G dependencies: E + all F + all D
-    local G_DEPS="$JOB_E"
-    G_DEPS="${G_DEPS:+$G_DEPS:}$JOB_F_IDS"
-    G_DEPS="${G_DEPS:+$G_DEPS:}$JOB_D_IDS"
+    CKPT_G="$CKPT_BASE/step_G.json"
+    if [ "$(read_checkpoint_status "$CKPT_G")" = "complete" ]; then
+        echo "  [G] Grid search:         SKIPPED (complete)"
+        JOB_G=""
+    else
+        # Build G dependencies: E + all F + all D
+        local G_DEPS="${JOB_E:-}"
+        [ -n "${JOB_F_IDS:-}" ] && G_DEPS="${G_DEPS:+$G_DEPS:}$JOB_F_IDS"
+        [ -n "${JOB_D_IDS:-}" ] && G_DEPS="${G_DEPS:+$G_DEPS:}$JOB_D_IDS"
 
-    JOB_G=$(submit_job "$JOB_DIR/step_G.sh" "$G_DEPS")
-    echo "  [G] Grid search:         $JOB_G"
+        JOB_G=$(submit_job "$JOB_DIR/step_G.sh" "$G_DEPS")
+        echo "  [G] Grid search:         $JOB_G"
+    fi
 
     # ==========================================================
     # Final audit
@@ -898,9 +1129,267 @@ cp \$SLURM_TMPDIR/experiments/\$EXPERIMENT/audit_report.json \
 echo "Final audit complete for $EXP."
 FINALAUDIT_EOF
 
-    local FINAL_AUDIT_JOB
-    FINAL_AUDIT_JOB=$(submit_job "$JOB_DIR/final_audit.sh" "$JOB_G")
-    echo "  [*] Final audit:         $FINAL_AUDIT_JOB"
+    # Build colon-separated dependency list for all pipeline jobs
+    local ALL_JOBS=""
+    [ -n "${JOB_A:-}" ] && ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}${JOB_A}"
+    [ -n "${JOB_B_IDS:-}" ] && ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}${JOB_B_IDS}"
+    [ -n "${JOB_C:-}" ] && ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}${JOB_C}"
+    [ -n "${JOB_D_IDS:-}" ] && ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}${JOB_D_IDS}"
+    [ -n "${JOB_E:-}" ] && ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}${JOB_E}"
+    [ -n "${JOB_F_IDS:-}" ] && ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}${JOB_F_IDS}"
+    [ -n "${JOB_G:-}" ] && ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}${JOB_G}"
+
+    if [ -z "$ALL_JOBS" ]; then
+        echo "  [*] Pipeline complete — no jobs submitted."
+    else
+        local FINAL_AUDIT_JOB
+        FINAL_AUDIT_JOB=$(submit_job "$JOB_DIR/final_audit.sh" "${JOB_G:-}")
+        echo "  [*] Final audit:         $FINAL_AUDIT_JOB"
+
+        # ==========================================================
+        # Error scan — runs after ALL jobs (including audit) finish
+        # Uses afterany so it runs even when upstream jobs fail
+        # ==========================================================
+        cat > "$JOB_DIR/error_scan.sh" << ERRSCAN_EOF
+#!/bin/bash
+#SBATCH --account=$ACCOUNT
+#SBATCH --cpus-per-task=1
+#SBATCH --time=00:15:00
+#SBATCH --mem=2G
+#SBATCH --output=$SLURM_OUT_DIR/PIPE_ERRSCAN_${EXP}_%A.out
+#SBATCH --error=$SLURM_ERR_DIR/PIPE_ERRSCAN_${EXP}_%A.err
+
+module load $MODULES
+source $ENV_NAME/bin/activate
+
+EXPERIMENT="$EXP"
+SLURM_ERR_SCAN_DIR="\$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR"
+OUTPUT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP"
+
+cd \$SLURM_SUBMIT_DIR
+
+python << 'ERRSCAN_PY_EOF'
+import os, re, json, glob, subprocess
+from datetime import datetime
+
+experiment = os.environ["EXPERIMENT"]
+err_dir = os.environ["SLURM_ERR_SCAN_DIR"]
+output_dir = os.environ["OUTPUT_DIR"]
+
+LOG_PATTERN = re.compile(
+    r'^(PIPE|REC)_([A-Za-z]+)_(.+?)(?:_c(\d+))?_(\d+)\.(out|err)$'
+)
+
+STEP_LABELS = {
+    "CALIB": "Calibration", "PREAUDIT": "Pre-Audit",
+    "A": "Training", "B": "Matrices", "C": "Adv Examples",
+    "D": "Rejection Levels", "E": "Matrix Stats",
+    "F": "Adv Matrices", "G": "Grid Search",
+    "AUDIT": "Final Audit", "DISPATCH": "Dispatcher",
+}
+
+ERROR_PATTERNS = [
+    ("oom",           re.compile(r"out of memory|oom-kill|Killed|cannot allocate memory", re.I)),
+    ("timeout",       re.compile(r"DUE TO TIME LIMIT|CANCELLED.*TIME", re.I)),
+    ("cuda_error",    re.compile(r"CUDA error|CUDA out of memory|NCCL", re.I)),
+    ("network_error", re.compile(r"network.unreachable|ConnectionError|urllib.*Error", re.I)),
+    ("missing_file",  re.compile(r"FileNotFoundError|No such file", re.I)),
+    ("module_error",  re.compile(r"ModuleNotFoundError|ImportError", re.I)),
+    ("zip_error",     re.compile(r"Zip.*failed|BadZipFile", re.I)),
+]
+
+# Discover .err files for this experiment (exclude ERRSCAN's own files)
+err_files = glob.glob(os.path.join(err_dir, f"PIPE_*_{experiment}_*.err"))
+err_files += glob.glob(os.path.join(err_dir, f"REC_*_{experiment}_*.err"))
+err_files = [f for f in err_files if "_ERRSCAN_" not in os.path.basename(f)]
+
+# Parse filenames
+jobs = []
+seen_ids = set()
+for fpath in err_files:
+    fname = os.path.basename(fpath)
+    m = LOG_PATTERN.match(fname)
+    if not m:
+        continue
+    prefix, step, exp, chunk, job_id, ext = m.groups()
+    if exp != experiment or job_id in seen_ids:
+        continue
+    seen_ids.add(job_id)
+    jobs.append({
+        "step": step,
+        "chunk": int(chunk) if chunk else None,
+        "job_id": job_id,
+        "err_file": fpath,
+    })
+
+# Query sacct for all job IDs
+sacct_data = {}
+if jobs:
+    ids_str = ",".join(j["job_id"] for j in jobs)
+    try:
+        result = subprocess.run(
+            ["sacct", "--jobs=" + ids_str, "--parsable2", "--noheader",
+             "--format=JobID,State,ExitCode,Elapsed"],
+            capture_output=True, text=True, timeout=30,
+        )
+        for line in result.stdout.strip().split("\n"):
+            if not line:
+                continue
+            parts = line.split("|")
+            if len(parts) >= 4:
+                jid = parts[0].split(".")[0]
+                if jid in seen_ids and jid not in sacct_data:
+                    sacct_data[jid] = {
+                        "state": parts[1],
+                        "exit_code": parts[2],
+                        "elapsed": parts[3],
+                    }
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+def extract_traceback(text):
+    """Extract the last Python traceback from text."""
+    lines = text.split("\n")
+    tb_start = None
+    for i in range(len(lines) - 1, -1, -1):
+        if lines[i].startswith("Traceback (most recent call last):"):
+            tb_start = i
+            break
+    if tb_start is not None:
+        # Find the end: next non-indented line after the Traceback header
+        tb_end = len(lines)
+        for i in range(tb_start + 1, len(lines)):
+            line = lines[i]
+            if line and not line.startswith(" ") and not line.startswith("Traceback"):
+                tb_end = i + 1  # include the error line
+                break
+        return "\n".join(lines[tb_start:tb_end]).strip()
+    return None
+
+def classify_error(text):
+    """Classify error text into a category."""
+    for cat_name, pat in ERROR_PATTERNS:
+        if pat.search(text):
+            return cat_name
+    return None
+
+def read_tail(filepath, n=80):
+    try:
+        with open(filepath) as f:
+            lines = f.readlines()
+        return "".join(lines[-n:])
+    except Exception:
+        return ""
+
+# Analyze each job
+steps_output = []
+error_types = {}
+jobs_with_errors = 0
+
+for job in jobs:
+    jid = job["job_id"]
+    info = sacct_data.get(jid, {})
+    slurm_state = info.get("state", "UNKNOWN")
+    exit_code = info.get("exit_code", "?")
+    elapsed = info.get("elapsed", "?")
+    step = job["step"]
+    step_label = STEP_LABELS.get(step, step)
+
+    tail_text = read_tail(job["err_file"])
+
+    # Determine if there's an error
+    has_error = False
+    error_type = None
+    traceback = None
+
+    # Check Slurm state
+    if slurm_state in ("FAILED", "TIMEOUT", "CANCELLED", "OUT_OF_MEMORY"):
+        has_error = True
+    # Check for non-zero exit
+    elif exit_code not in ("0:0", "?") and ":" in exit_code:
+        try:
+            main_code = int(exit_code.split(":")[0])
+            if main_code != 0:
+                has_error = True
+        except ValueError:
+            pass
+    # Check err file content for tracebacks even in COMPLETED jobs
+    if not has_error and slurm_state == "COMPLETED":
+        if re.search(r"Traceback|RuntimeError|CUDA error", tail_text):
+            has_error = True
+
+    if has_error:
+        jobs_with_errors += 1
+        # Classify
+        error_type = classify_error(tail_text)
+        traceback = extract_traceback(tail_text)
+
+        if error_type is None:
+            if traceback:
+                error_type = "code"
+            else:
+                error_type = "unknown"
+
+        error_types[error_type] = error_types.get(error_type, 0) + 1
+
+    entry = {
+        "step": step,
+        "step_label": step_label,
+        "chunk": job["chunk"],
+        "job_id": jid,
+        "slurm_state": slurm_state,
+        "exit_code": exit_code,
+        "elapsed": elapsed,
+        "error_detected": has_error,
+    }
+    if has_error:
+        entry["error_type"] = error_type
+        if traceback:
+            entry["traceback"] = traceback
+        entry["err_file"] = os.path.relpath(job["err_file"], os.environ.get("SLURM_SUBMIT_DIR", "."))
+
+    steps_output.append(entry)
+
+# Sort: errors first, then by step
+step_order = ["CALIB", "PREAUDIT", "A", "B", "C", "D", "E", "F", "G", "AUDIT", "DISPATCH"]
+def sort_key(e):
+    idx = step_order.index(e["step"]) if e["step"] in step_order else 99
+    return (0 if e["error_detected"] else 1, idx, e.get("chunk") or 0)
+
+steps_output.sort(key=sort_key)
+
+overall_status = "failure" if jobs_with_errors > 0 else "success"
+
+report = {
+    "experiment": experiment,
+    "timestamp": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+    "overall_status": overall_status,
+    "total_jobs": len(jobs),
+    "jobs_with_errors": jobs_with_errors,
+    "error_types_summary": error_types,
+    "steps": steps_output,
+}
+
+os.makedirs(output_dir, exist_ok=True)
+out_path = os.path.join(output_dir, "overall_errors.json")
+with open(out_path, "w") as f:
+    json.dump(report, f, indent=2)
+
+print(f"Error scan complete: {overall_status}")
+print(f"  Total jobs scanned: {len(jobs)}")
+print(f"  Jobs with errors:   {jobs_with_errors}")
+if error_types:
+    print(f"  Error types:        {error_types}")
+print(f"  Report written to:  {out_path}")
+ERRSCAN_PY_EOF
+ERRSCAN_EOF
+
+        local ERRSCAN_DEPS="${ALL_JOBS}"
+        [ -n "${FINAL_AUDIT_JOB:-}" ] && ERRSCAN_DEPS="${ERRSCAN_DEPS}:${FINAL_AUDIT_JOB}"
+        local ERROR_SCAN_JOB
+        ERROR_SCAN_JOB=$(submit_job_afterany "$JOB_DIR/error_scan.sh" "$ERRSCAN_DEPS")
+        echo "  [*] Error scan:          $ERROR_SCAN_JOB (afterany)"
+    fi
     echo ""
 }
 
