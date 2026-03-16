@@ -73,10 +73,11 @@ F_CPUS=12
 F_TIME="12:00:00"
 F_MEM="280G"
 # Step Ga (KM Grid Search - array jobs)
-GA_CPUS=16
-GA_TIME="24:00:00"
+GA_BASE_CPUS=16            # CPUs per task at reference array size
+GA_BASE_TIME_H=24          # Hours per task at reference array size
+GA_BASE_ARRAY=8            # Reference array size for scaling
 GA_MEM_PER_CPU="42G"
-GA_ARRAY_SIZE=8    # Number of array tasks
+GA_ARRAY_SIZE=8            # Number of array tasks (user-tunable)
 # Step Gb (Baselines - GPU)
 GB_GPU="--gpus=h100:1"
 GB_CPUS=8
@@ -138,8 +139,9 @@ if [ "$TEST_MODE" = "true" ]; then
     F_CPUS=4
     F_TIME="00:30:00"
     F_MEM="32G"
-    GA_CPUS=4
-    GA_TIME="01:00:00"
+    GA_BASE_CPUS=4
+    GA_BASE_TIME_H=1
+    GA_BASE_ARRAY=2
     GA_MEM_PER_CPU="8G"
     GA_ARRAY_SIZE=2
     GB_GPU="--gpus=h100:1"
@@ -153,6 +155,13 @@ if [ "$TEST_MODE" = "true" ]; then
     AUDIT_TIME="00:30:00"
     AUDIT_MEM="16G"
 fi
+
+# --- Derive Step Ga per-task resources from base budget ---
+GA_CPUS=$(( (GA_BASE_CPUS * GA_BASE_ARRAY + GA_ARRAY_SIZE - 1) / GA_ARRAY_SIZE ))
+[ "$GA_CPUS" -lt 2 ] && GA_CPUS=2
+GA_TIME_SECS=$(( GA_BASE_TIME_H * 3600 * GA_BASE_ARRAY / GA_ARRAY_SIZE ))
+[ "$GA_TIME_SECS" -lt 600 ] && GA_TIME_SECS=600
+GA_TIME=$(printf "%02d:%02d:00" $((GA_TIME_SECS / 3600)) $(( (GA_TIME_SECS % 3600) / 60 )))
 
 # --- Resolve per-type accounts (default to ACCOUNT) ---
 GPU_ACCOUNT="${GPU_ACCOUNT:-$ACCOUNT}"
@@ -1091,10 +1100,26 @@ cp \$SLURM_TMPDIR/experiments/\$EXPERIMENT/grid_search/grid_search_chunk_\${SLUR
 cp -r \$SLURM_TMPDIR/experiments/\$EXPERIMENT/rejection_levels/reject_at_* \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/rejection_levels/ 2>/dev/null || true
 echo "Step Ga (KM grid search) chunk \$SLURM_ARRAY_TASK_ID complete for $EXP."
 
-# Write per-chunk checkpoint
+# Atomic per-chunk checkpoint (tmp + mv)
 CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints"
 mkdir -p "\$CKPT_DIR"
-printf '{"status":"complete","chunk":%d,"timestamp":"%s"}\n' "\$SLURM_ARRAY_TASK_ID" "\$(date -Iseconds)" > "\$CKPT_DIR/step_Ga_chunk_\${SLURM_ARRAY_TASK_ID}.json"
+printf '{"status":"complete","chunk":%d,"timestamp":"%s"}\n' \
+    "\$SLURM_ARRAY_TASK_ID" "\$(date -Iseconds)" \
+    > "\$CKPT_DIR/step_Ga_chunk_\${SLURM_ARRAY_TASK_ID}.json.tmp"
+mv "\$CKPT_DIR/step_Ga_chunk_\${SLURM_ARRAY_TASK_ID}.json.tmp" \
+   "\$CKPT_DIR/step_Ga_chunk_\${SLURM_ARRAY_TASK_ID}.json"
+
+# Atomic overall progress (flock prevents races between concurrent array tasks)
+(
+    flock -x 200
+    DONE=\$(ls "\$CKPT_DIR"/step_Ga_chunk_*.json 2>/dev/null | wc -l)
+    TOTAL=$GA_ARRAY_SIZE
+    [ "\$DONE" -ge "\$TOTAL" ] && ST="complete" || ST="partial"
+    printf '{"status":"%s","completed":%d,"total":%d,"timestamp":"%s"}\n' \
+        "\$ST" "\$DONE" "\$TOTAL" "\$(date -Iseconds)" \
+        > "\$CKPT_DIR/step_Ga.json.tmp"
+    mv "\$CKPT_DIR/step_Ga.json.tmp" "\$CKPT_DIR/step_Ga.json"
+) 200>"\$CKPT_DIR/step_Ga.lock"
 STEPGA_EOF
 
     # Step Ga merge: lightweight job that merges chunk results
@@ -1112,10 +1137,12 @@ source $ENV_NAME/bin/activate
 
 python grid_search.py --merge_chunks --experiment_name $EXP
 
-# Write checkpoint
+# Atomic checkpoint
 CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints"
 mkdir -p "\$CKPT_DIR"
-printf '{"status":"complete","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_Ga.json"
+printf '{"status":"complete","timestamp":"%s"}\n' "\$(date -Iseconds)" \
+    > "\$CKPT_DIR/step_Ga.json.tmp"
+mv "\$CKPT_DIR/step_Ga.json.tmp" "\$CKPT_DIR/step_Ga.json"
 echo "Step Ga merge complete for $EXP."
 STEPGAMERGE_EOF
 
@@ -2166,9 +2193,26 @@ mkdir -p \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/grid_search/
 cp \$SLURM_TMPDIR/experiments/$EXPERIMENT/grid_search/grid_search_chunk_\${SLURM_ARRAY_TASK_ID}.txt \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/grid_search/ 2>/dev/null || true
 cp -r \$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/reject_at_* \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/rejection_levels/ 2>/dev/null || true
 echo "Step Ga chunk \$SLURM_ARRAY_TASK_ID complete."
+# Atomic per-chunk checkpoint (tmp + mv)
 CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/checkpoints"
 mkdir -p "\$CKPT_DIR"
-printf '{"status":"complete","chunk":%d,"timestamp":"%s"}\n' "\$SLURM_ARRAY_TASK_ID" "\$(date -Iseconds)" > "\$CKPT_DIR/step_Ga_chunk_\${SLURM_ARRAY_TASK_ID}.json"
+printf '{"status":"complete","chunk":%d,"timestamp":"%s"}\n' \
+    "\$SLURM_ARRAY_TASK_ID" "\$(date -Iseconds)" \
+    > "\$CKPT_DIR/step_Ga_chunk_\${SLURM_ARRAY_TASK_ID}.json.tmp"
+mv "\$CKPT_DIR/step_Ga_chunk_\${SLURM_ARRAY_TASK_ID}.json.tmp" \
+   "\$CKPT_DIR/step_Ga_chunk_\${SLURM_ARRAY_TASK_ID}.json"
+
+# Atomic overall progress (flock prevents races between concurrent array tasks)
+(
+    flock -x 200
+    DONE=\$(ls "\$CKPT_DIR"/step_Ga_chunk_*.json 2>/dev/null | wc -l)
+    TOTAL=$GA_ARRAY_SIZE
+    [ "\$DONE" -ge "\$TOTAL" ] && ST="complete" || ST="partial"
+    printf '{"status":"%s","completed":%d,"total":%d,"timestamp":"%s"}\n' \
+        "\$ST" "\$DONE" "\$TOTAL" "\$(date -Iseconds)" \
+        > "\$CKPT_DIR/step_Ga.json.tmp"
+    mv "\$CKPT_DIR/step_Ga.json.tmp" "\$CKPT_DIR/step_Ga.json"
+) 200>"\$CKPT_DIR/step_Ga.lock"
 EOF_Ga
 
     # Ga merge job
@@ -2183,9 +2227,12 @@ EOF_Ga
 module load $MODULES
 source $ENV_NAME/bin/activate
 python grid_search.py --merge_chunks --experiment_name $EXPERIMENT
+# Atomic checkpoint
 CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/checkpoints"
 mkdir -p "\$CKPT_DIR"
-printf '{"status":"complete","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_Ga.json"
+printf '{"status":"complete","timestamp":"%s"}\n' "\$(date -Iseconds)" \
+    > "\$CKPT_DIR/step_Ga.json.tmp"
+mv "\$CKPT_DIR/step_Ga.json.tmp" "\$CKPT_DIR/step_Ga.json"
 echo "Step Ga merge complete."
 EOF_GaMerge
 
