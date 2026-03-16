@@ -23,6 +23,7 @@ from utils.error_classification import (
     LOG_PATTERN, STEP_LABELS, STEP_ORDER,
     ERROR_CATEGORIES,
     classify_error, get_error_category, extract_traceback, read_tail,
+    parse_log_filename,
 )
 
 
@@ -58,29 +59,29 @@ def discover_jobs(experiment, slurm_out_dir, slurm_err_dir):
         if not os.path.isdir(directory):
             continue
         for fname in os.listdir(directory):
-            m = LOG_PATTERN.match(fname)
-            if not m:
+            parsed = parse_log_filename(fname)
+            if not parsed:
                 continue
-            prefix, step, exp, chunk, job_id, file_ext = m.groups()
-            if exp != experiment:
+            if parsed["exp"] != experiment:
                 continue
-            if step == "ERRSCAN":
+            if parsed["step"] == "ERRSCAN":
                 continue  # skip our own logs
 
+            job_id = parsed["job_id"]
             if job_id not in jobs:
                 jobs[job_id] = {
                     "job_id": job_id,
-                    "prefix": prefix,
-                    "step": step,
-                    "chunk": int(chunk) if chunk else None,
+                    "prefix": parsed["prefix"],
+                    "step": parsed["step"],
+                    "chunk": int(parsed["chunk"]) if parsed["chunk"] else None,
                     "err_file": None,
                     "out_file": None,
                 }
 
             fpath = os.path.join(directory, fname)
-            if file_ext == "err":
+            if parsed["ext"] == "err":
                 jobs[job_id]["err_file"] = fpath
-            elif file_ext == "out":
+            elif parsed["ext"] == "out":
                 jobs[job_id]["out_file"] = fpath
 
     return list(jobs.values())

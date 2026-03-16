@@ -83,6 +83,24 @@ def parse_args(
         default=False,
         help="Run only baseline methods, skip grid search.",
     )
+    parser.add_argument(
+        "--grid_chunk_id",
+        type=int,
+        default=None,
+        help="Chunk index for array job parallelization (0-based)",
+    )
+    parser.add_argument(
+        "--total_grid_chunks",
+        type=int,
+        default=None,
+        help="Total number of grid chunks",
+    )
+    parser.add_argument(
+        "--merge_chunks",
+        action="store_true",
+        default=False,
+        help="Merge grid_search_chunk_*.txt files into grid_search.txt",
+    )
     return parser.parse_args()
 
 
@@ -228,7 +246,24 @@ def main() -> None:
 
     experiment_path = Path(f'experiments/{args.experiment_name}/grid_search/')
     experiment_path.mkdir(parents=True, exist_ok=True)
-    output_file = experiment_path / f'grid_search.txt'
+
+    if args.merge_chunks:
+        import glob
+        output_file = experiment_path / 'grid_search.txt'
+        chunk_files = sorted(glob.glob(str(experiment_path / 'grid_search_chunk_*.txt')))
+        with open(output_file, 'w') as out:
+            out.write("t_epsilon,epsilon,epsilon_p,experiment_name,good_defence,wrong_rejection\n")
+            for cf in chunk_files:
+                with open(cf) as inp:
+                    inp.readline()  # skip header
+                    out.write(inp.read())
+        print(f"Merged {len(chunk_files)} chunks into {output_file}")
+        return
+
+    if args.grid_chunk_id is not None:
+        output_file = experiment_path / f'grid_search_chunk_{args.grid_chunk_id}.txt'
+    else:
+        output_file = experiment_path / 'grid_search.txt'
 
     # Define the parameter grid
     if args.extensive_search == 1:
@@ -298,6 +333,19 @@ def main() -> None:
                                if f'reject_at_{t_epsilon}_{epsilon}.json' in files_to_keep]
         for i in range(len(param_grid_filtered)):
             param_grid_filtered[i] = param_grid_filtered[i] + (False,)
+        # Slice grid for array job parallelization
+        if args.grid_chunk_id is not None and args.total_grid_chunks is not None:
+            N = len(param_grid_filtered)
+            base = N // args.total_grid_chunks
+            rem = N % args.total_grid_chunks
+            if args.grid_chunk_id < rem:
+                start = args.grid_chunk_id * (base + 1)
+                end = start + (base + 1)
+            else:
+                start = args.grid_chunk_id * base + rem
+                end = start + base
+            param_grid_filtered = param_grid_filtered[start:end]
+            print(f"Grid chunk {args.grid_chunk_id}/{args.total_grid_chunks}: combos [{start},{end}) = {len(param_grid_filtered)} items")
         with Pool(processes=args.nb_workers) as pool:
             pool.map(run_adv_examples_script, param_grid_filtered)
     # This case computes rejection levels only using std and d1.

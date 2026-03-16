@@ -28,6 +28,7 @@ from datetime import datetime
 from utils.error_classification import (
     LOG_PATTERN, STEP_ORDER, STEP_LABELS_PREFIXED as STEP_LABELS,
     ERROR_PATTERNS, classify_error, get_error_category, read_tail,
+    parse_log_filename,
 )
 
 
@@ -61,15 +62,16 @@ def discover_jobs(experiment, slurm_out_dir):
     if not os.path.isdir(slurm_out_dir):
         return jobs
     for fname in os.listdir(slurm_out_dir):
-        m = LOG_PATTERN.match(fname)
-        if not m:
+        parsed = parse_log_filename(fname)
+        if not parsed:
             continue
-        prefix, step, exp, chunk, job_id, ext = m.groups()
-        if exp != experiment:
+        if parsed["exp"] != experiment:
             continue
         jobs.append({
-            "job_id": job_id, "prefix": prefix, "step": step,
-            "chunk": int(chunk) if chunk else None, "filename": fname,
+            "job_id": parsed["job_id"], "prefix": parsed["prefix"],
+            "step": parsed["step"],
+            "chunk": int(parsed["chunk"]) if parsed["chunk"] else None,
+            "filename": fname,
         })
     return jobs
 

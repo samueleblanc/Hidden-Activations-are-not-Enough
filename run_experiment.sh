@@ -70,10 +70,11 @@ F_GPU="--gpus=h100:1"
 F_CPUS=12
 F_TIME="12:00:00"
 F_MEM="280G"
-# Step Ga (KM Grid Search - CPU-only)
-GA_CPUS=64
-GA_TIME="48:00:00"
+# Step Ga (KM Grid Search - array jobs)
+GA_CPUS=16
+GA_TIME="24:00:00"
 GA_MEM_PER_CPU="42G"
+GA_ARRAY_SIZE=8    # Number of array tasks
 # Step Gb (Baselines - GPU)
 GB_GPU="--gpus=h100:1"
 GB_CPUS=8
@@ -138,6 +139,7 @@ if [ "$TEST_MODE" = "true" ]; then
     GA_CPUS=4
     GA_TIME="01:00:00"
     GA_MEM_PER_CPU="8G"
+    GA_ARRAY_SIZE=2
     GB_GPU="--gpus=h100:1"
     GB_CPUS=4
     GB_TIME="00:30:00"
@@ -418,7 +420,7 @@ submit_full_pipeline() {
     COPY_DATA=$(get_dataset_copy_commands "$DATASET")
 
     # Track job IDs
-    local JOB_A="" JOB_B_IDS="" JOB_C="" JOB_D_IDS="" JOB_E="" JOB_F_IDS="" JOB_GA="" JOB_GB="" JOB_H=""
+    local JOB_A="" JOB_B_IDS="" JOB_C="" JOB_D_IDS="" JOB_E="" JOB_F_IDS="" JOB_GA="" JOB_GA_MERGE="" JOB_GB="" JOB_H=""
 
     # Checkpoint support: compute experiment metadata
     local EPOCH NUM_CLASSES B_CHUNK_TOTAL NUM_ATTACKS
@@ -731,7 +733,7 @@ LAST_SAVED_COUNT=0
 incremental_save() {
     while true; do
         sleep $SAVE_CHECK_SECONDS
-        CURRENT=\$(find "\$SLURM_TMPDIR/experiments/\$EXPERIMENT/rejection_levels/matrices" -name "*.pth" -o -name "*.pt" 2>/dev/null | wc -l)
+        CURRENT=\$(find "\$SLURM_TMPDIR/experiments/\$EXPERIMENT/rejection_levels/matrices" -name "matrix.pth" 2>/dev/null | wc -l)
         if [ "\$CURRENT" -ge \$((LAST_SAVED_COUNT + $SAVE_INTERVAL)) ]; then
             echo "[INCREMENTAL] \$CURRENT matrices (\$((CURRENT - LAST_SAVED_COUNT)) new). Saving..."
             sleep 2
@@ -760,7 +762,7 @@ emergency_save() {
     zip -rq "\$ZIP_OUTPUT_FILE" matrices 2>/dev/null || true
     cp "\$ZIP_OUTPUT_FILE" "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/rejection_levels/\$ZIP_OUTPUT_FILE.tmp" 2>/dev/null && \
     mv "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/rejection_levels/\$ZIP_OUTPUT_FILE.tmp" "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/rejection_levels/\$ZIP_OUTPUT_FILE" 2>/dev/null || true
-    COMPLETED=\$(find "\$SLURM_TMPDIR/experiments/\$EXPERIMENT/rejection_levels/matrices" -name "*.pth" -o -name "*.pt" 2>/dev/null | wc -l)
+    COMPLETED=\$(find "\$SLURM_TMPDIR/experiments/\$EXPERIMENT/rejection_levels/matrices" -name "matrix.pth" 2>/dev/null | wc -l)
     printf '{"status":"partial","completed":%d,"total":%d,"timestamp":"%s"}\n' \
         "\$COMPLETED" "$D_CHUNK_TOTAL" "\$(date -Iseconds)" > "\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints/step_D_chunk_${CHUNK}.json"
     echo "[EMERGENCY] Saved \$COMPLETED matrices."
@@ -804,7 +806,7 @@ echo "Step D chunk $CHUNK complete for $EXP."
 # Write checkpoint
 CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints"
 mkdir -p "\$CKPT_DIR"
-COMPLETED=\$(find "\$SLURM_TMPDIR/experiments/$EXP/rejection_levels/matrices" -name "*.pth" -o -name "*.pt" 2>/dev/null | wc -l)
+COMPLETED=\$(find "\$SLURM_TMPDIR/experiments/$EXP/rejection_levels/matrices" -name "matrix.pth" 2>/dev/null | wc -l)
 TOTAL=$D_CHUNK_TOTAL
 STATUS="complete"
 [ "\$COMPLETED" -lt "\$TOTAL" ] && STATUS="partial"
@@ -938,7 +940,7 @@ LAST_SAVED_COUNT=0
 incremental_save() {
     while true; do
         sleep $SAVE_CHECK_SECONDS
-        CURRENT=\$(find "\$SLURM_TMPDIR/experiments/\$EXPERIMENT/adversarial_matrices" -name "*.pth" -o -name "*.pt" 2>/dev/null | wc -l)
+        CURRENT=\$(find "\$SLURM_TMPDIR/experiments/\$EXPERIMENT/adversarial_matrices" -name "matrix.pth" 2>/dev/null | wc -l)
         if [ "\$CURRENT" -ge \$((LAST_SAVED_COUNT + $SAVE_INTERVAL)) ]; then
             echo "[INCREMENTAL] \$CURRENT matrices (\$((CURRENT - LAST_SAVED_COUNT)) new). Saving..."
             sleep 2
@@ -967,7 +969,7 @@ emergency_save() {
     zip -rq "adv_matrices_task_\$TASK_ID.zip" adversarial_matrices 2>/dev/null || true
     cp "adv_matrices_task_\$TASK_ID.zip" "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adv_matrices_task_\$TASK_ID.zip.tmp" 2>/dev/null && \
     mv "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adv_matrices_task_\$TASK_ID.zip.tmp" "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adv_matrices_task_\$TASK_ID.zip" 2>/dev/null || true
-    COMPLETED=\$(find "\$SLURM_TMPDIR/experiments/\$EXPERIMENT/adversarial_matrices" -name "*.pth" -o -name "*.pt" 2>/dev/null | wc -l)
+    COMPLETED=\$(find "\$SLURM_TMPDIR/experiments/\$EXPERIMENT/adversarial_matrices" -name "matrix.pth" 2>/dev/null | wc -l)
     printf '{"status":"partial","completed":%d,"total":%d,"timestamp":"%s"}\n' \
         "\$COMPLETED" "$F_CHUNK_TOTAL" "\$(date -Iseconds)" > "\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints/step_F_chunk_${CHUNK}.json"
     echo "[EMERGENCY] Saved \$COMPLETED matrices."
@@ -999,7 +1001,7 @@ echo "Step F chunk $CHUNK complete for $EXP."
 # Write checkpoint
 CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints"
 mkdir -p "\$CKPT_DIR"
-COMPLETED=\$(find "\$SLURM_TMPDIR/experiments/$EXP/adversarial_matrices" -name "*.pth" -o -name "*.pt" 2>/dev/null | wc -l)
+COMPLETED=\$(find "\$SLURM_TMPDIR/experiments/$EXP/adversarial_matrices" -name "matrix.pth" 2>/dev/null | wc -l)
 TOTAL=$F_CHUNK_TOTAL
 STATUS="complete"
 [ "\$COMPLETED" -lt "\$TOTAL" ] && STATUS="partial"
@@ -1030,8 +1032,9 @@ STEPF_EOF
 #SBATCH --cpus-per-task=$GA_CPUS
 #SBATCH --time=$GA_TIME
 #SBATCH --mem-per-cpu=$GA_MEM_PER_CPU
-#SBATCH --output=$SLURM_OUT_DIR/PIPE_Ga_${EXP}_%A.out
-#SBATCH --error=$SLURM_ERR_DIR/PIPE_Ga_${EXP}_%A.err
+#SBATCH --array=0-$((GA_ARRAY_SIZE-1))
+#SBATCH --output=$SLURM_OUT_DIR/PIPE_Ga_${EXP}_%A_%a.out
+#SBATCH --error=$SLURM_ERR_DIR/PIPE_Ga_${EXP}_%A_%a.err
 
 mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
 module load $MODULES
@@ -1072,20 +1075,43 @@ for i in \$(seq 0 $((TOTAL_CHUNKS - 1))); do
     fi
 done
 
-echo "All data ready. Starting KM grid search..."
-python grid_search.py --nb_workers \$SLURM_CPUS_PER_TASK --experiment_name \$EXPERIMENT --temp_dir \$SLURM_TMPDIR --rej_lev 0
+echo "All data ready. Starting KM grid search (chunk \$SLURM_ARRAY_TASK_ID/$GA_ARRAY_SIZE)..."
+python grid_search.py --nb_workers \$SLURM_CPUS_PER_TASK --experiment_name \$EXPERIMENT --temp_dir \$SLURM_TMPDIR --rej_lev 0 \
+    --grid_chunk_id \$SLURM_ARRAY_TASK_ID --total_grid_chunks $GA_ARRAY_SIZE
 
 # Copy results back
 mkdir -p \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/grid_search/
-cp -r \$SLURM_TMPDIR/experiments/\$EXPERIMENT/grid_search/grid_search.txt \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/grid_search/ 2>/dev/null || true
+cp \$SLURM_TMPDIR/experiments/\$EXPERIMENT/grid_search/grid_search_chunk_\${SLURM_ARRAY_TASK_ID}.txt \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/grid_search/ 2>/dev/null || true
 cp -r \$SLURM_TMPDIR/experiments/\$EXPERIMENT/rejection_levels/reject_at_* \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/rejection_levels/ 2>/dev/null || true
-echo "Step Ga (KM grid search) complete for $EXP."
+echo "Step Ga (KM grid search) chunk \$SLURM_ARRAY_TASK_ID complete for $EXP."
+
+# Write per-chunk checkpoint
+CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints"
+mkdir -p "\$CKPT_DIR"
+printf '{"status":"complete","chunk":%d,"timestamp":"%s"}\n' "\$SLURM_ARRAY_TASK_ID" "\$(date -Iseconds)" > "\$CKPT_DIR/step_Ga_chunk_\${SLURM_ARRAY_TASK_ID}.json"
+STEPGA_EOF
+
+    # Step Ga merge: lightweight job that merges chunk results
+    cat > "$JOB_DIR/step_Ga_merge.sh" << STEPGAMERGE_EOF
+#!/bin/bash
+#SBATCH --account=$ACCOUNT
+#SBATCH --cpus-per-task=1
+#SBATCH --time=00:10:00
+#SBATCH --mem=4G
+#SBATCH --output=$SLURM_OUT_DIR/PIPE_GaMerge_${EXP}_%A.out
+#SBATCH --error=$SLURM_ERR_DIR/PIPE_GaMerge_${EXP}_%A.err
+
+module load $MODULES
+source $ENV_NAME/bin/activate
+
+python grid_search.py --merge_chunks --experiment_name $EXP
 
 # Write checkpoint
 CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints"
 mkdir -p "\$CKPT_DIR"
 printf '{"status":"complete","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_Ga.json"
-STEPGA_EOF
+echo "Step Ga merge complete for $EXP."
+STEPGAMERGE_EOF
 
     # ==========================================================
     # Step Gb: Baselines (depends on A + all B + C + all F)
@@ -1149,9 +1175,19 @@ mkdir -p "\$CKPT_DIR"
 printf '{"status":"complete","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_Gb.json"
 STEPGB_EOF
 
-    # --- Submit Ga ---
+    # --- Submit Ga (array job + merge) ---
     CKPT_GA="$CKPT_BASE/step_Ga.json"
-    if [ "$(read_checkpoint_status "$CKPT_GA")" = "complete" ]; then
+    local JOB_GA_MERGE=""
+    local GA_ALL_DONE=true
+    if [ "$(read_checkpoint_status "$CKPT_GA")" != "complete" ]; then
+        # Check if all individual chunks completed
+        for C in $(seq 0 $((GA_ARRAY_SIZE-1))); do
+            if [ "$(read_checkpoint_status "$CKPT_BASE/step_Ga_chunk_${C}.json")" != "complete" ]; then
+                GA_ALL_DONE=false; break
+            fi
+        done
+    fi
+    if [ "$GA_ALL_DONE" = "true" ] && [ "$(read_checkpoint_status "$CKPT_GA")" = "complete" ]; then
         echo "  [Ga] KM grid search:     SKIPPED (complete)"
         JOB_GA=""
     else
@@ -1161,7 +1197,11 @@ STEPGB_EOF
         [ -n "${JOB_D_IDS:-}" ] && GA_DEPS="${GA_DEPS:+$GA_DEPS:}$JOB_D_IDS"
 
         JOB_GA=$(submit_job "$JOB_DIR/step_Ga.sh" "$GA_DEPS")
-        echo "  [Ga] KM grid search:     $JOB_GA"
+        echo "  [Ga] KM grid search (array 0-$((GA_ARRAY_SIZE-1))): $JOB_GA"
+
+        # Submit merge job (depends on all array tasks completing)
+        JOB_GA_MERGE=$(submit_job "$JOB_DIR/step_Ga_merge.sh" "$JOB_GA")
+        echo "  [Ga] Merge:              $JOB_GA_MERGE"
     fi
 
     # --- Submit Gb ---
@@ -1213,8 +1253,8 @@ STEPH_EOF
         echo "  [H] LaTeX tables:        SKIPPED (complete)"
         JOB_H=""
     else
-        # H depends on Ga + Gb
-        local H_DEPS="${JOB_GA:-}"
+        # H depends on Ga merge + Gb
+        local H_DEPS="${JOB_GA_MERGE:-}"
         [ -n "${JOB_GB:-}" ] && H_DEPS="${H_DEPS:+$H_DEPS:}${JOB_GB}"
         JOB_H=$(submit_job "$JOB_DIR/step_H.sh" "$H_DEPS")
         echo "  [H] LaTeX tables:        $JOB_H"
@@ -1289,14 +1329,15 @@ FINALAUDIT_EOF
     [ -n "${JOB_E:-}" ] && ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}${JOB_E}"
     [ -n "${JOB_F_IDS:-}" ] && ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}${JOB_F_IDS}"
     [ -n "${JOB_GA:-}" ] && ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}${JOB_GA}"
+    [ -n "${JOB_GA_MERGE:-}" ] && ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}${JOB_GA_MERGE}"
     [ -n "${JOB_GB:-}" ] && ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}${JOB_GB}"
     [ -n "${JOB_H:-}" ] && ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}${JOB_H}"
 
     if [ -z "$ALL_JOBS" ]; then
         echo "  [*] Pipeline complete — no jobs submitted."
     else
-        # Final audit depends on Ga, Gb, and H
-        local FINAL_DEPS="${JOB_GA:-}"
+        # Final audit depends on Ga merge, Gb, and H
+        local FINAL_DEPS="${JOB_GA_MERGE:-}"
         [ -n "${JOB_GB:-}" ] && FINAL_DEPS="${FINAL_DEPS:+$FINAL_DEPS:}${JOB_GB}"
         [ -n "${JOB_H:-}" ] && FINAL_DEPS="${FINAL_DEPS:+$FINAL_DEPS:}${JOB_H}"
         local FINAL_AUDIT_JOB
@@ -1727,6 +1768,7 @@ F_MEM="__F_MEM__"
 GA_CPUS=__GA_CPUS__
 GA_TIME="__GA_TIME__"
 GA_MEM_PER_CPU="__GA_MEM_PER_CPU__"
+GA_ARRAY_SIZE=__GA_ARRAY_SIZE__
 GB_GPU="__GB_GPU__"
 GB_CPUS=__GB_CPUS__
 GB_TIME="__GB_TIME__"
@@ -1796,7 +1838,7 @@ if [ "$TEST_SIZE" != "-1" ]; then
     C_TEST_SIZE_ARG="--test_size $TEST_SIZE"
 fi
 
-JOB_A="" JOB_B_IDS="" JOB_C="" JOB_D_IDS="" JOB_E="" JOB_F_IDS="" JOB_GA="" JOB_GB="" JOB_H=""
+JOB_A="" JOB_B_IDS="" JOB_C="" JOB_D_IDS="" JOB_E="" JOB_F_IDS="" JOB_GA="" JOB_GA_MERGE="" JOB_GB="" JOB_H=""
 ALL_JOBS=""
 
 # --- Step A ---
@@ -2074,7 +2116,7 @@ EOF_F
     done
 fi
 
-# --- Step Ga (KM Grid Search, depends on E + all F + all D) ---
+# --- Step Ga (KM Grid Search array, depends on E + all F + all D) ---
 if [ "$RECOVER_STEP_Ga" = "true" ]; then
     cat > "$JOB_DIR/step_Ga.sh" << EOF_Ga
 #!/bin/bash
@@ -2082,8 +2124,9 @@ if [ "$RECOVER_STEP_Ga" = "true" ]; then
 #SBATCH --cpus-per-task=$GA_CPUS
 #SBATCH --time=$GA_TIME
 #SBATCH --mem-per-cpu=$GA_MEM_PER_CPU
-#SBATCH --output=$SLURM_OUT_DIR/REC_Ga_${EXPERIMENT}_%A.out
-#SBATCH --error=$SLURM_ERR_DIR/REC_Ga_${EXPERIMENT}_%A.err
+#SBATCH --array=0-$((GA_ARRAY_SIZE-1))
+#SBATCH --output=$SLURM_OUT_DIR/REC_Ga_${EXPERIMENT}_%A_%a.out
+#SBATCH --error=$SLURM_ERR_DIR/REC_Ga_${EXPERIMENT}_%A_%a.err
 mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
 module load $MODULES
 source $ENV_NAME/bin/activate
@@ -2108,20 +2151,48 @@ for i in \$(seq 0 $((TOTAL_CHUNKS - 1))); do
     [ -f "\$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/matrices_task_\$i.zip" ] && \
         unzip -o \$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/matrices_task_\$i.zip -d \$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/
 done
-echo "All data ready. Starting KM grid search..."
-python grid_search.py --nb_workers \$SLURM_CPUS_PER_TASK --experiment_name $EXPERIMENT --temp_dir \$SLURM_TMPDIR --rej_lev 0
+echo "All data ready. Starting KM grid search (chunk \$SLURM_ARRAY_TASK_ID/$GA_ARRAY_SIZE)..."
+python grid_search.py --nb_workers \$SLURM_CPUS_PER_TASK --experiment_name $EXPERIMENT --temp_dir \$SLURM_TMPDIR --rej_lev 0 \
+    --grid_chunk_id \$SLURM_ARRAY_TASK_ID --total_grid_chunks $GA_ARRAY_SIZE
 mkdir -p \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/grid_search/
-cp -r \$SLURM_TMPDIR/experiments/$EXPERIMENT/grid_search/grid_search.txt \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/grid_search/ 2>/dev/null || true
+cp \$SLURM_TMPDIR/experiments/$EXPERIMENT/grid_search/grid_search_chunk_\${SLURM_ARRAY_TASK_ID}.txt \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/grid_search/ 2>/dev/null || true
 cp -r \$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/reject_at_* \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/rejection_levels/ 2>/dev/null || true
-echo "Step Ga complete."
+echo "Step Ga chunk \$SLURM_ARRAY_TASK_ID complete."
+CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/checkpoints"
+mkdir -p "\$CKPT_DIR"
+printf '{"status":"complete","chunk":%d,"timestamp":"%s"}\n' "\$SLURM_ARRAY_TASK_ID" "\$(date -Iseconds)" > "\$CKPT_DIR/step_Ga_chunk_\${SLURM_ARRAY_TASK_ID}.json"
 EOF_Ga
+
+    # Ga merge job
+    cat > "$JOB_DIR/step_Ga_merge.sh" << EOF_GaMerge
+#!/bin/bash
+#SBATCH --account=$ACCOUNT
+#SBATCH --cpus-per-task=1
+#SBATCH --time=00:10:00
+#SBATCH --mem=4G
+#SBATCH --output=$SLURM_OUT_DIR/REC_GaMerge_${EXPERIMENT}_%A.out
+#SBATCH --error=$SLURM_ERR_DIR/REC_GaMerge_${EXPERIMENT}_%A.err
+module load $MODULES
+source $ENV_NAME/bin/activate
+python grid_search.py --merge_chunks --experiment_name $EXPERIMENT
+CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/checkpoints"
+mkdir -p "\$CKPT_DIR"
+printf '{"status":"complete","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_Ga.json"
+echo "Step Ga merge complete."
+EOF_GaMerge
+
     GA_DEPS=""
     [ -n "$JOB_E" ] && GA_DEPS="$JOB_E"
     [ -n "$JOB_F_IDS" ] && GA_DEPS="${GA_DEPS:+$GA_DEPS:}$JOB_F_IDS"
     [ -n "$JOB_D_IDS" ] && GA_DEPS="${GA_DEPS:+$GA_DEPS:}$JOB_D_IDS"
     JOB_GA=$(submit_job "$JOB_DIR/step_Ga.sh" "$GA_DEPS")
     ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}$JOB_GA"
-    echo "[Ga] KM grid search: $JOB_GA"
+    echo "[Ga] KM grid search (array 0-$((GA_ARRAY_SIZE-1))): $JOB_GA"
+
+    # Merge depends on all array tasks
+    JOB_GA_MERGE=$(submit_job "$JOB_DIR/step_Ga_merge.sh" "$JOB_GA")
+    ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}$JOB_GA_MERGE"
+    echo "[Ga] Merge: $JOB_GA_MERGE"
 fi
 
 # --- Step Gb (Baselines, depends on A + all B + C + all F) ---
@@ -2197,7 +2268,7 @@ mkdir -p "\$CKPT_DIR"
 printf '{"status":"complete","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_H.json"
 EOF_H
     H_DEPS=""
-    [ -n "$JOB_GA" ] && H_DEPS="$JOB_GA"
+    [ -n "$JOB_GA_MERGE" ] && H_DEPS="$JOB_GA_MERGE"
     [ -n "$JOB_GB" ] && H_DEPS="${H_DEPS:+$H_DEPS:}$JOB_GB"
     JOB_H=$(submit_job "$JOB_DIR/step_H.sh" "$H_DEPS")
     ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}$JOB_H"
@@ -2278,6 +2349,7 @@ DISPATCH_BODY
         sed -i "s|__GA_CPUS__|$GA_CPUS|g" "$JOB_DIR/dispatch.sh"
         sed -i "s|__GA_TIME__|$GA_TIME|g" "$JOB_DIR/dispatch.sh"
         sed -i "s|__GA_MEM_PER_CPU__|$GA_MEM_PER_CPU|g" "$JOB_DIR/dispatch.sh"
+        sed -i "s|__GA_ARRAY_SIZE__|$GA_ARRAY_SIZE|g" "$JOB_DIR/dispatch.sh"
         sed -i "s|__GB_GPU__|$GB_GPU|g" "$JOB_DIR/dispatch.sh"
         sed -i "s|__GB_CPUS__|$GB_CPUS|g" "$JOB_DIR/dispatch.sh"
         sed -i "s|__GB_TIME__|$GB_TIME|g" "$JOB_DIR/dispatch.sh"

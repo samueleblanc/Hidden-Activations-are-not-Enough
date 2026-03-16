@@ -16,6 +16,7 @@ from utils.error_classification import (
     LOG_PATTERN,
     STEP_LABELS,
     STEP_ORDER,
+    parse_log_filename,
 )
 
 
@@ -207,31 +208,47 @@ class TestReadTail:
 
 class TestLogPattern:
     def test_pipe_with_chunk(self):
-        m = LOG_PATTERN.match("PIPE_B_alexnet_cifar10_c3_12345678.err")
-        assert m is not None
-        assert m.group(1) == "PIPE"
-        assert m.group(2) == "B"
-        assert m.group(3) == "alexnet_cifar10"
-        assert m.group(4) == "3"
-        assert m.group(5) == "12345678"
-        assert m.group(6) == "err"
+        p = parse_log_filename("PIPE_B_alexnet_cifar10_c3_12345678.err")
+        assert p is not None
+        assert p["prefix"] == "PIPE"
+        assert p["step"] == "B"
+        assert p["exp"] == "alexnet_cifar10"
+        assert p["chunk"] == "3"
+        assert p["job_id"] == "12345678"
+        assert p["ext"] == "err"
 
     def test_rec_no_chunk(self):
-        m = LOG_PATTERN.match("REC_A_resnet_cifar100_99999999.out")
-        assert m is not None
-        assert m.group(1) == "REC"
-        assert m.group(2) == "A"
-        assert m.group(3) == "resnet_cifar100"
-        assert m.group(4) is None
-        assert m.group(5) == "99999999"
+        p = parse_log_filename("REC_A_resnet_cifar100_99999999.out")
+        assert p is not None
+        assert p["prefix"] == "REC"
+        assert p["step"] == "A"
+        assert p["exp"] == "resnet_cifar100"
+        assert p["chunk"] is None
+        assert p["job_id"] == "99999999"
 
     def test_errscan(self):
-        m = LOG_PATTERN.match("PIPE_ERRSCAN_alexnet_cifar10_11111111.out")
-        assert m is not None
-        assert m.group(2) == "ERRSCAN"
+        p = parse_log_filename("PIPE_ERRSCAN_alexnet_cifar10_11111111.out")
+        assert p is not None
+        assert p["step"] == "ERRSCAN"
 
     def test_no_match(self):
-        assert LOG_PATTERN.match("random_file.txt") is None
+        assert parse_log_filename("random_file.txt") is None
+
+    def test_array_job(self):
+        p = parse_log_filename("PIPE_Ga_alexnet_cifar10_12345_3.out")
+        assert p is not None
+        assert p["prefix"] == "PIPE"
+        assert p["step"] == "Ga"
+        assert p["exp"] == "alexnet_cifar10"
+        assert p["chunk"] == "3"  # array task ID becomes chunk
+        assert p["job_id"] == "12345"
+        assert p["ext"] == "out"
+
+    def test_ga_merge(self):
+        p = parse_log_filename("PIPE_GaMerge_alexnet_cifar10_12345.out")
+        assert p is not None
+        assert p["step"] == "GaMerge"
+        assert p["chunk"] is None
 
 
 # ── Metadata consistency ─────────────────────────────────────────────────

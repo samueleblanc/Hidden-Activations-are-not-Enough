@@ -10,7 +10,7 @@ import re
 # ── Step metadata ─────────────────────────────────────────────────────────
 
 STEP_ORDER = [
-    "CALIB", "PREAUDIT", "A", "B", "C", "D", "E", "F", "Ga", "Gb", "H",
+    "CALIB", "PREAUDIT", "A", "B", "C", "D", "E", "F", "Ga", "GaMerge", "Gb", "H",
     "G",  # backward compat for old logs
     "AUDIT", "DISPATCH", "ERRSCAN",
 ]
@@ -25,6 +25,7 @@ STEP_LABELS = {
     "E": "Matrix Stats",
     "F": "Adv Matrices",
     "Ga": "KM Grid Search",
+    "GaMerge": "KM Grid Merge",
     "Gb": "Baselines",
     "H": "LaTeX Tables",
     "G": "Grid Search",       # backward compat
@@ -47,6 +48,7 @@ STEP_LABELS_PREFIXED["E"] = "E (Matrix Stats)"
 STEP_LABELS_PREFIXED["F"] = "F (Adv Matrices)"
 STEP_LABELS_PREFIXED["G"] = "G (Grid Search)"
 STEP_LABELS_PREFIXED["Ga"] = "Ga (KM Grid Search)"
+STEP_LABELS_PREFIXED["GaMerge"] = "Ga (KM Grid Merge)"
 STEP_LABELS_PREFIXED["Gb"] = "Gb (Baselines)"
 STEP_LABELS_PREFIXED["H"] = "H (LaTeX Tables)"
 
@@ -90,9 +92,33 @@ ERROR_CATEGORIES = ["slurm", "code", "data", "environment", "unknown"]
 
 # ── Log filename pattern ──────────────────────────────────────────────────
 
+# Matches both regular and array job log filenames.
+# Regular:   PIPE_Ga_alexnet_cifar10_12345.out
+# Chunked:   PIPE_B_alexnet_cifar10_c3_12345.out
+# Array job:  PIPE_Ga_alexnet_cifar10_12345_3.out
+# Groups: (1)prefix (2)step (3)experiment (4)chunk_or_None (5)job_id (6)array_task_or_None (7)ext
 LOG_PATTERN = re.compile(
-    r'^(PIPE|REC)_([A-Za-z]+)_(.+?)(?:_c(\d+))?_(\d+)\.(out|err)$'
+    r'^(PIPE|REC)_([A-Za-z]+)_(.+?)(?:_c(\d+))?_(\d+)(?:_(\d+))?\.(out|err)$'
 )
+
+
+def parse_log_filename(fname):
+    """Parse a log filename into a dict with prefix, step, exp, chunk, job_id, ext.
+
+    Handles both regular and array job log filenames. For array jobs,
+    the array task ID is stored in the chunk field.
+    """
+    m = LOG_PATTERN.match(fname)
+    if not m:
+        return None
+    prefix, step, exp, chunk, job_id, array_task, ext = m.groups()
+    # For array jobs, use the array task ID as the chunk identifier
+    if array_task is not None:
+        chunk = array_task
+    return {
+        "prefix": prefix, "step": step, "exp": exp,
+        "chunk": chunk, "job_id": job_id, "ext": ext,
+    }
 
 
 # ── Classification functions ──────────────────────────────────────────────
