@@ -262,7 +262,6 @@ echo "Checking pretrained weights..."
 python3 << 'WEIGHTS_CHECK_EOF'
 import sys
 import os
-import torch
 sys.path.insert(0, '.')
 from constants.constants import DEFAULT_EXPERIMENTS
 
@@ -288,6 +287,7 @@ for arch in needed_archs:
     else:
         print(f'  DOWNLOAD NEEDED: {arch} pretrained weights')
         os.makedirs(os.path.dirname(path), exist_ok=True)
+        import torch
         if arch == 'alexnet':
             from torchvision.models import alexnet, AlexNet_Weights
             model = alexnet(weights=AlexNet_Weights.DEFAULT)
