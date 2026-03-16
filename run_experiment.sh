@@ -21,6 +21,8 @@ set -euo pipefail
 
 # --- Default configuration ---
 ACCOUNT="def-assem"
+GPU_ACCOUNT=""              # Account for GPU jobs (defaults to ACCOUNT if empty)
+CPU_ACCOUNT=""              # Account for CPU jobs (defaults to ACCOUNT if empty)
 TOTAL_CHUNKS=8
 BATCH_SIZE=1800
 NUM_SAMPLES_PER_CLASS=100
@@ -151,6 +153,10 @@ if [ "$TEST_MODE" = "true" ]; then
     AUDIT_TIME="00:30:00"
     AUDIT_MEM="16G"
 fi
+
+# --- Resolve per-type accounts (default to ACCOUNT) ---
+GPU_ACCOUNT="${GPU_ACCOUNT:-$ACCOUNT}"
+CPU_ACCOUNT="${CPU_ACCOUNT:-$ACCOUNT}"
 
 # ==============================================================
 # Pre-flight checks
@@ -436,7 +442,7 @@ submit_full_pipeline() {
     # ==========================================================
     cat > "$JOB_DIR/step_A.sh" << STEPA_EOF
 #!/bin/bash
-#SBATCH --account=$ACCOUNT
+#SBATCH --account=$GPU_ACCOUNT
 #SBATCH $A_GPU
 #SBATCH --cpus-per-task=$A_CPUS
 #SBATCH --time=$A_TIME
@@ -478,7 +484,7 @@ STEPA_EOF
     for CHUNK in $(seq 0 $((TOTAL_CHUNKS - 1))); do
         cat > "$JOB_DIR/step_B_chunk_${CHUNK}.sh" << STEPB_EOF
 #!/bin/bash
-#SBATCH --account=$ACCOUNT
+#SBATCH --account=$GPU_ACCOUNT
 #SBATCH $B_GPU
 #SBATCH --cpus-per-task=$B_CPUS
 #SBATCH --time=$B_TIME
@@ -619,7 +625,7 @@ STEPB_EOF
 
     cat > "$JOB_DIR/step_C.sh" << STEPC_EOF
 #!/bin/bash
-#SBATCH --account=$ACCOUNT
+#SBATCH --account=$GPU_ACCOUNT
 #SBATCH $C_GPU
 #SBATCH --cpus-per-task=$C_CPUS
 #SBATCH --time=$C_TIME
@@ -669,7 +675,7 @@ STEPC_EOF
         if [ "$CHUNK" -lt "$D_REM" ]; then D_CHUNK_TOTAL=$((D_BASE + 1)); else D_CHUNK_TOTAL=$D_BASE; fi
         cat > "$JOB_DIR/step_D_chunk_${CHUNK}.sh" << STEPD_EOF
 #!/bin/bash
-#SBATCH --account=$ACCOUNT
+#SBATCH --account=$GPU_ACCOUNT
 #SBATCH $D_GPU
 #SBATCH --cpus-per-task=$D_CPUS
 #SBATCH --time=$D_TIME
@@ -833,7 +839,7 @@ STEPD_EOF
     # ==========================================================
     cat > "$JOB_DIR/step_E.sh" << STEPE_EOF
 #!/bin/bash
-#SBATCH --account=$ACCOUNT
+#SBATCH --account=$CPU_ACCOUNT
 #SBATCH --cpus-per-task=$E_CPUS
 #SBATCH --time=$E_TIME
 #SBATCH --mem-per-cpu=$E_MEM
@@ -884,7 +890,7 @@ STEPE_EOF
         if [ "$CHUNK" -lt "$F_REM" ]; then F_CHUNK_TOTAL=$((NUM_ATTACKS * (F_BASE + 1))); else F_CHUNK_TOTAL=$((NUM_ATTACKS * F_BASE)); fi
         cat > "$JOB_DIR/step_F_chunk_${CHUNK}.sh" << STEPF_EOF
 #!/bin/bash
-#SBATCH --account=$ACCOUNT
+#SBATCH --account=$GPU_ACCOUNT
 #SBATCH $F_GPU
 #SBATCH --cpus-per-task=$F_CPUS
 #SBATCH --time=$F_TIME
@@ -1028,7 +1034,7 @@ STEPF_EOF
     # ==========================================================
     cat > "$JOB_DIR/step_Ga.sh" << STEPGA_EOF
 #!/bin/bash
-#SBATCH --account=$ACCOUNT
+#SBATCH --account=$CPU_ACCOUNT
 #SBATCH --cpus-per-task=$GA_CPUS
 #SBATCH --time=$GA_TIME
 #SBATCH --mem-per-cpu=$GA_MEM_PER_CPU
@@ -1094,7 +1100,7 @@ STEPGA_EOF
     # Step Ga merge: lightweight job that merges chunk results
     cat > "$JOB_DIR/step_Ga_merge.sh" << STEPGAMERGE_EOF
 #!/bin/bash
-#SBATCH --account=$ACCOUNT
+#SBATCH --account=$CPU_ACCOUNT
 #SBATCH --cpus-per-task=1
 #SBATCH --time=00:10:00
 #SBATCH --mem=4G
@@ -1118,7 +1124,7 @@ STEPGAMERGE_EOF
     # ==========================================================
     cat > "$JOB_DIR/step_Gb.sh" << STEPGB_EOF
 #!/bin/bash
-#SBATCH --account=$ACCOUNT
+#SBATCH --account=$GPU_ACCOUNT
 #SBATCH $GB_GPU
 #SBATCH --cpus-per-task=$GB_CPUS
 #SBATCH --time=$GB_TIME
@@ -1225,7 +1231,7 @@ STEPGB_EOF
     # ==========================================================
     cat > "$JOB_DIR/step_H.sh" << STEPH_EOF
 #!/bin/bash
-#SBATCH --account=$ACCOUNT
+#SBATCH --account=$CPU_ACCOUNT
 #SBATCH --cpus-per-task=$H_CPUS
 #SBATCH --time=$H_TIME
 #SBATCH --mem=$H_MEM
@@ -1265,7 +1271,7 @@ STEPH_EOF
     # ==========================================================
     cat > "$JOB_DIR/final_audit.sh" << FINALAUDIT_EOF
 #!/bin/bash
-#SBATCH --account=$ACCOUNT
+#SBATCH --account=$CPU_ACCOUNT
 #SBATCH --cpus-per-task=$AUDIT_CPUS
 #SBATCH --time=$AUDIT_TIME
 #SBATCH --mem=$AUDIT_MEM
@@ -1354,7 +1360,7 @@ FINALAUDIT_EOF
 
         cat > "$JOB_DIR/error_scan.sh" << ERRSCAN_EOF
 #!/bin/bash
-#SBATCH --account=$ACCOUNT
+#SBATCH --account=$CPU_ACCOUNT
 #SBATCH --cpus-per-task=1
 #SBATCH --time=00:15:00
 #SBATCH --mem=2G
@@ -1408,7 +1414,7 @@ for EXP in "${EXPERIMENTS[@]}"; do
 
         cat > "$JOB_DIR/calibrate.sh" << CALIB_EOF
 #!/bin/bash
-#SBATCH --account=$ACCOUNT
+#SBATCH --account=$GPU_ACCOUNT
 #SBATCH $CALIB_GPU
 #SBATCH --cpus-per-task=$CALIB_CPUS
 #SBATCH --time=$CALIB_TIME
@@ -1507,7 +1513,7 @@ CALIB_EOF
         # --- Generate audit script ---
         cat > "$JOB_DIR/audit.sh" << AUDIT_EOF
 #!/bin/bash
-#SBATCH --account=$ACCOUNT
+#SBATCH --account=$CPU_ACCOUNT
 #SBATCH --cpus-per-task=$AUDIT_CPUS
 #SBATCH --time=$AUDIT_TIME
 #SBATCH --mem=$AUDIT_MEM
@@ -1719,7 +1725,7 @@ AUDIT_EOF
         # --- Generate dispatcher script ---
         cat > "$JOB_DIR/dispatch.sh" << 'DISPATCH_HEADER'
 #!/bin/bash
-#SBATCH --account=__ACCOUNT__
+#SBATCH --account=__CPU_ACCOUNT__
 #SBATCH --cpus-per-task=1
 #SBATCH --time=00:15:00
 #SBATCH --mem=1G
@@ -1732,6 +1738,8 @@ mkdir -p $SLURM_SUBMIT_DIR/$SLURM_OUT_DIR $SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
 
 EXPERIMENT="__EXP__"
 ACCOUNT="__ACCOUNT__"
+GPU_ACCOUNT="__GPU_ACCOUNT__"
+CPU_ACCOUNT="__CPU_ACCOUNT__"
 TOTAL_CHUNKS=__TOTAL_CHUNKS__
 BATCH_SIZE=__BATCH_SIZE__
 NUM_SAMPLES_PER_CLASS=__NUM_SAMPLES_PER_CLASS__
@@ -1845,7 +1853,7 @@ ALL_JOBS=""
 if [ "$RECOVER_STEP_A" = "true" ]; then
     cat > "$JOB_DIR/step_A.sh" << EOF_A
 #!/bin/bash
-#SBATCH --account=$ACCOUNT
+#SBATCH --account=$GPU_ACCOUNT
 #SBATCH $A_GPU
 #SBATCH --cpus-per-task=$A_CPUS
 #SBATCH --time=$A_TIME
@@ -1869,7 +1877,7 @@ if [ "$RECOVER_STEP_B" = "true" ]; then
     for CHUNK in $RECOVER_STEP_B_CHUNKS; do
         cat > "$JOB_DIR/step_B_c${CHUNK}.sh" << EOF_B
 #!/bin/bash
-#SBATCH --account=$ACCOUNT
+#SBATCH --account=$GPU_ACCOUNT
 #SBATCH $B_GPU
 #SBATCH --cpus-per-task=$B_CPUS
 #SBATCH --time=$B_TIME
@@ -1927,7 +1935,7 @@ fi
 if [ "$RECOVER_STEP_C" = "true" ]; then
     cat > "$JOB_DIR/step_C.sh" << EOF_C
 #!/bin/bash
-#SBATCH --account=$ACCOUNT
+#SBATCH --account=$GPU_ACCOUNT
 #SBATCH $C_GPU
 #SBATCH --cpus-per-task=$C_CPUS
 #SBATCH --time=$C_TIME
@@ -1956,7 +1964,7 @@ if [ "$RECOVER_STEP_D" = "true" ]; then
     for CHUNK in $RECOVER_STEP_D_CHUNKS; do
         cat > "$JOB_DIR/step_D_c${CHUNK}.sh" << EOF_D
 #!/bin/bash
-#SBATCH --account=$ACCOUNT
+#SBATCH --account=$GPU_ACCOUNT
 #SBATCH $D_GPU
 #SBATCH --cpus-per-task=$D_CPUS
 #SBATCH --time=$D_TIME
@@ -2030,7 +2038,7 @@ fi
 if [ "$RECOVER_STEP_E" = "true" ]; then
     cat > "$JOB_DIR/step_E.sh" << EOF_E
 #!/bin/bash
-#SBATCH --account=$ACCOUNT
+#SBATCH --account=$CPU_ACCOUNT
 #SBATCH --cpus-per-task=$E_CPUS
 #SBATCH --time=$E_TIME
 #SBATCH --mem-per-cpu=$E_MEM
@@ -2060,7 +2068,7 @@ if [ "$RECOVER_STEP_F" = "true" ]; then
     for CHUNK in $RECOVER_STEP_F_CHUNKS; do
         cat > "$JOB_DIR/step_F_c${CHUNK}.sh" << EOF_F
 #!/bin/bash
-#SBATCH --account=$ACCOUNT
+#SBATCH --account=$GPU_ACCOUNT
 #SBATCH $F_GPU
 #SBATCH --cpus-per-task=$F_CPUS
 #SBATCH --time=$F_TIME
@@ -2120,7 +2128,7 @@ fi
 if [ "$RECOVER_STEP_Ga" = "true" ]; then
     cat > "$JOB_DIR/step_Ga.sh" << EOF_Ga
 #!/bin/bash
-#SBATCH --account=$ACCOUNT
+#SBATCH --account=$CPU_ACCOUNT
 #SBATCH --cpus-per-task=$GA_CPUS
 #SBATCH --time=$GA_TIME
 #SBATCH --mem-per-cpu=$GA_MEM_PER_CPU
@@ -2166,7 +2174,7 @@ EOF_Ga
     # Ga merge job
     cat > "$JOB_DIR/step_Ga_merge.sh" << EOF_GaMerge
 #!/bin/bash
-#SBATCH --account=$ACCOUNT
+#SBATCH --account=$CPU_ACCOUNT
 #SBATCH --cpus-per-task=1
 #SBATCH --time=00:10:00
 #SBATCH --mem=4G
@@ -2199,7 +2207,7 @@ fi
 if [ "$RECOVER_STEP_Gb" = "true" ]; then
     cat > "$JOB_DIR/step_Gb.sh" << EOF_Gb
 #!/bin/bash
-#SBATCH --account=$ACCOUNT
+#SBATCH --account=$GPU_ACCOUNT
 #SBATCH $GB_GPU
 #SBATCH --cpus-per-task=$GB_CPUS
 #SBATCH --time=$GB_TIME
@@ -2249,7 +2257,7 @@ fi
 if [ "$RECOVER_STEP_H" = "true" ]; then
     cat > "$JOB_DIR/step_H.sh" << EOF_H
 #!/bin/bash
-#SBATCH --account=$ACCOUNT
+#SBATCH --account=$CPU_ACCOUNT
 #SBATCH --cpus-per-task=$H_CPUS
 #SBATCH --time=$H_TIME
 #SBATCH --mem=$H_MEM
@@ -2284,7 +2292,7 @@ if [ -n "$ALL_JOBS" ]; then
 
     cat > "$JOB_DIR/error_scan.sh" << EOF_ERRSCAN
 #!/bin/bash
-#SBATCH --account=$ACCOUNT
+#SBATCH --account=$CPU_ACCOUNT
 #SBATCH --cpus-per-task=1
 #SBATCH --time=00:15:00
 #SBATCH --mem=2G
@@ -2314,6 +2322,8 @@ DISPATCH_BODY
 
         # Replace placeholders in dispatcher
         sed -i "s|__ACCOUNT__|$ACCOUNT|g" "$JOB_DIR/dispatch.sh"
+        sed -i "s|__GPU_ACCOUNT__|$GPU_ACCOUNT|g" "$JOB_DIR/dispatch.sh"
+        sed -i "s|__CPU_ACCOUNT__|$CPU_ACCOUNT|g" "$JOB_DIR/dispatch.sh"
         sed -i "s|__EXP__|$EXP|g" "$JOB_DIR/dispatch.sh"
         sed -i "s|__TOTAL_CHUNKS__|$TOTAL_CHUNKS|g" "$JOB_DIR/dispatch.sh"
         sed -i "s|__BATCH_SIZE__|$BATCH_SIZE|g" "$JOB_DIR/dispatch.sh"
@@ -2385,6 +2395,8 @@ echo "  Pipeline Orchestrator — Summary"
 echo "=============================================================="
 echo ""
 echo "  Experiments: ${EXPERIMENTS[*]}"
+echo "  GPU account: $GPU_ACCOUNT"
+echo "  CPU account: $CPU_ACCOUNT"
 echo "  Mode: $([ "$SKIP_AUDIT" = "true" ] && echo "skip-audit" || echo "audit+dispatch")"
 echo "  Calibration: $([ "$NO_CALIBRATE" = "true" ] && echo "disabled" || echo "enabled")"
 echo "  Test mode: $TEST_MODE"
