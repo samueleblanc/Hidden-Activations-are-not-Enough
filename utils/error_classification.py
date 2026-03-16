@@ -1,0 +1,151 @@
+"""
+Shared error classification logic for pipeline error scanning and reporting.
+
+Used by both collect_errors.py (Slurm error scan) and pipeline_report.py.
+"""
+
+import re
+
+
+# ── Step metadata ─────────────────────────────────────────────────────────
+
+STEP_ORDER = [
+    "CALIB", "PREAUDIT", "A", "B", "C", "D", "E", "F", "Ga", "Gb", "H",
+    "G",  # backward compat for old logs
+    "AUDIT", "DISPATCH", "ERRSCAN",
+]
+
+STEP_LABELS = {
+    "CALIB": "Calibration",
+    "PREAUDIT": "Pre-Audit",
+    "A": "Training",
+    "B": "Matrices",
+    "C": "Adv Examples",
+    "D": "Rejection Levels",
+    "E": "Matrix Stats",
+    "F": "Adv Matrices",
+    "Ga": "KM Grid Search",
+    "Gb": "Baselines",
+    "H": "LaTeX Tables",
+    "G": "Grid Search",       # backward compat
+    "AUDIT": "Final Audit",
+    "DISPATCH": "Dispatcher",
+    "ERRSCAN": "Error Scan",
+}
+
+# Labels with step letter prefix (used by pipeline_report.py)
+STEP_LABELS_PREFIXED = {
+    k: (f"{k} ({v})" if len(k) <= 2 and k not in ("G",) else v)
+    for k, v in STEP_LABELS.items()
+}
+# Override specific ones for clearer display
+STEP_LABELS_PREFIXED["A"] = "A (Training)"
+STEP_LABELS_PREFIXED["B"] = "B (Matrices)"
+STEP_LABELS_PREFIXED["C"] = "C (Adv Examples)"
+STEP_LABELS_PREFIXED["D"] = "D (Rejection Levels)"
+STEP_LABELS_PREFIXED["E"] = "E (Matrix Stats)"
+STEP_LABELS_PREFIXED["F"] = "F (Adv Matrices)"
+STEP_LABELS_PREFIXED["G"] = "G (Grid Search)"
+STEP_LABELS_PREFIXED["Ga"] = "Ga (KM Grid Search)"
+STEP_LABELS_PREFIXED["Gb"] = "Gb (Baselines)"
+STEP_LABELS_PREFIXED["H"] = "H (LaTeX Tables)"
+
+
+# ── Error patterns ────────────────────────────────────────────────────────
+
+ERROR_PATTERNS = [
+    ("oom",           re.compile(r"out of memory|oom-kill|Killed|cannot allocate memory", re.I)),
+    ("timeout",       re.compile(r"DUE TO TIME LIMIT|CANCELLED.*TIME", re.I)),
+    ("cuda_error",    re.compile(r"CUDA error|CUDA out of memory|NCCL", re.I)),
+    ("network_error", re.compile(r"network.unreachable|ConnectionError|urllib.*Error", re.I)),
+    ("missing_file",  re.compile(r"FileNotFoundError|No such file|not found", re.I)),
+    ("module_error",  re.compile(r"ModuleNotFoundError|ImportError", re.I)),
+    ("zip_error",     re.compile(r"Zip.*failed|BadZipFile|Zip verification", re.I)),
+    ("assertion",     re.compile(r"AssertionError", re.I)),
+    ("permission",    re.compile(r"PermissionError|Permission denied", re.I)),
+]
+
+# Map fine-grained error types to 4 high-level categories
+ERROR_CATEGORY_MAP = {
+    # slurm: resource limit issues managed by the scheduler
+    "oom":           "slurm",
+    "timeout":       "slurm",
+    # code: bugs or logic errors in the Python pipeline
+    "code":          "code",
+    "assertion":     "code",
+    # data: missing or corrupt files / datasets
+    "missing_file":  "data",
+    "zip_error":     "data",
+    # environment: CUDA, network, modules, permissions
+    "cuda_error":    "environment",
+    "network_error": "environment",
+    "module_error":  "environment",
+    "permission":    "environment",
+    # unknown
+    "unknown":       "unknown",
+}
+
+ERROR_CATEGORIES = ["slurm", "code", "data", "environment", "unknown"]
+
+
+# ── Log filename pattern ──────────────────────────────────────────────────
+
+LOG_PATTERN = re.compile(
+    r'^(PIPE|REC)_([A-Za-z]+)_(.+?)(?:_c(\d+))?_(\d+)\.(out|err)$'
+)
+
+
+# ── Classification functions ──────────────────────────────────────────────
+
+def classify_error(text):
+    """Classify error text into a fine-grained error type.
+
+    Returns the first matching error type from ERROR_PATTERNS,
+    or None if no pattern matches.
+    """
+    for error_type, pattern in ERROR_PATTERNS:
+        if pattern.search(text):
+            return error_type
+    return None
+
+
+def get_error_category(error_type):
+    """Map a fine-grained error type to a high-level category.
+
+    Returns one of: 'slurm', 'code', 'data', 'environment', 'unknown'.
+    """
+    if error_type is None:
+        return "unknown"
+    return ERROR_CATEGORY_MAP.get(error_type, "unknown")
+
+
+def extract_traceback(text):
+    """Extract the last Python traceback from text.
+
+    Returns the traceback string, or None if not found.
+    """
+    lines = text.split("\n")
+    tb_start = None
+    for i in range(len(lines) - 1, -1, -1):
+        if lines[i].startswith("Traceback (most recent call last):"):
+            tb_start = i
+            break
+    if tb_start is not None:
+        tb_end = len(lines)
+        for i in range(tb_start + 1, len(lines)):
+            line = lines[i]
+            if line and not line.startswith(" ") and not line.startswith("Traceback"):
+                tb_end = i + 1  # include the error line
+                break
+        return "\n".join(lines[tb_start:tb_end]).strip()
+    return None
+
+
+def read_tail(filepath, n=80):
+    """Read the last n lines of a file."""
+    try:
+        with open(filepath) as f:
+            lines = f.readlines()
+        return "".join(lines[-n:])
+    except Exception:
+        return ""

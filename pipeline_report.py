@@ -2,6 +2,7 @@
 Pipeline Report — Comprehensive post-run analysis for Slurm ML pipelines.
 
 Generates a timestamped, non-overwriting report covering:
+  0. Quick pass/fail summary (from overall_errors.json if available)
   1. Job status summary (from sacct + log filenames)
   2. Calibration results
   3. Pipeline step completion (artifact verification)
@@ -24,41 +25,10 @@ import subprocess
 import argparse
 from datetime import datetime
 
-
-# ── Helpers ──────────────────────────────────────────────────────────────
-
-LOG_PATTERN = re.compile(
-    r'^(PIPE|REC)_([A-Za-z]+)_(.+?)(?:_c(\d+))?_(\d+)\.(out|err)$'
+from utils.error_classification import (
+    LOG_PATTERN, STEP_ORDER, STEP_LABELS_PREFIXED as STEP_LABELS,
+    ERROR_PATTERNS, classify_error, get_error_category, read_tail,
 )
-
-STEP_ORDER = [
-    "CALIB", "PREAUDIT", "A", "B", "C", "D", "E", "F", "G",
-    "AUDIT", "DISPATCH",
-]
-
-STEP_LABELS = {
-    "CALIB": "Calibration",
-    "PREAUDIT": "Pre-Audit",
-    "A": "A (Training)",
-    "B": "B (Matrices)",
-    "C": "C (Adv Examples)",
-    "D": "D (Rejection Levels)",
-    "E": "E (Matrix Stats)",
-    "F": "F (Adv Matrices)",
-    "G": "G (Grid Search)",
-    "AUDIT": "Final Audit",
-    "DISPATCH": "Dispatcher",
-}
-
-ERROR_PATTERNS = [
-    ("OOM",            re.compile(r"out of memory|oom-kill|Killed|cannot allocate memory", re.I)),
-    ("Timeout",        re.compile(r"DUE TO TIME LIMIT|CANCELLED.*TIME", re.I)),
-    ("CUDA Error",     re.compile(r"CUDA error|CUDA out of memory|NCCL", re.I)),
-    ("Network Error",  re.compile(r"network.unreachable|ConnectionError|urllib.*Error", re.I)),
-    ("Missing File",   re.compile(r"FileNotFoundError|No such file|not found", re.I)),
-    ("Module Error",   re.compile(r"ModuleNotFoundError|ImportError", re.I)),
-    ("Zip Error",      re.compile(r"Zip.*failed|BadZipFile|Zip verification", re.I)),
-]
 
 
 def parse_args():
@@ -67,6 +37,20 @@ def parse_args():
     parser.add_argument("--test", action="store_true", default=False)
     parser.add_argument("--total-chunks", type=int, default=8)
     return parser.parse_args()
+
+
+# ── overall_errors.json consumer ─────────────────────────────────────────
+
+def load_overall_errors(experiment):
+    """Load overall_errors.json if available. Returns dict or None."""
+    path = os.path.join("experiments", experiment, "overall_errors.json")
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return None
 
 
 # ── Section 1: Job Status ────────────────────────────────────────────────
@@ -163,15 +147,11 @@ def check_step_completion(experiment, total_chunks):
 
 def read_last_lines(filepath, n=50):
     """Read the last n lines of a file."""
-    try:
-        with open(filepath) as f:
-            lines = f.readlines()
-        return "".join(lines[-n:])
-    except Exception:
-        return ""
+    return read_tail(filepath, n)
 
 
 def analyze_errors(jobs, slurm_out_dir, slurm_err_dir, sacct_data):
+    """Fall-back error analysis when overall_errors.json is not available."""
     errors = []
     seen_jobs = set()
 
@@ -186,7 +166,7 @@ def analyze_errors(jobs, slurm_out_dir, slurm_err_dir, sacct_data):
         step_label = STEP_LABELS.get(job["step"], job["step"])
         chunk_str = f" chunk {job['chunk']}" if job["chunk"] is not None else ""
 
-        # For FAILED/TIMEOUT/CANCELLED jobs: scan .err files (existing behavior)
+        # For FAILED/TIMEOUT/CANCELLED jobs: scan .err files
         if state not in ("COMPLETED", "UNKNOWN"):
             err_pattern = os.path.join(slurm_err_dir, f"*_{jid}.err")
             err_files = glob.glob(err_pattern)
@@ -198,10 +178,9 @@ def analyze_errors(jobs, slurm_out_dir, slurm_err_dir, sacct_data):
                 if not last_lines:
                     last_lines = "(could not read error file)"
 
-                for cat_name, pat in ERROR_PATTERNS:
-                    if pat.search(last_lines):
-                        category = cat_name
-                        break
+                error_type = classify_error(last_lines)
+                if error_type:
+                    category = f"{error_type} ({get_error_category(error_type)})"
 
             errors.append({
                 "job_id": jid, "step": f"{step_label}{chunk_str}",
@@ -218,10 +197,9 @@ def analyze_errors(jobs, slurm_out_dir, slurm_err_dir, sacct_data):
                 content = read_last_lines(f, 50)
                 if re.search(r'ERROR:|FAILED:|Traceback|RuntimeError|AttributeError|urllib\.error', content):
                     category = "Unknown"
-                    for cat_name, pat in ERROR_PATTERNS:
-                        if pat.search(content):
-                            category = cat_name
-                            break
+                    error_type = classify_error(content)
+                    if error_type:
+                        category = f"{error_type} ({get_error_category(error_type)})"
                     errors.append({
                         "job_id": jid, "step": f"{step_label}{chunk_str}",
                         "state": f"{state} (Runtime Error)",
@@ -321,10 +299,10 @@ def generate_recommendations(step_a_ok, integrity_report):
     if bad_f:
         recs.append(f"Re-run Step F chunks [{', '.join(bad_f)}]")
 
-    # Step G
+    # Steps Ga/Gb
     gs = steps.get("grid_search", {})
     if gs.get("status") != "OK":
-        recs.append("Re-run Step G (Grid Search)")
+        recs.append("Re-run Step Ga (KM Grid Search) and/or Step Gb (Baselines)")
 
     # Dependency propagation
     if bad_b and mat_stats.get("status") == "OK":
@@ -332,7 +310,7 @@ def generate_recommendations(step_a_ok, integrity_report):
     if bad_c and not bad_f:
         recs.append("  (propagated) Step F needs re-run due to Step C failure")
     if (bad_b or bad_d or bad_f) and gs.get("status") == "OK":
-        recs.append("  (propagated) Step G needs re-run due to upstream failures")
+        recs.append("  (propagated) Step Ga needs re-run due to upstream failures")
 
     return recs
 
@@ -341,7 +319,7 @@ def generate_recommendations(step_a_ok, integrity_report):
 
 def write_report(experiment, test_mode, total_chunks, jobs, sacct_data,
                  calibration, step_a_ok, integrity_report, epochs,
-                 errors, gpu_data, recommendations):
+                 errors, gpu_data, recommendations, overall_errors):
 
     now = datetime.now()
     timestamp = now.strftime("%Y%m%d_%H%M%S")
@@ -356,6 +334,28 @@ def write_report(experiment, test_mode, total_chunks, jobs, sacct_data,
     w(f"  Mode: {mode_str}")
     w("=" * 70)
     w("")
+
+    # --- Section 0: Quick Summary from overall_errors.json ---
+    if overall_errors:
+        pipeline_ok = overall_errors.get("pipeline_success", False)
+        status_icon = "PASS" if pipeline_ok else "FAIL"
+        w(f"=== Pipeline Status: {status_icon} ===")
+        w(f"  (from overall_errors.json, schema v{overall_errors.get('schema_version', '?')})")
+        w(f"  Total jobs:       {overall_errors.get('total_jobs', '?')}")
+        w(f"  Jobs succeeded:   {overall_errors.get('jobs_succeeded', '?')}")
+        w(f"  Jobs with errors: {overall_errors.get('jobs_with_errors', '?')}")
+        cat_summary = overall_errors.get("error_category_summary", {})
+        if any(v > 0 for v in cat_summary.values()):
+            nonzero = {k: v for k, v in cat_summary.items() if v > 0}
+            w(f"  Error categories: {nonzero}")
+        integrity = overall_errors.get("integrity")
+        if integrity:
+            w(f"  Integrity:        {integrity.get('ok', 0)} OK, "
+              f"{integrity.get('missing', 0)} missing, "
+              f"{integrity.get('corrupt', 0)} corrupt")
+        if overall_errors.get("error_scan_failed"):
+            w("  WARNING: Error scan itself failed — data may be incomplete")
+        w("")
 
     # --- Section 1: Job Status ---
     w("=== Section 1: Job Status Summary ===")
@@ -374,7 +374,6 @@ def write_report(experiment, test_mode, total_chunks, jobs, sacct_data,
             state = info.get("state", "UNKNOWN")
             label = STEP_LABELS.get(step_key, step_key)
             chunk_str = f" c{job['chunk']}" if job["chunk"] is not None else ""
-            prefix = f"[{job['prefix']}]"
             marker = "  *** FAILED ***" if state in ("FAILED", "TIMEOUT", "CANCELLED") else ""
             w(f"  {label+chunk_str:<25} {jid:<12} {state:<14} {info.get('exit_code','?'):<8} {info.get('elapsed','?'):<12} {info.get('max_rss','?')}{marker}")
 
@@ -434,7 +433,27 @@ def write_report(experiment, test_mode, total_chunks, jobs, sacct_data,
 
     # --- Section 4: Error Analysis ---
     w("=== Section 4: Error Analysis ===")
-    if errors:
+    if overall_errors and not overall_errors.get("error_scan_failed"):
+        # Use structured data from overall_errors.json
+        err_steps = [s for s in overall_errors.get("steps", []) if s.get("error_detected")]
+        if err_steps:
+            for s in err_steps:
+                chunk_str = f" chunk {s['chunk']}" if s.get("chunk") is not None else ""
+                cat_str = s.get("error_category", "unknown")
+                w(f"  Job {s['job_id']} ({s['step_label']}{chunk_str}) -- "
+                  f"{s['slurm_state']} -- Type: {s.get('error_type', '?')} ({cat_str})")
+                tb = s.get("traceback")
+                tail = s.get("err_tail", "")
+                display = tb or tail
+                if display and display.strip():
+                    for line in display.strip().split("\n")[-15:]:
+                        w(f"    | {line.rstrip()}")
+                w("")
+        else:
+            w("  No errors detected.")
+    elif errors:
+        # Fall back to live .err scanning
+        w("  (from live log scanning — overall_errors.json not available)")
         for err in errors:
             w(f"  Job {err['job_id']} ({err['step']}) -- {err['state']} -- Category: {err['category']}")
             if err["last_lines"].strip():
@@ -499,6 +518,9 @@ def main():
         print(f"Available: {', '.join(sorted(DEFAULT_EXPERIMENTS.keys()))}")
         sys.exit(1)
 
+    # Load overall_errors.json if available
+    overall_errors = load_overall_errors(experiment)
+
     # Gather data
     jobs = discover_jobs(experiment, slurm_out_dir)
     job_ids = list({j["job_id"] for j in jobs})
@@ -516,6 +538,7 @@ def main():
         integrity_report=integrity_report, epochs=epochs,
         errors=errors, gpu_data=gpu_data,
         recommendations=recommendations,
+        overall_errors=overall_errors,
     )
 
 

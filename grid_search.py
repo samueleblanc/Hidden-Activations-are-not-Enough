@@ -77,6 +77,12 @@ def parse_args(
         help = "If 1, it runs grid search on smaller and more values for t_epsilon, epsilon and epsilon_p. "
                "Experiments such as 7 and 11 require this for good results.",
     )
+    parser.add_argument(
+        "--baseline_only",
+        action="store_true",
+        default=False,
+        help="Run only baseline methods, skip grid search.",
+    )
     return parser.parse_args()
 
 
@@ -188,6 +194,38 @@ def main() -> None:
     print("Grid search starting...", flush=True)
     args = parse_args()
 
+    if args.baseline_only:
+        print("Running baselines only...", flush=True)
+        from detect_adversarial_examples import (
+            reject_predicted_attacks_baseline,
+            reject_predicted_attacks_baseline_matrices,
+        )
+        from utils.utils import get_input_shape, get_num_classes
+        from constants.constants import DEFAULT_EXPERIMENTS
+
+        exp = DEFAULT_EXPERIMENTS[args.experiment_name]
+        input_shape = get_input_shape(exp['dataset'])
+        num_classes = get_num_classes(exp['dataset'])
+        epoch = exp['epochs']
+        if args.temp_dir:
+            wp = Path(f'{args.temp_dir}/experiments/{args.experiment_name}/weights/epoch_{epoch}.pth')
+        else:
+            wp = Path(f'experiments/{args.experiment_name}/weights/epoch_{epoch}.pth')
+
+        reject_predicted_attacks_baseline(
+            experiment_name=args.experiment_name, weights_path=wp,
+            architecture_index=exp['architecture_index'],
+            input_shape=input_shape, num_classes=num_classes,
+            verbose=True, temp_dir=args.temp_dir)
+        print("PENULTIMATE BASELINE FINISHED.", flush=True)
+
+        reject_predicted_attacks_baseline_matrices(
+            experiment_name=args.experiment_name,
+            num_classes=num_classes, dataset=exp['dataset'],
+            verbose=True, temp_dir=args.temp_dir)
+        print("MATRIX BASELINE FINISHED.", flush=True)
+        return
+
     experiment_path = Path(f'experiments/{args.experiment_name}/grid_search/')
     experiment_path.mkdir(parents=True, exist_ok=True)
     output_file = experiment_path / f'grid_search.txt'
@@ -259,7 +297,7 @@ def main() -> None:
                                for t_epsilon, epsilon, epsilon_p, experiment_name, lock, output_file, args.temp_dir, _ in param_grid_with_lock
                                if f'reject_at_{t_epsilon}_{epsilon}.json' in files_to_keep]
         for i in range(len(param_grid_filtered)):
-            param_grid_filtered[i] = param_grid_filtered[i] + (i==0,)
+            param_grid_filtered[i] = param_grid_filtered[i] + (False,)
         with Pool(processes=args.nb_workers) as pool:
             pool.map(run_adv_examples_script, param_grid_filtered)
     # This case computes rejection levels only using std and d1.

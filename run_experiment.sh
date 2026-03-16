@@ -7,7 +7,9 @@
 # multiple experiments.
 #
 # Pipeline: A(Train) -> B(Matrices),C(AdvExamples),D(RejLevel)
-#           -> E(MatStats),F(AdvMatrices) -> G(GridSearch)
+#           -> E(MatStats),F(AdvMatrices) -> Ga(KMGridSearch)
+#           A,B,C,F -> Gb(Baselines)
+#           Ga,Gb -> H(LaTeXTables)
 #
 # Usage:
 #   bash run_experiment.sh
@@ -68,10 +70,19 @@ F_GPU="--gpus=h100:1"
 F_CPUS=12
 F_TIME="12:00:00"
 F_MEM="280G"
-# Step G
-G_CPUS=64
-G_TIME="48:00:00"
-G_MEM_PER_CPU="42G"
+# Step Ga (KM Grid Search - CPU-only)
+GA_CPUS=64
+GA_TIME="48:00:00"
+GA_MEM_PER_CPU="42G"
+# Step Gb (Baselines - GPU)
+GB_GPU="--gpus=h100:1"
+GB_CPUS=8
+GB_TIME="04:00:00"
+GB_MEM="64G"
+# Step H (LaTeX Tables - CPU-only, lightweight)
+H_CPUS=2
+H_TIME="00:15:00"
+H_MEM="4G"
 # Audit
 AUDIT_CPUS=4
 AUDIT_TIME="02:00:00"
@@ -124,9 +135,16 @@ if [ "$TEST_MODE" = "true" ]; then
     F_CPUS=4
     F_TIME="00:30:00"
     F_MEM="32G"
-    G_CPUS=4
-    G_TIME="01:00:00"
-    G_MEM_PER_CPU="8G"
+    GA_CPUS=4
+    GA_TIME="01:00:00"
+    GA_MEM_PER_CPU="8G"
+    GB_GPU="--gpus=h100:1"
+    GB_CPUS=4
+    GB_TIME="00:30:00"
+    GB_MEM="16G"
+    H_CPUS=2
+    H_TIME="00:10:00"
+    H_MEM="2G"
     AUDIT_CPUS=2
     AUDIT_TIME="00:30:00"
     AUDIT_MEM="16G"
@@ -400,7 +418,7 @@ submit_full_pipeline() {
     COPY_DATA=$(get_dataset_copy_commands "$DATASET")
 
     # Track job IDs
-    local JOB_A="" JOB_B_IDS="" JOB_C="" JOB_D_IDS="" JOB_E="" JOB_F_IDS="" JOB_G=""
+    local JOB_A="" JOB_B_IDS="" JOB_C="" JOB_D_IDS="" JOB_E="" JOB_F_IDS="" JOB_GA="" JOB_GB="" JOB_H=""
 
     # Checkpoint support: compute experiment metadata
     local EPOCH NUM_CLASSES B_CHUNK_TOTAL NUM_ATTACKS
@@ -1004,16 +1022,16 @@ STEPF_EOF
     done
 
     # ==========================================================
-    # Step G: Grid search (depends on E + all F + all D)
+    # Step Ga: KM Grid Search (depends on E + all F + all D)
     # ==========================================================
-    cat > "$JOB_DIR/step_G.sh" << STEPG_EOF
+    cat > "$JOB_DIR/step_Ga.sh" << STEPGA_EOF
 #!/bin/bash
 #SBATCH --account=$ACCOUNT
-#SBATCH --cpus-per-task=$G_CPUS
-#SBATCH --time=$G_TIME
-#SBATCH --mem-per-cpu=$G_MEM_PER_CPU
-#SBATCH --output=$SLURM_OUT_DIR/PIPE_G_${EXP}_%A.out
-#SBATCH --error=$SLURM_ERR_DIR/PIPE_G_${EXP}_%A.err
+#SBATCH --cpus-per-task=$GA_CPUS
+#SBATCH --time=$GA_TIME
+#SBATCH --mem-per-cpu=$GA_MEM_PER_CPU
+#SBATCH --output=$SLURM_OUT_DIR/PIPE_Ga_${EXP}_%A.out
+#SBATCH --error=$SLURM_ERR_DIR/PIPE_Ga_${EXP}_%A.err
 
 mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
 module load $MODULES
@@ -1027,7 +1045,7 @@ $COPY_DATA
 mkdir -p \$SLURM_TMPDIR/experiments/\$EXPERIMENT/weights/
 cp \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/weights/* \$SLURM_TMPDIR/experiments/\$EXPERIMENT/weights/
 
-# Unzip matrices for statistics
+# Copy matrix statistics
 mkdir -p \$SLURM_TMPDIR/experiments/\$EXPERIMENT/matrices/
 cp \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/matrices/matrix_statistics.json \$SLURM_TMPDIR/experiments/\$EXPERIMENT/matrices/
 
@@ -1054,33 +1072,152 @@ for i in \$(seq 0 $((TOTAL_CHUNKS - 1))); do
     fi
 done
 
-echo "All data ready. Starting grid search..."
+echo "All data ready. Starting KM grid search..."
 python grid_search.py --nb_workers \$SLURM_CPUS_PER_TASK --experiment_name \$EXPERIMENT --temp_dir \$SLURM_TMPDIR --rej_lev 0
 
 # Copy results back
 mkdir -p \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/grid_search/
-cp -r \$SLURM_TMPDIR/experiments/\$EXPERIMENT/grid_search/* \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/grid_search/ 2>/dev/null || true
+cp -r \$SLURM_TMPDIR/experiments/\$EXPERIMENT/grid_search/grid_search.txt \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/grid_search/ 2>/dev/null || true
 cp -r \$SLURM_TMPDIR/experiments/\$EXPERIMENT/rejection_levels/reject_at_* \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/rejection_levels/ 2>/dev/null || true
-echo "Step G (grid search) complete for $EXP."
+echo "Step Ga (KM grid search) complete for $EXP."
 
 # Write checkpoint
 CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints"
 mkdir -p "\$CKPT_DIR"
-printf '{"status":"complete","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_G.json"
-STEPG_EOF
+printf '{"status":"complete","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_Ga.json"
+STEPGA_EOF
 
-    CKPT_G="$CKPT_BASE/step_G.json"
-    if [ "$(read_checkpoint_status "$CKPT_G")" = "complete" ]; then
-        echo "  [G] Grid search:         SKIPPED (complete)"
-        JOB_G=""
+    # ==========================================================
+    # Step Gb: Baselines (depends on A + all B + C + all F)
+    # ==========================================================
+    cat > "$JOB_DIR/step_Gb.sh" << STEPGB_EOF
+#!/bin/bash
+#SBATCH --account=$ACCOUNT
+#SBATCH $GB_GPU
+#SBATCH --cpus-per-task=$GB_CPUS
+#SBATCH --time=$GB_TIME
+#SBATCH --mem=$GB_MEM
+#SBATCH --output=$SLURM_OUT_DIR/PIPE_Gb_${EXP}_%A.out
+#SBATCH --error=$SLURM_ERR_DIR/PIPE_Gb_${EXP}_%A.err
+
+mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
+module load $MODULES
+source $ENV_NAME/bin/activate
+
+EXPERIMENT="$EXP"
+
+$COPY_DATA
+
+# Copy weights
+mkdir -p \$SLURM_TMPDIR/experiments/\$EXPERIMENT/weights/
+cp \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/weights/* \$SLURM_TMPDIR/experiments/\$EXPERIMENT/weights/
+
+# Unzip training matrices (all B chunks)
+mkdir -p \$SLURM_TMPDIR/experiments/\$EXPERIMENT/matrices/
+for i in \$(seq 0 $((TOTAL_CHUNKS - 1))); do
+    if [ -f "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/matrices_task_\$i.zip" ]; then
+        cp \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/matrices_task_\$i.zip \$SLURM_TMPDIR/experiments/\$EXPERIMENT/
+        unzip -o \$SLURM_TMPDIR/experiments/\$EXPERIMENT/matrices_task_\$i.zip -d \$SLURM_TMPDIR/experiments/\$EXPERIMENT/
+    fi
+done
+
+# Copy adversarial examples
+mkdir -p \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adversarial_examples/
+cp -r \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adversarial_examples/* \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adversarial_examples/ 2>/dev/null || true
+
+# Unzip adversarial matrices (all F chunks)
+mkdir -p \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adversarial_matrices/
+for i in \$(seq 0 $((TOTAL_CHUNKS - 1))); do
+    if [ -f "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adv_matrices_task_\$i.zip" ]; then
+        cp \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adv_matrices_task_\$i.zip \$SLURM_TMPDIR/experiments/\$EXPERIMENT/
+        unzip -o \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adv_matrices_task_\$i.zip -d \$SLURM_TMPDIR/experiments/\$EXPERIMENT/
+    fi
+done
+
+echo "All data ready. Starting baselines..."
+python grid_search.py --baseline_only --experiment_name \$EXPERIMENT --temp_dir \$SLURM_TMPDIR
+
+# Copy results back
+mkdir -p \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/grid_search/
+cp -r \$SLURM_TMPDIR/experiments/\$EXPERIMENT/grid_search/baseline.txt \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/grid_search/ 2>/dev/null || true
+cp -r \$SLURM_TMPDIR/experiments/\$EXPERIMENT/grid_search/baseline_matrices.txt \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/grid_search/ 2>/dev/null || true
+echo "Step Gb (baselines) complete for $EXP."
+
+# Write checkpoint
+CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints"
+mkdir -p "\$CKPT_DIR"
+printf '{"status":"complete","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_Gb.json"
+STEPGB_EOF
+
+    # --- Submit Ga ---
+    CKPT_GA="$CKPT_BASE/step_Ga.json"
+    if [ "$(read_checkpoint_status "$CKPT_GA")" = "complete" ]; then
+        echo "  [Ga] KM grid search:     SKIPPED (complete)"
+        JOB_GA=""
     else
-        # Build G dependencies: E + all F + all D
-        local G_DEPS="${JOB_E:-}"
-        [ -n "${JOB_F_IDS:-}" ] && G_DEPS="${G_DEPS:+$G_DEPS:}$JOB_F_IDS"
-        [ -n "${JOB_D_IDS:-}" ] && G_DEPS="${G_DEPS:+$G_DEPS:}$JOB_D_IDS"
+        # Ga depends on E + all F + all D
+        local GA_DEPS="${JOB_E:-}"
+        [ -n "${JOB_F_IDS:-}" ] && GA_DEPS="${GA_DEPS:+$GA_DEPS:}$JOB_F_IDS"
+        [ -n "${JOB_D_IDS:-}" ] && GA_DEPS="${GA_DEPS:+$GA_DEPS:}$JOB_D_IDS"
 
-        JOB_G=$(submit_job "$JOB_DIR/step_G.sh" "$G_DEPS")
-        echo "  [G] Grid search:         $JOB_G"
+        JOB_GA=$(submit_job "$JOB_DIR/step_Ga.sh" "$GA_DEPS")
+        echo "  [Ga] KM grid search:     $JOB_GA"
+    fi
+
+    # --- Submit Gb ---
+    CKPT_GB="$CKPT_BASE/step_Gb.json"
+    if [ "$(read_checkpoint_status "$CKPT_GB")" = "complete" ]; then
+        echo "  [Gb] Baselines:          SKIPPED (complete)"
+        JOB_GB=""
+    else
+        # Gb depends on A + all B + C + all F (no D/E dependency!)
+        local GB_DEPS="${JOB_A:-}"
+        [ -n "${JOB_B_IDS:-}" ] && GB_DEPS="${GB_DEPS:+$GB_DEPS:}$JOB_B_IDS"
+        [ -n "${JOB_C:-}" ] && GB_DEPS="${GB_DEPS:+$GB_DEPS:}$JOB_C"
+        [ -n "${JOB_F_IDS:-}" ] && GB_DEPS="${GB_DEPS:+$GB_DEPS:}$JOB_F_IDS"
+
+        JOB_GB=$(submit_job "$JOB_DIR/step_Gb.sh" "$GB_DEPS")
+        echo "  [Gb] Baselines:          $JOB_GB"
+    fi
+
+    # ==========================================================
+    # Step H: LaTeX Tables (depends on Ga + Gb)
+    # ==========================================================
+    cat > "$JOB_DIR/step_H.sh" << STEPH_EOF
+#!/bin/bash
+#SBATCH --account=$ACCOUNT
+#SBATCH --cpus-per-task=$H_CPUS
+#SBATCH --time=$H_TIME
+#SBATCH --mem=$H_MEM
+#SBATCH --output=$SLURM_OUT_DIR/PIPE_H_${EXP}_%A.out
+#SBATCH --error=$SLURM_ERR_DIR/PIPE_H_${EXP}_%A.err
+
+mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
+module load $MODULES
+source $ENV_NAME/bin/activate
+
+cd \$SLURM_SUBMIT_DIR
+mkdir -p tables
+python generate_latex_tables.py --output tables/
+echo "Step H (LaTeX tables) complete for $EXP."
+
+# Write checkpoint
+CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints"
+mkdir -p "\$CKPT_DIR"
+printf '{"status":"complete","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_H.json"
+STEPH_EOF
+
+    # --- Submit H ---
+    CKPT_H="$CKPT_BASE/step_H.json"
+    if [ "$(read_checkpoint_status "$CKPT_H")" = "complete" ]; then
+        echo "  [H] LaTeX tables:        SKIPPED (complete)"
+        JOB_H=""
+    else
+        # H depends on Ga + Gb
+        local H_DEPS="${JOB_GA:-}"
+        [ -n "${JOB_GB:-}" ] && H_DEPS="${H_DEPS:+$H_DEPS:}${JOB_GB}"
+        JOB_H=$(submit_job "$JOB_DIR/step_H.sh" "$H_DEPS")
+        echo "  [H] LaTeX tables:        $JOB_H"
     fi
 
     # ==========================================================
@@ -1151,19 +1288,29 @@ FINALAUDIT_EOF
     [ -n "${JOB_D_IDS:-}" ] && ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}${JOB_D_IDS}"
     [ -n "${JOB_E:-}" ] && ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}${JOB_E}"
     [ -n "${JOB_F_IDS:-}" ] && ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}${JOB_F_IDS}"
-    [ -n "${JOB_G:-}" ] && ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}${JOB_G}"
+    [ -n "${JOB_GA:-}" ] && ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}${JOB_GA}"
+    [ -n "${JOB_GB:-}" ] && ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}${JOB_GB}"
+    [ -n "${JOB_H:-}" ] && ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}${JOB_H}"
 
     if [ -z "$ALL_JOBS" ]; then
         echo "  [*] Pipeline complete — no jobs submitted."
     else
+        # Final audit depends on Ga, Gb, and H
+        local FINAL_DEPS="${JOB_GA:-}"
+        [ -n "${JOB_GB:-}" ] && FINAL_DEPS="${FINAL_DEPS:+$FINAL_DEPS:}${JOB_GB}"
+        [ -n "${JOB_H:-}" ] && FINAL_DEPS="${FINAL_DEPS:+$FINAL_DEPS:}${JOB_H}"
         local FINAL_AUDIT_JOB
-        FINAL_AUDIT_JOB=$(submit_job "$JOB_DIR/final_audit.sh" "${JOB_G:-}")
+        FINAL_AUDIT_JOB=$(submit_job "$JOB_DIR/final_audit.sh" "$FINAL_DEPS")
         echo "  [*] Final audit:         $FINAL_AUDIT_JOB"
 
         # ==========================================================
         # Error scan — runs after ALL jobs (including audit) finish
         # Uses afterany so it runs even when upstream jobs fail
+        # Calls collect_errors.py (replaces previous inline Python)
         # ==========================================================
+        local ERRSCAN_TEST_FLAG=""
+        [ "$TEST_MODE" = "true" ] && ERRSCAN_TEST_FLAG="--test"
+
         cat > "$JOB_DIR/error_scan.sh" << ERRSCAN_EOF
 #!/bin/bash
 #SBATCH --account=$ACCOUNT
@@ -1175,227 +1322,16 @@ FINALAUDIT_EOF
 
 module load $MODULES
 source $ENV_NAME/bin/activate
-
-EXPERIMENT="$EXP"
-SLURM_ERR_SCAN_DIR="\$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR"
-OUTPUT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP"
-
 cd \$SLURM_SUBMIT_DIR
 
-python << 'ERRSCAN_PY_EOF'
-import os, re, json, glob, subprocess
-from datetime import datetime
-
-experiment = os.environ["EXPERIMENT"]
-err_dir = os.environ["SLURM_ERR_SCAN_DIR"]
-output_dir = os.environ["OUTPUT_DIR"]
-
-LOG_PATTERN = re.compile(
-    r'^(PIPE|REC)_([A-Za-z]+)_(.+?)(?:_c(\d+))?_(\d+)\.(out|err)$'
-)
-
-STEP_LABELS = {
-    "CALIB": "Calibration", "PREAUDIT": "Pre-Audit",
-    "A": "Training", "B": "Matrices", "C": "Adv Examples",
-    "D": "Rejection Levels", "E": "Matrix Stats",
-    "F": "Adv Matrices", "G": "Grid Search",
-    "AUDIT": "Final Audit", "DISPATCH": "Dispatcher",
+python collect_errors.py --experiment $EXP $ERRSCAN_TEST_FLAG --include-audit-report || {
+    # Fallback: write minimal JSON if collect_errors.py itself fails
+    echo "WARNING: collect_errors.py failed, writing minimal error report"
+    mkdir -p \$SLURM_SUBMIT_DIR/experiments/$EXP
+    cat > \$SLURM_SUBMIT_DIR/experiments/$EXP/overall_errors.json << 'FALLBACK_JSON'
+{"schema_version":"2.0","experiment":"$EXP","pipeline_success":false,"error_scan_failed":true,"error":"collect_errors.py crashed"}
+FALLBACK_JSON
 }
-
-ERROR_PATTERNS = [
-    ("oom",           re.compile(r"out of memory|oom-kill|Killed|cannot allocate memory", re.I)),
-    ("timeout",       re.compile(r"DUE TO TIME LIMIT|CANCELLED.*TIME", re.I)),
-    ("cuda_error",    re.compile(r"CUDA error|CUDA out of memory|NCCL", re.I)),
-    ("network_error", re.compile(r"network.unreachable|ConnectionError|urllib.*Error", re.I)),
-    ("missing_file",  re.compile(r"FileNotFoundError|No such file", re.I)),
-    ("module_error",  re.compile(r"ModuleNotFoundError|ImportError", re.I)),
-    ("zip_error",     re.compile(r"Zip.*failed|BadZipFile", re.I)),
-]
-
-# Discover .err files for this experiment (exclude ERRSCAN's own files)
-err_files = glob.glob(os.path.join(err_dir, f"PIPE_*_{experiment}_*.err"))
-err_files += glob.glob(os.path.join(err_dir, f"REC_*_{experiment}_*.err"))
-err_files = [f for f in err_files if "_ERRSCAN_" not in os.path.basename(f)]
-
-# Parse filenames
-jobs = []
-seen_ids = set()
-for fpath in err_files:
-    fname = os.path.basename(fpath)
-    m = LOG_PATTERN.match(fname)
-    if not m:
-        continue
-    prefix, step, exp, chunk, job_id, ext = m.groups()
-    if exp != experiment or job_id in seen_ids:
-        continue
-    seen_ids.add(job_id)
-    jobs.append({
-        "step": step,
-        "chunk": int(chunk) if chunk else None,
-        "job_id": job_id,
-        "err_file": fpath,
-    })
-
-# Query sacct for all job IDs
-sacct_data = {}
-if jobs:
-    ids_str = ",".join(j["job_id"] for j in jobs)
-    try:
-        result = subprocess.run(
-            ["sacct", "--jobs=" + ids_str, "--parsable2", "--noheader",
-             "--format=JobID,State,ExitCode,Elapsed"],
-            capture_output=True, text=True, timeout=30,
-        )
-        for line in result.stdout.strip().split("\n"):
-            if not line:
-                continue
-            parts = line.split("|")
-            if len(parts) >= 4:
-                jid = parts[0].split(".")[0]
-                if jid in seen_ids and jid not in sacct_data:
-                    sacct_data[jid] = {
-                        "state": parts[1],
-                        "exit_code": parts[2],
-                        "elapsed": parts[3],
-                    }
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass
-
-def extract_traceback(text):
-    """Extract the last Python traceback from text."""
-    lines = text.split("\n")
-    tb_start = None
-    for i in range(len(lines) - 1, -1, -1):
-        if lines[i].startswith("Traceback (most recent call last):"):
-            tb_start = i
-            break
-    if tb_start is not None:
-        # Find the end: next non-indented line after the Traceback header
-        tb_end = len(lines)
-        for i in range(tb_start + 1, len(lines)):
-            line = lines[i]
-            if line and not line.startswith(" ") and not line.startswith("Traceback"):
-                tb_end = i + 1  # include the error line
-                break
-        return "\n".join(lines[tb_start:tb_end]).strip()
-    return None
-
-def classify_error(text):
-    """Classify error text into a category."""
-    for cat_name, pat in ERROR_PATTERNS:
-        if pat.search(text):
-            return cat_name
-    return None
-
-def read_tail(filepath, n=80):
-    try:
-        with open(filepath) as f:
-            lines = f.readlines()
-        return "".join(lines[-n:])
-    except Exception:
-        return ""
-
-# Analyze each job
-steps_output = []
-error_types = {}
-jobs_with_errors = 0
-
-for job in jobs:
-    jid = job["job_id"]
-    info = sacct_data.get(jid, {})
-    slurm_state = info.get("state", "UNKNOWN")
-    exit_code = info.get("exit_code", "?")
-    elapsed = info.get("elapsed", "?")
-    step = job["step"]
-    step_label = STEP_LABELS.get(step, step)
-
-    tail_text = read_tail(job["err_file"])
-
-    # Determine if there's an error
-    has_error = False
-    error_type = None
-    traceback = None
-
-    # Check Slurm state
-    if slurm_state in ("FAILED", "TIMEOUT", "CANCELLED", "OUT_OF_MEMORY"):
-        has_error = True
-    # Check for non-zero exit
-    elif exit_code not in ("0:0", "?") and ":" in exit_code:
-        try:
-            main_code = int(exit_code.split(":")[0])
-            if main_code != 0:
-                has_error = True
-        except ValueError:
-            pass
-    # Check err file content for tracebacks even in COMPLETED jobs
-    if not has_error and slurm_state == "COMPLETED":
-        if re.search(r"Traceback|RuntimeError|CUDA error", tail_text):
-            has_error = True
-
-    if has_error:
-        jobs_with_errors += 1
-        # Classify
-        error_type = classify_error(tail_text)
-        traceback = extract_traceback(tail_text)
-
-        if error_type is None:
-            if traceback:
-                error_type = "code"
-            else:
-                error_type = "unknown"
-
-        error_types[error_type] = error_types.get(error_type, 0) + 1
-
-    entry = {
-        "step": step,
-        "step_label": step_label,
-        "chunk": job["chunk"],
-        "job_id": jid,
-        "slurm_state": slurm_state,
-        "exit_code": exit_code,
-        "elapsed": elapsed,
-        "error_detected": has_error,
-    }
-    if has_error:
-        entry["error_type"] = error_type
-        if traceback:
-            entry["traceback"] = traceback
-        entry["err_file"] = os.path.relpath(job["err_file"], os.environ.get("SLURM_SUBMIT_DIR", "."))
-
-    steps_output.append(entry)
-
-# Sort: errors first, then by step
-step_order = ["CALIB", "PREAUDIT", "A", "B", "C", "D", "E", "F", "G", "AUDIT", "DISPATCH"]
-def sort_key(e):
-    idx = step_order.index(e["step"]) if e["step"] in step_order else 99
-    return (0 if e["error_detected"] else 1, idx, e.get("chunk") or 0)
-
-steps_output.sort(key=sort_key)
-
-overall_status = "failure" if jobs_with_errors > 0 else "success"
-
-report = {
-    "experiment": experiment,
-    "timestamp": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
-    "overall_status": overall_status,
-    "total_jobs": len(jobs),
-    "jobs_with_errors": jobs_with_errors,
-    "error_types_summary": error_types,
-    "steps": steps_output,
-}
-
-os.makedirs(output_dir, exist_ok=True)
-out_path = os.path.join(output_dir, "overall_errors.json")
-with open(out_path, "w") as f:
-    json.dump(report, f, indent=2)
-
-print(f"Error scan complete: {overall_status}")
-print(f"  Total jobs scanned: {len(jobs)}")
-print(f"  Jobs with errors:   {jobs_with_errors}")
-if error_types:
-    print(f"  Error types:        {error_types}")
-print(f"  Report written to:  {out_path}")
-ERRSCAN_PY_EOF
 ERRSCAN_EOF
 
         local ERRSCAN_DEPS="${ALL_JOBS}"
@@ -1643,13 +1579,17 @@ for i, entry in enumerate(report["steps"]["adv_matrices_zips"]):
         reason_f.append(f"adv_matrices_task_{i}.zip: {entry['status']}")
 
 grid_status = report["steps"]["grid_search"]["status"]
-recover_g = grid_status != "OK"
-reason_g = [f"grid_search: {grid_status}"] if recover_g else []
+recover_ga = grid_status != "OK"
+reason_ga = [f"grid_search: {grid_status}"] if recover_ga else []
 
 for entry in report["steps"].get("rejection_level_jsons", []):
     if entry["status"] != "OK":
-        recover_g = True
-        reason_g.append(f"rejection_level_jsons: {entry['status']}")
+        recover_ga = True
+        reason_ga.append(f"rejection_level_jsons: {entry['status']}")
+
+# Gb (baselines) — recover if grid_search artifacts are missing
+recover_gb = grid_status != "OK"
+reason_gb = [f"grid_search: {grid_status}"] if recover_gb else []
 
 # --- Propagate dependencies ---
 if recover_a:
@@ -1666,14 +1606,32 @@ if recover_b and not recover_e:
 if recover_c and not recover_f:
     recover_f = True; recover_f_chunks = [str(i) for i in range(total_chunks)]
     reason_f.append("Propagated: depends on Step C")
-if (recover_e or recover_f or recover_d) and not recover_g:
-    recover_g = True; deps = []
+# Ga depends on E + F + D
+if (recover_e or recover_f or recover_d) and not recover_ga:
+    recover_ga = True; deps = []
     if recover_e: deps.append("E")
     if recover_f: deps.append("F")
     if recover_d: deps.append("D")
-    reason_g.append(f"Propagated: depends on {'+'.join(deps)}")
+    reason_ga.append(f"Propagated: depends on {'+'.join(deps)}")
+# Gb depends on A + B + C + F
+if (recover_a or recover_b or recover_c or recover_f) and not recover_gb:
+    recover_gb = True; deps = []
+    if recover_a: deps.append("A")
+    if recover_b: deps.append("B")
+    if recover_c: deps.append("C")
+    if recover_f: deps.append("F")
+    reason_gb.append(f"Propagated: depends on {'+'.join(deps)}")
 
-recovery_needed = any([recover_a, recover_b, recover_c, recover_d, recover_e, recover_f, recover_g])
+# H depends on Ga + Gb
+recover_h = recover_ga or recover_gb
+reason_h = []
+if recover_h:
+    deps = []
+    if recover_ga: deps.append("Ga")
+    if recover_gb: deps.append("Gb")
+    reason_h.append(f"Propagated: depends on {'+'.join(deps)}")
+
+recovery_needed = any([recover_a, recover_b, recover_c, recover_d, recover_e, recover_f, recover_ga, recover_gb, recover_h])
 
 # --- Write recovery_plan.sh ---
 plan_path = os.path.join(submit_dir, "experiments", experiment, "recovery_plan.sh")
@@ -1700,7 +1658,9 @@ with open(plan_path, "w") as f:
     write_step(f, "D", "Rejection level matrices", recover_d, reason_d, recover_d_chunks)
     write_step(f, "E", "Matrix statistics", recover_e, reason_e)
     write_step(f, "F", "Adversarial matrices", recover_f, reason_f, recover_f_chunks)
-    write_step(f, "G", "Grid search", recover_g, reason_g)
+    write_step(f, "Ga", "KM Grid Search", recover_ga, reason_ga)
+    write_step(f, "Gb", "Baselines", recover_gb, reason_gb)
+    write_step(f, "H", "LaTeX Tables", recover_h, reason_h)
     f.write(f"RECOVERY_NEEDED={'true' if recovery_needed else 'false'}\n")
 
 print(f"Recovery plan saved to: {plan_path}")
@@ -1764,9 +1724,16 @@ F_GPU="__F_GPU__"
 F_CPUS=__F_CPUS__
 F_TIME="__F_TIME__"
 F_MEM="__F_MEM__"
-G_CPUS=__G_CPUS__
-G_TIME="__G_TIME__"
-G_MEM_PER_CPU="__G_MEM_PER_CPU__"
+GA_CPUS=__GA_CPUS__
+GA_TIME="__GA_TIME__"
+GA_MEM_PER_CPU="__GA_MEM_PER_CPU__"
+GB_GPU="__GB_GPU__"
+GB_CPUS=__GB_CPUS__
+GB_TIME="__GB_TIME__"
+GB_MEM="__GB_MEM__"
+H_CPUS=__H_CPUS__
+H_TIME="__H_TIME__"
+H_MEM="__H_MEM__"
 AUDIT_CPUS=__AUDIT_CPUS__
 AUDIT_TIME="__AUDIT_TIME__"
 AUDIT_MEM="__AUDIT_MEM__"
@@ -1829,7 +1796,7 @@ if [ "$TEST_SIZE" != "-1" ]; then
     C_TEST_SIZE_ARG="--test_size $TEST_SIZE"
 fi
 
-JOB_A="" JOB_B_IDS="" JOB_C="" JOB_D_IDS="" JOB_E="" JOB_F_IDS="" JOB_G=""
+JOB_A="" JOB_B_IDS="" JOB_C="" JOB_D_IDS="" JOB_E="" JOB_F_IDS="" JOB_GA="" JOB_GB="" JOB_H=""
 ALL_JOBS=""
 
 # --- Step A ---
@@ -2107,16 +2074,16 @@ EOF_F
     done
 fi
 
-# --- Step G (depends on E + all F + all D) ---
-if [ "$RECOVER_STEP_G" = "true" ]; then
-    cat > "$JOB_DIR/step_G.sh" << EOF_G
+# --- Step Ga (KM Grid Search, depends on E + all F + all D) ---
+if [ "$RECOVER_STEP_Ga" = "true" ]; then
+    cat > "$JOB_DIR/step_Ga.sh" << EOF_Ga
 #!/bin/bash
 #SBATCH --account=$ACCOUNT
-#SBATCH --cpus-per-task=$G_CPUS
-#SBATCH --time=$G_TIME
-#SBATCH --mem-per-cpu=$G_MEM_PER_CPU
-#SBATCH --output=$SLURM_OUT_DIR/REC_G_${EXPERIMENT}_%A.out
-#SBATCH --error=$SLURM_ERR_DIR/REC_G_${EXPERIMENT}_%A.err
+#SBATCH --cpus-per-task=$GA_CPUS
+#SBATCH --time=$GA_TIME
+#SBATCH --mem-per-cpu=$GA_MEM_PER_CPU
+#SBATCH --output=$SLURM_OUT_DIR/REC_Ga_${EXPERIMENT}_%A.out
+#SBATCH --error=$SLURM_ERR_DIR/REC_Ga_${EXPERIMENT}_%A.err
 mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
 module load $MODULES
 source $ENV_NAME/bin/activate
@@ -2126,6 +2093,7 @@ mkdir -p \$SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
 cp \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/weights/* \$SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
 mkdir -p \$SLURM_TMPDIR/experiments/$EXPERIMENT/matrices/
 cp \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/matrices/matrix_statistics.json \$SLURM_TMPDIR/experiments/$EXPERIMENT/matrices/
+mkdir -p \$SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_matrices/
 for i in \$(seq 0 $((TOTAL_CHUNKS - 1))); do
     [ -f "\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adv_matrices_task_\$i.zip" ] && {
         cp \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adv_matrices_task_\$i.zip \$SLURM_TMPDIR/experiments/$EXPERIMENT/
@@ -2140,23 +2108,135 @@ for i in \$(seq 0 $((TOTAL_CHUNKS - 1))); do
     [ -f "\$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/matrices_task_\$i.zip" ] && \
         unzip -o \$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/matrices_task_\$i.zip -d \$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/
 done
-echo "All data ready. Starting grid search..."
+echo "All data ready. Starting KM grid search..."
 python grid_search.py --nb_workers \$SLURM_CPUS_PER_TASK --experiment_name $EXPERIMENT --temp_dir \$SLURM_TMPDIR --rej_lev 0
 mkdir -p \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/grid_search/
-cp -r \$SLURM_TMPDIR/experiments/$EXPERIMENT/grid_search/* \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/grid_search/ 2>/dev/null || true
+cp -r \$SLURM_TMPDIR/experiments/$EXPERIMENT/grid_search/grid_search.txt \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/grid_search/ 2>/dev/null || true
 cp -r \$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/reject_at_* \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/rejection_levels/ 2>/dev/null || true
-echo "Step G complete."
-EOF_G
-    G_DEPS=""
-    [ -n "$JOB_E" ] && G_DEPS="$JOB_E"
-    [ -n "$JOB_F_IDS" ] && G_DEPS="${G_DEPS:+$G_DEPS:}$JOB_F_IDS"
-    [ -n "$JOB_D_IDS" ] && G_DEPS="${G_DEPS:+$G_DEPS:}$JOB_D_IDS"
-    JOB_G=$(submit_job "$JOB_DIR/step_G.sh" "$G_DEPS")
-    ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}$JOB_G"
-    echo "[G] Grid search: $JOB_G"
+echo "Step Ga complete."
+EOF_Ga
+    GA_DEPS=""
+    [ -n "$JOB_E" ] && GA_DEPS="$JOB_E"
+    [ -n "$JOB_F_IDS" ] && GA_DEPS="${GA_DEPS:+$GA_DEPS:}$JOB_F_IDS"
+    [ -n "$JOB_D_IDS" ] && GA_DEPS="${GA_DEPS:+$GA_DEPS:}$JOB_D_IDS"
+    JOB_GA=$(submit_job "$JOB_DIR/step_Ga.sh" "$GA_DEPS")
+    ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}$JOB_GA"
+    echo "[Ga] KM grid search: $JOB_GA"
+fi
+
+# --- Step Gb (Baselines, depends on A + all B + C + all F) ---
+if [ "$RECOVER_STEP_Gb" = "true" ]; then
+    cat > "$JOB_DIR/step_Gb.sh" << EOF_Gb
+#!/bin/bash
+#SBATCH --account=$ACCOUNT
+#SBATCH $GB_GPU
+#SBATCH --cpus-per-task=$GB_CPUS
+#SBATCH --time=$GB_TIME
+#SBATCH --mem=$GB_MEM
+#SBATCH --output=$SLURM_OUT_DIR/REC_Gb_${EXPERIMENT}_%A.out
+#SBATCH --error=$SLURM_ERR_DIR/REC_Gb_${EXPERIMENT}_%A.err
+mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
+module load $MODULES
+source $ENV_NAME/bin/activate
+$COPY_DATA
+mkdir -p \$SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
+cp \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/weights/* \$SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
+mkdir -p \$SLURM_TMPDIR/experiments/$EXPERIMENT/matrices/
+for i in \$(seq 0 $((TOTAL_CHUNKS - 1))); do
+    [ -f "\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/matrices_task_\$i.zip" ] && {
+        cp \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/matrices_task_\$i.zip \$SLURM_TMPDIR/experiments/$EXPERIMENT/
+        unzip -o \$SLURM_TMPDIR/experiments/$EXPERIMENT/matrices_task_\$i.zip -d \$SLURM_TMPDIR/experiments/$EXPERIMENT/
+    }
+done
+mkdir -p \$SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_examples/
+cp -r \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adversarial_examples/* \$SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_examples/ 2>/dev/null || true
+mkdir -p \$SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_matrices/
+for i in \$(seq 0 $((TOTAL_CHUNKS - 1))); do
+    [ -f "\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adv_matrices_task_\$i.zip" ] && {
+        cp \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adv_matrices_task_\$i.zip \$SLURM_TMPDIR/experiments/$EXPERIMENT/
+        unzip -o \$SLURM_TMPDIR/experiments/$EXPERIMENT/adv_matrices_task_\$i.zip -d \$SLURM_TMPDIR/experiments/$EXPERIMENT/
+    }
+done
+echo "All data ready. Starting baselines..."
+python grid_search.py --baseline_only --experiment_name $EXPERIMENT --temp_dir \$SLURM_TMPDIR
+mkdir -p \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/grid_search/
+cp -r \$SLURM_TMPDIR/experiments/$EXPERIMENT/grid_search/baseline.txt \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/grid_search/ 2>/dev/null || true
+cp -r \$SLURM_TMPDIR/experiments/$EXPERIMENT/grid_search/baseline_matrices.txt \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/grid_search/ 2>/dev/null || true
+echo "Step Gb complete."
+EOF_Gb
+    GB_DEPS=""
+    [ -n "$JOB_A" ] && GB_DEPS="$JOB_A"
+    [ -n "$JOB_B_IDS" ] && GB_DEPS="${GB_DEPS:+$GB_DEPS:}$JOB_B_IDS"
+    [ -n "$JOB_C" ] && GB_DEPS="${GB_DEPS:+$GB_DEPS:}$JOB_C"
+    [ -n "$JOB_F_IDS" ] && GB_DEPS="${GB_DEPS:+$GB_DEPS:}$JOB_F_IDS"
+    JOB_GB=$(submit_job "$JOB_DIR/step_Gb.sh" "$GB_DEPS")
+    ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}$JOB_GB"
+    echo "[Gb] Baselines: $JOB_GB"
+fi
+
+# --- Step H (LaTeX Tables, depends on Ga + Gb) ---
+if [ "$RECOVER_STEP_H" = "true" ]; then
+    cat > "$JOB_DIR/step_H.sh" << EOF_H
+#!/bin/bash
+#SBATCH --account=$ACCOUNT
+#SBATCH --cpus-per-task=$H_CPUS
+#SBATCH --time=$H_TIME
+#SBATCH --mem=$H_MEM
+#SBATCH --output=$SLURM_OUT_DIR/REC_H_${EXPERIMENT}_%A.out
+#SBATCH --error=$SLURM_ERR_DIR/REC_H_${EXPERIMENT}_%A.err
+mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
+module load $MODULES
+source $ENV_NAME/bin/activate
+cd \$SLURM_SUBMIT_DIR
+mkdir -p tables
+python generate_latex_tables.py --output tables/
+echo "Step H (LaTeX tables) complete."
+
+CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/checkpoints"
+mkdir -p "\$CKPT_DIR"
+printf '{"status":"complete","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_H.json"
+EOF_H
+    H_DEPS=""
+    [ -n "$JOB_GA" ] && H_DEPS="$JOB_GA"
+    [ -n "$JOB_GB" ] && H_DEPS="${H_DEPS:+$H_DEPS:}$JOB_GB"
+    JOB_H=$(submit_job "$JOB_DIR/step_H.sh" "$H_DEPS")
+    ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}$JOB_H"
+    echo "[H] LaTeX tables: $JOB_H"
 fi
 
 echo ""
+
+# --- Error scan (runs after all recovery jobs, uses afterany) ---
+if [ -n "$ALL_JOBS" ]; then
+    ERRSCAN_TEST_FLAG=""
+    case "$SLURM_OUT_DIR" in *test*) ERRSCAN_TEST_FLAG="--test" ;; esac
+
+    cat > "$JOB_DIR/error_scan.sh" << EOF_ERRSCAN
+#!/bin/bash
+#SBATCH --account=$ACCOUNT
+#SBATCH --cpus-per-task=1
+#SBATCH --time=00:15:00
+#SBATCH --mem=2G
+#SBATCH --output=$SLURM_OUT_DIR/REC_ERRSCAN_${EXPERIMENT}_%A.out
+#SBATCH --error=$SLURM_ERR_DIR/REC_ERRSCAN_${EXPERIMENT}_%A.err
+
+module load $MODULES
+source $ENV_NAME/bin/activate
+cd \$SLURM_SUBMIT_DIR
+
+python collect_errors.py --experiment $EXPERIMENT $ERRSCAN_TEST_FLAG --include-audit-report || {
+    echo "WARNING: collect_errors.py failed, writing minimal error report"
+    mkdir -p \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT
+    cat > \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/overall_errors.json << 'FALLBACK_JSON'
+{"schema_version":"2.0","experiment":"$EXPERIMENT","pipeline_success":false,"error_scan_failed":true,"error":"collect_errors.py crashed"}
+FALLBACK_JSON
+}
+EOF_ERRSCAN
+    # Submit with afterany so it runs even when upstream jobs fail
+    ERRSCAN_JOB=$(sbatch --parsable --dependency=afterany:${ALL_JOBS} "$JOB_DIR/error_scan.sh")
+    echo "[ERRSCAN] Error scan: $ERRSCAN_JOB (afterany)"
+fi
+
 echo "Dispatcher complete for $EXPERIMENT."
 echo "Submitted jobs: ${ALL_JOBS//:/, }"
 DISPATCH_BODY
@@ -2195,9 +2275,16 @@ DISPATCH_BODY
         sed -i "s|__F_CPUS__|$F_CPUS|g" "$JOB_DIR/dispatch.sh"
         sed -i "s|__F_TIME__|$F_TIME|g" "$JOB_DIR/dispatch.sh"
         sed -i "s|__F_MEM__|$F_MEM|g" "$JOB_DIR/dispatch.sh"
-        sed -i "s|__G_CPUS__|$G_CPUS|g" "$JOB_DIR/dispatch.sh"
-        sed -i "s|__G_TIME__|$G_TIME|g" "$JOB_DIR/dispatch.sh"
-        sed -i "s|__G_MEM_PER_CPU__|$G_MEM_PER_CPU|g" "$JOB_DIR/dispatch.sh"
+        sed -i "s|__GA_CPUS__|$GA_CPUS|g" "$JOB_DIR/dispatch.sh"
+        sed -i "s|__GA_TIME__|$GA_TIME|g" "$JOB_DIR/dispatch.sh"
+        sed -i "s|__GA_MEM_PER_CPU__|$GA_MEM_PER_CPU|g" "$JOB_DIR/dispatch.sh"
+        sed -i "s|__GB_GPU__|$GB_GPU|g" "$JOB_DIR/dispatch.sh"
+        sed -i "s|__GB_CPUS__|$GB_CPUS|g" "$JOB_DIR/dispatch.sh"
+        sed -i "s|__GB_TIME__|$GB_TIME|g" "$JOB_DIR/dispatch.sh"
+        sed -i "s|__GB_MEM__|$GB_MEM|g" "$JOB_DIR/dispatch.sh"
+        sed -i "s|__H_CPUS__|$H_CPUS|g" "$JOB_DIR/dispatch.sh"
+        sed -i "s|__H_TIME__|$H_TIME|g" "$JOB_DIR/dispatch.sh"
+        sed -i "s|__H_MEM__|$H_MEM|g" "$JOB_DIR/dispatch.sh"
         sed -i "s|__AUDIT_CPUS__|$AUDIT_CPUS|g" "$JOB_DIR/dispatch.sh"
         sed -i "s|__AUDIT_TIME__|$AUDIT_TIME|g" "$JOB_DIR/dispatch.sh"
         sed -i "s|__AUDIT_MEM__|$AUDIT_MEM|g" "$JOB_DIR/dispatch.sh"
