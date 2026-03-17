@@ -295,8 +295,9 @@ def main():
     print("\n--- Step 4: Estimating pipeline durations ---", flush=True)
 
     num_attacks = len(ATTACKS) + 1  # +1 for "test"
-    time_padding = 1.15  # +15%
-    mem_padding = 1.20   # +20%
+    time_padding = 1.15      # +15% for A, B, D
+    time_padding_adv = 3.0   # 3× for F (adversarial examples are much slower)
+    mem_padding = 1.20       # +20%
 
     # Training: extrapolate from 2 epochs
     est_train_time = (train_time / 2) * total_epochs * time_padding
@@ -311,7 +312,7 @@ def main():
     est_D_mem = int(peak_matrix_mem * mem_padding)
 
     # Step F: adversarial matrices per chunk
-    est_F_per_chunk = avg_time * num_attacks * args.samples_per_attack / args.total_chunks * time_padding
+    est_F_per_chunk = avg_time * num_attacks * args.samples_per_attack / args.total_chunks * time_padding_adv
     est_F_mem = int(peak_matrix_mem * mem_padding)
 
     slurm_resources = {

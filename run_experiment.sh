@@ -346,14 +346,17 @@ submit_job_afterany() {
 }
 
 enforce_min_time() {
-    # Ensures SLURM time is at least 30 minutes (HH:MM:SS)
+    # Ensures SLURM time is at least a minimum floor (default 30 min)
+    # Usage: enforce_min_time "HH:MM:SS" ["HH:MM:SS_floor"]
     local time_str="$1"
-    local min_seconds=1800  # 30 minutes
+    local min_time="${2:-00:30:00}"
     local h m s
     IFS=: read -r h m s <<< "$time_str"
     local total=$(( 10#$h * 3600 + 10#$m * 60 + 10#$s ))
+    IFS=: read -r h m s <<< "$min_time"
+    local min_seconds=$(( 10#$h * 3600 + 10#$m * 60 + 10#$s ))
     if [ "$total" -lt "$min_seconds" ]; then
-        echo "00:30:00"
+        echo "$min_time"
     else
         echo "$time_str"
     fi
@@ -547,7 +550,7 @@ LAST_SAVED_COUNT=0
 incremental_save() {
     while true; do
         sleep $SAVE_CHECK_SECONDS
-        CURRENT=\$(find "\$TEMP_DIR/experiments/\$EXPERIMENT/matrices" -name "*.pth" -o -name "*.pt" 2>/dev/null | wc -l)
+        CURRENT=\$(find "\$TEMP_DIR/experiments/\$EXPERIMENT/matrices" -name "matrix.pth" 2>/dev/null | wc -l)
         if [ "\$CURRENT" -ge \$((LAST_SAVED_COUNT + $SAVE_INTERVAL)) ]; then
             echo "[INCREMENTAL] \$CURRENT matrices (\$((CURRENT - LAST_SAVED_COUNT)) new). Saving..."
             sleep 2
@@ -576,7 +579,7 @@ emergency_save() {
     zip -rq "matrices_task_\$TASK_ID.zip" matrices 2>/dev/null || true
     cp "matrices_task_\$TASK_ID.zip" "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/matrices_task_\$TASK_ID.zip.tmp" 2>/dev/null && \
     mv "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/matrices_task_\$TASK_ID.zip.tmp" "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/matrices_task_\$TASK_ID.zip" 2>/dev/null || true
-    COMPLETED=\$(find "\$TEMP_DIR/experiments/\$EXPERIMENT/matrices" -name "*.pth" -o -name "*.pt" 2>/dev/null | wc -l)
+    COMPLETED=\$(find "\$TEMP_DIR/experiments/\$EXPERIMENT/matrices" -name "matrix.pth" 2>/dev/null | wc -l)
     printf '{"status":"partial","completed":%d,"total":%d,"timestamp":"%s"}\n' \
         "\$COMPLETED" "$B_CHUNK_TOTAL" "\$(date -Iseconds)" > "\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints/step_B_chunk_${CHUNK}.json"
     echo "[EMERGENCY] Saved \$COMPLETED matrices."
@@ -602,7 +605,7 @@ echo "Step B chunk $CHUNK complete for $EXP."
 # Write checkpoint
 CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints"
 mkdir -p "\$CKPT_DIR"
-COMPLETED=\$(find "\$SLURM_TMPDIR/experiments/$EXP/matrices" -name "*.pth" -o -name "*.pt" 2>/dev/null | wc -l)
+COMPLETED=\$(find "\$SLURM_TMPDIR/experiments/$EXP/matrices" -name "matrix.pth" 2>/dev/null | wc -l)
 TOTAL=$B_CHUNK_TOTAL
 STATUS="complete"
 [ "\$COMPLETED" -lt "\$TOTAL" ] && STATUS="partial"
@@ -1517,11 +1520,11 @@ CALIB_EOF
         echo "    D: time=$D_TIME mem=$D_MEM"
         echo "    F: time=$F_TIME mem=$F_MEM"
 
-        # Enforce minimum 30-minute floor on calibrated times
-        A_TIME=$(enforce_min_time "$A_TIME")
-        B_TIME=$(enforce_min_time "$B_TIME")
-        D_TIME=$(enforce_min_time "$D_TIME")
-        F_TIME=$(enforce_min_time "$F_TIME")
+        # Enforce per-step minimum floors on calibrated times
+        A_TIME=$(enforce_min_time "$A_TIME" "01:00:00")   # 1h floor for training
+        B_TIME=$(enforce_min_time "$B_TIME" "02:00:00")   # 2h floor for matrices
+        D_TIME=$(enforce_min_time "$D_TIME" "02:00:00")   # 2h floor for rej level
+        F_TIME=$(enforce_min_time "$F_TIME" "04:00:00")   # 4h floor for adv matrices
     fi
 
     if [ "$SKIP_AUDIT" = "true" ]; then

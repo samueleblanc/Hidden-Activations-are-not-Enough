@@ -194,8 +194,13 @@ def main() -> None:
     num_classes = get_num_classes(dataset)
 
     Path(f'experiments/{args.experiment_name}/rejection_levels/').mkdir(parents=True, exist_ok=True)
-    exp_dataset_train_file = Path(f'experiments/{args.experiment_name}/rejection_levels/exp_dataset_train.pth')
-    exp_dataset_labels_file = Path(f'experiments/{args.experiment_name}/rejection_levels/exp_dataset_labels.pth')
+    if args.temp_dir is not None:
+        rej_dir = Path(f'{args.temp_dir}/experiments/{args.experiment_name}/rejection_levels/')
+    else:
+        rej_dir = Path(f'experiments/{args.experiment_name}/rejection_levels/')
+    rej_dir.mkdir(parents=True, exist_ok=True)
+    exp_dataset_train_file = rej_dir / 'exp_dataset_train.pth'
+    exp_dataset_labels_file = rej_dir / 'exp_dataset_labels.pth'
 
     if exp_dataset_train_file.exists() and exp_dataset_labels_file.exists():
         exp_dataset_train = torch.load(exp_dataset_train_file)
@@ -211,14 +216,8 @@ def main() -> None:
             input_shape = input_shape
         )
 
-        torch.save(
-            obj = exp_dataset_train,
-            f = f'experiments/{args.experiment_name}/rejection_levels/exp_dataset_train.pth'
-        )
-        torch.save(
-            obj = exp_dataset_labels,
-            f = f'experiments/{args.experiment_name}/rejection_levels/exp_dataset_labels.pth'
-        )
+        torch.save(obj=exp_dataset_train, f=str(exp_dataset_train_file))
+        torch.save(obj=exp_dataset_labels, f=str(exp_dataset_labels_file))
 
     compute_matrices_for_rejection_level(
         exp_dataset_train = exp_dataset_train,
