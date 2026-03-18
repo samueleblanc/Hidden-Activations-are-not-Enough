@@ -54,7 +54,7 @@ B_MEM="280G"
 # Step C
 C_GPU="--gres=gpu:1"
 C_CPUS=16
-C_TIME="04:00:00"
+C_TIME="12:00:00"
 C_MEM="124G"
 # Step F
 F_GPU="--gpus=h100:1"
@@ -471,6 +471,7 @@ STEPA_EOF
 mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
 module load $MODULES
 source $ENV_NAME/bin/activate
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 EXPERIMENT="$EXP"
 TASK_ID=$CHUNK
@@ -662,6 +663,7 @@ STEPC_EOF
 mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
 module load $MODULES
 source $ENV_NAME/bin/activate
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 EXPERIMENT="$EXP"
 TASK_ID=$CHUNK
@@ -1126,7 +1128,7 @@ CALIB_EOF
         # Enforce per-step minimum floors on calibrated times
         A_TIME=$(enforce_min_time "$A_TIME" "01:00:00")   # 1h floor for training
         B_TIME=$(enforce_min_time "$B_TIME" "02:00:00")   # 2h floor for matrices
-        C_TIME=$(enforce_min_time "$C_TIME" "01:00:00")   # 1h floor for adv examples
+        C_TIME=$(enforce_min_time "$C_TIME" "08:00:00")   # 8h floor for adv examples
         F_TIME=$(enforce_min_time "$F_TIME" "04:00:00")   # 4h floor for adv matrices
     fi
 
@@ -1470,6 +1472,7 @@ if [ "$RECOVER_STEP_B" = "true" ]; then
 mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
 module load $MODULES
 source $ENV_NAME/bin/activate
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 $COPY_DATA
 mkdir -p \$SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
 cp \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/weights/* \$SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
@@ -1557,6 +1560,7 @@ if [ "$RECOVER_STEP_F" = "true" ]; then
 mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
 module load $MODULES
 source $ENV_NAME/bin/activate
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 $COPY_DATA
 mkdir -p \$SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
 cp \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/weights/* \$SLURM_TMPDIR/experiments/$EXPERIMENT/weights/

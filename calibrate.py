@@ -38,7 +38,7 @@ def parse_args():
     parser = ArgumentParser(description="GPU calibration for matrix computation pipeline")
     parser.add_argument("--experiment_name", type=str, required=True)
     parser.add_argument("--temp_dir", type=str, default=None)
-    parser.add_argument("--target_utilization", type=float, default=0.85)
+    parser.add_argument("--target_utilization", type=float, default=0.70)
     parser.add_argument("--timing_samples", type=int, default=50)
     parser.add_argument("--total_chunks", type=int, default=8)
     parser.add_argument("--num_samples_per_class", type=int, default=100)
@@ -255,6 +255,19 @@ def calibrate_adversarial_attacks(model, test_data, test_labels, weights_path,
         print(f"    {attack_name}: {elapsed:.1f}s / {n} samples -> {estimated:.0f}s estimated", flush=True)
 
     total_time = sum(per_attack_seconds.values())
+
+    # Check if trained weights exist — attacks on random weights converge
+    # trivially fast, so timing must be penalized to avoid underestimation
+    trained_weights_exist = any(
+        f.startswith("epoch_") and f.endswith(".pth")
+        for f in os.listdir(weights_path)
+    ) if os.path.isdir(weights_path) else False
+
+    if not trained_weights_exist:
+        random_penalty = 10.0
+        print(f"  WARNING: Using random weights — applying {random_penalty}x penalty to C estimate", flush=True)
+        total_time *= random_penalty
+
     print(f"  Total estimated adversarial time: {total_time:.0f}s "
           f"({total_time/3600:.1f}h)", flush=True)
 

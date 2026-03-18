@@ -78,6 +78,7 @@ class ParallelMatrixConstruction:
         """
         Computes matrices for all classes in the dataset in parallel.
         """
+        self._model = model  # stored for OOM recovery in compute_chunk_of_matrices
         matrix_computer = KnowledgeMatrixComputer(model, batch_size=self.batch_size, device=self.device)
 
         for i in range(self.num_classes):
@@ -163,7 +164,18 @@ class ParallelMatrixConstruction:
             if os.path.exists(matrix_path):
                 # if matrix was already computed, pass to next sample of data
                 continue
-            matrix = matrix_computer.forward(d)
+            for attempt in range(4):
+                try:
+                    matrix = matrix_computer.forward(d)
+                    break
+                except RuntimeError as e:
+                    if "out of memory" not in str(e).lower() or attempt == 3:
+                        raise
+                    new_bs = max(64, matrix_computer.batch_size // 2)
+                    print(f"[OOM] Halving batch_size: {matrix_computer.batch_size} -> {new_bs}", flush=True)
+                    del matrix_computer
+                    torch.cuda.empty_cache()
+                    matrix_computer = KnowledgeMatrixComputer(self._model, batch_size=new_bs, device=self.device)
             os.makedirs(root)
             torch.save(matrix, matrix_path)
             del matrix
