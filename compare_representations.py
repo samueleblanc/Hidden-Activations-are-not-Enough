@@ -1,12 +1,12 @@
 """
 Fair comparison of adversarial detection across representations.
 
-Applies the SAME detector (Mahalanobis distance) to three representations:
+Applies the SAME set of 6 detectors to three representations:
   1. Knowledge Matrices    — M(W,f)(x), the full forward-pass matrix
   2. Penultimate Features  — activations from the last hidden layer
   3. All-Layer Features    — concatenation of all hidden-layer activations
 
-By using the same detector, any performance difference is due entirely to
+By using the same detectors, any performance difference is due entirely to
 the REPRESENTATION, not the detection algorithm.  This is the core experiment
 for the claim "Hidden Activations Are Not Enough."
 
@@ -15,19 +15,28 @@ Usage:
     python compare_representations.py --experiment lenet_cifar10
     python compare_representations.py --experiment alexnet_cifar10 --temp_dir $SLURM_TMPDIR
 
+    # SVD rank ablation:
+    python compare_representations.py --experiment alexnet_cifar10 --svd_ablation
+
     # Run for multiple experiments:
     python compare_representations.py --experiment lenet_cifar10 alexnet_cifar10 resnet_cifar10 vgg_cifar10
 """
 
 import os
 import json
+import time
 import torch
 import numpy as np
 from pathlib import Path
 from argparse import ArgumentParser
 from typing import Union
 from sklearn.covariance import LedoitWolf
-from sklearn.metrics import roc_auc_score, roc_curve
+from sklearn.neighbors import NearestNeighbors
+from sklearn.neighbors import KernelDensity
+from sklearn.mixture import GaussianMixture
+from sklearn.svm import OneClassSVM
+from sklearn.ensemble import IsolationForest
+from sklearn.metrics import roc_auc_score, roc_curve, average_precision_score
 from sklearn.decomposition import TruncatedSVD
 
 from utils.utils import (
@@ -93,7 +102,7 @@ def extract_penultimate_features(model, data, batch_size=128):
             batch = data[i:i+batch_size].to(device).float()
             f = model.forward(batch, return_penultimate=True)
             feats.append(f.detach().cpu().numpy().reshape(f.shape[0], -1))
-    return np.vstack(feats) if feats else np.zeros((0,))
+    return np.vstack(feats) if feats else np.zeros((0, 0))
 
 
 def extract_all_layer_features(model, data, batch_size=128):
@@ -107,7 +116,7 @@ def extract_all_layer_features(model, data, batch_size=128):
         if f is not None:
             feats.append(f)
     extractor.cleanup()
-    return np.vstack(feats) if feats else np.zeros((0,))
+    return np.vstack(feats) if feats else np.zeros((0, 0))
 
 
 def load_matrices_as_features(base_path, attack_name, max_samples=None):
@@ -203,7 +212,7 @@ class MahalanobisDetector:
                     self.class_precisions[c] = global_prec
 
     def score(self, features):
-        """Compute min Mahalanobis distance to any class (lower = more normal)."""
+        """Compute min Mahalanobis distance to any class (higher = more anomalous)."""
         if self.svd is not None:
             proj = self.svd.transform(features.reshape(features.shape[0], -1))
         else:
@@ -219,12 +228,219 @@ class MahalanobisDetector:
         return min_dists
 
 
+class KNNDetector:
+    """K-nearest neighbor anomaly detector with TruncatedSVD.
+    Score = mean distance to k nearest neighbors (higher = more anomalous)."""
+
+    def __init__(self, k=10, max_components=256):
+        self.k = k
+        self.max_components = max_components
+        self.svd = None
+        self.knn = None
+
+    def fit(self, features, labels, num_classes):
+        N, D = features.shape
+        n_comp = min(self.max_components, D, max(1, N - 1))
+        if D > n_comp:
+            self.svd = TruncatedSVD(n_components=n_comp, random_state=0)
+            proj = self.svd.fit_transform(features)
+        else:
+            self.svd = None
+            proj = features
+        self.knn = NearestNeighbors(n_neighbors=min(self.k, len(proj) - 1),
+                                    metric='euclidean')
+        self.knn.fit(proj)
+
+    def score(self, features):
+        proj = self.svd.transform(features.reshape(features.shape[0], -1)) \
+            if self.svd is not None else features.reshape(features.shape[0], -1)
+        distances, _ = self.knn.kneighbors(proj)
+        return distances.mean(axis=1)
+
+
+class KDEDetector:
+    """Kernel Density Estimation anomaly detector with TruncatedSVD.
+    Score = negative log-likelihood (higher = more anomalous)."""
+
+    def __init__(self, bandwidth=1.0, max_components=256):
+        self.bandwidth = bandwidth
+        self.max_components = max_components
+        self.svd = None
+        self.kde = None
+
+    def fit(self, features, labels, num_classes):
+        N, D = features.shape
+        n_comp = min(self.max_components, D, max(1, N - 1))
+        if D > n_comp:
+            self.svd = TruncatedSVD(n_components=n_comp, random_state=0)
+            proj = self.svd.fit_transform(features)
+        else:
+            self.svd = None
+            proj = features
+        self.kde = KernelDensity(bandwidth=self.bandwidth)
+        self.kde.fit(proj)
+
+    def score(self, features):
+        proj = self.svd.transform(features.reshape(features.shape[0], -1)) \
+            if self.svd is not None else features.reshape(features.shape[0], -1)
+        return -self.kde.score_samples(proj)  # negate: higher = more anomalous
+
+
+class GMMDetector:
+    """Gaussian Mixture Model anomaly detector with TruncatedSVD.
+    Score = negative log-likelihood (higher = more anomalous)."""
+
+    def __init__(self, n_components=10, max_components=256):
+        self.n_gmm_components = n_components
+        self.max_components = max_components
+        self.svd = None
+        self.gmm = None
+
+    def fit(self, features, labels, num_classes):
+        N, D = features.shape
+        n_comp = min(self.max_components, D, max(1, N - 1))
+        if D > n_comp:
+            self.svd = TruncatedSVD(n_components=n_comp, random_state=0)
+            proj = self.svd.fit_transform(features)
+        else:
+            self.svd = None
+            proj = features
+        self.gmm = GaussianMixture(n_components=min(self.n_gmm_components, len(proj)),
+                                   random_state=0)
+        self.gmm.fit(proj)
+
+    def score(self, features):
+        proj = self.svd.transform(features.reshape(features.shape[0], -1)) \
+            if self.svd is not None else features.reshape(features.shape[0], -1)
+        return -self.gmm.score_samples(proj)  # negate: higher = more anomalous
+
+
+class OCSVMDetector:
+    """One-Class SVM anomaly detector with TruncatedSVD.
+    Score = negative decision function (higher = more anomalous)."""
+
+    def __init__(self, nu=0.05, max_components=256):
+        self.nu = nu
+        self.max_components = max_components
+        self.svd = None
+        self.ocsvm = None
+
+    def fit(self, features, labels, num_classes):
+        N, D = features.shape
+        n_comp = min(self.max_components, D, max(1, N - 1))
+        if D > n_comp:
+            self.svd = TruncatedSVD(n_components=n_comp, random_state=0)
+            proj = self.svd.fit_transform(features)
+        else:
+            self.svd = None
+            proj = features
+        self.ocsvm = OneClassSVM(kernel='rbf', nu=self.nu)
+        self.ocsvm.fit(proj)
+
+    def score(self, features):
+        proj = self.svd.transform(features.reshape(features.shape[0], -1)) \
+            if self.svd is not None else features.reshape(features.shape[0], -1)
+        return -self.ocsvm.decision_function(proj)  # negate: higher = more anomalous
+
+
+class IsolationForestDetector:
+    """Isolation Forest anomaly detector with TruncatedSVD.
+    Score = negative anomaly score (higher = more anomalous)."""
+
+    def __init__(self, n_estimators=100, max_components=256):
+        self.n_estimators = n_estimators
+        self.max_components = max_components
+        self.svd = None
+        self.iforest = None
+
+    def fit(self, features, labels, num_classes):
+        N, D = features.shape
+        n_comp = min(self.max_components, D, max(1, N - 1))
+        if D > n_comp:
+            self.svd = TruncatedSVD(n_components=n_comp, random_state=0)
+            proj = self.svd.fit_transform(features)
+        else:
+            self.svd = None
+            proj = features
+        self.iforest = IsolationForest(n_estimators=self.n_estimators, random_state=0)
+        self.iforest.fit(proj)
+
+    def score(self, features):
+        proj = self.svd.transform(features.reshape(features.shape[0], -1)) \
+            if self.svd is not None else features.reshape(features.shape[0], -1)
+        return -self.iforest.decision_function(proj)  # negate: higher = more anomalous
+
+
+# All detectors with default hyperparameters
+DETECTORS = {
+    'Mahalanobis': lambda: MahalanobisDetector(max_components=256),
+    'KNN': lambda: KNNDetector(k=10, max_components=256),
+    'KDE': lambda: KDEDetector(bandwidth=1.0, max_components=256),
+    'GMM': lambda: GMMDetector(n_components=10, max_components=256),
+    'OCSVM': lambda: OCSVMDetector(nu=0.05, max_components=256),
+    'IsolationForest': lambda: IsolationForestDetector(n_estimators=100, max_components=256),
+}
+
+
+# ---------------------------------------------------------------------------
+# Metric helpers
+# ---------------------------------------------------------------------------
+
+def compute_detection_metrics(clean_scores, adv_scores):
+    """Compute AUROC, AUPR, FPR@95TPR from clean and adversarial scores.
+    Convention: higher score = more anomalous."""
+    n_clean = len(clean_scores)
+    n_adv = len(adv_scores)
+    labels = np.concatenate([np.zeros(n_clean), np.ones(n_adv)])
+    scores = np.concatenate([clean_scores, adv_scores])
+
+    try:
+        auroc = roc_auc_score(labels, scores)
+    except ValueError:
+        auroc = 0.5
+
+    try:
+        aupr = average_precision_score(labels, scores)
+    except ValueError:
+        aupr = 0.0
+
+    # FPR at 95% TPR
+    fpr_arr, tpr_arr, _ = roc_curve(labels, scores)
+    idx = np.searchsorted(tpr_arr, 0.95, side='left')
+    if idx < len(fpr_arr):
+        fpr_at_95tpr = float(fpr_arr[idx])
+    else:
+        fpr_at_95tpr = 1.0
+
+    # TPR at fixed FPR thresholds (backward compat)
+    tpr_at_5 = tpr_arr[np.searchsorted(fpr_arr, 0.05, side='right') - 1] \
+        if len(fpr_arr) > 1 else 0
+    tpr_at_10 = tpr_arr[np.searchsorted(fpr_arr, 0.10, side='right') - 1] \
+        if len(fpr_arr) > 1 else 0
+
+    return {
+        'auroc': float(auroc),
+        'aupr': float(aupr),
+        'fpr_at_95tpr': float(fpr_at_95tpr),
+        'tpr_at_fpr5': float(tpr_at_5),
+        'tpr_at_fpr10': float(tpr_at_10),
+        'n_adv': n_adv,
+        'n_clean': n_clean,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Main comparison logic
 # ---------------------------------------------------------------------------
 
-def run_comparison(experiment_name, temp_dir=None):
-    """Run fair comparison for one experiment."""
+def run_comparison(experiment_name, temp_dir=None, svd_ablation=False):
+    """Run fair comparison for one experiment.
+
+    Fits all 6 detectors on each of 3 representations and evaluates on
+    every available adversarial attack, producing AUROC/AUPR/FPR@95TPR.
+
+    If svd_ablation=True, additionally sweeps SVD rank for Mahalanobis.
+    """
     exp_config = DEFAULT_EXPERIMENTS[experiment_name]
     dataset = exp_config['dataset']
     arch_idx = exp_config['architecture_index']
@@ -245,7 +461,6 @@ def run_comparison(experiment_name, temp_dir=None):
             weights_path = candidate
             break
     if weights_path is None:
-        # Fall back to highest-numbered epoch file
         epoch_files = sorted(weights_dir.glob('epoch_*.pth'),
                              key=lambda p: int(p.stem.split('_')[1]))
         if epoch_files:
@@ -279,68 +494,120 @@ def run_comparison(experiment_name, temp_dir=None):
     train_labels_np = train_labels.numpy().astype(int)
 
     # -----------------------------------------------------------------------
-    # 2. Extract training representations
+    # 2. Extract training representations (with cost measurement)
     # -----------------------------------------------------------------------
+    computational_cost = {}
+
+    if torch.cuda.is_available():
+        torch.cuda.reset_peak_memory_stats()
+    t0 = time.perf_counter()
     print("  Extracting training PENULTIMATE features...")
     train_penult = extract_penultimate_features(model, train_data)
-    print(f"    Shape: {train_penult.shape}")
+    cost_penult_time = time.perf_counter() - t0
+    cost_penult_mem = torch.cuda.max_memory_allocated() / 1e9 if torch.cuda.is_available() else 0
+    print(f"    Shape: {train_penult.shape}  ({cost_penult_time:.1f}s)")
 
+    if torch.cuda.is_available():
+        torch.cuda.reset_peak_memory_stats()
+    t0 = time.perf_counter()
     print("  Extracting training ALL-LAYER features...")
     train_alllayer = extract_all_layer_features(model, train_data)
-    print(f"    Shape: {train_alllayer.shape}")
+    cost_alllayer_time = time.perf_counter() - t0
+    cost_alllayer_mem = torch.cuda.max_memory_allocated() / 1e9 if torch.cuda.is_available() else 0
+    print(f"    Shape: {train_alllayer.shape}  ({cost_alllayer_time:.1f}s)")
 
+    if torch.cuda.is_available():
+        torch.cuda.reset_peak_memory_stats()
+    t0 = time.perf_counter()
     print("  Loading training KNOWLEDGE MATRICES...")
     train_matrices, train_mat_labels = load_train_matrices(base, num_classes, per_class=500)
+    cost_matrix_time = time.perf_counter() - t0
+    cost_matrix_mem = torch.cuda.max_memory_allocated() / 1e9 if torch.cuda.is_available() else 0
     if train_matrices is None or len(train_matrices) == 0:
         print("    WARNING: No training matrices found, skipping matrix comparison")
         train_matrices = None
     else:
-        print(f"    Shape: {train_matrices.shape}")
+        print(f"    Shape: {train_matrices.shape}  ({cost_matrix_time:.1f}s)")
         train_mat_labels = train_mat_labels.astype(int)
 
-    # -----------------------------------------------------------------------
-    # 3. Fit Mahalanobis detectors on each representation
-    # -----------------------------------------------------------------------
-    detectors = {}
-
-    print("  Fitting Mahalanobis on PENULTIMATE features...")
-    det_penult = MahalanobisDetector(max_components=256)
-    det_penult.fit(train_penult, train_labels_np, num_classes)
-    detectors['penultimate'] = det_penult
-
-    print("  Fitting Mahalanobis on ALL-LAYER features...")
-    det_alllayer = MahalanobisDetector(max_components=256)
-    det_alllayer.fit(train_alllayer, train_labels_np, num_classes)
-    detectors['all_layer'] = det_alllayer
-
+    n_train = len(train_data)
+    computational_cost = {
+        'penultimate': {
+            'seconds_per_1000': float(cost_penult_time * 1000 / n_train),
+            'peak_gpu_memory_gb': float(cost_penult_mem),
+            'feature_dim': int(train_penult.shape[1]),
+        },
+        'all_layer': {
+            'seconds_per_1000': float(cost_alllayer_time * 1000 / n_train),
+            'peak_gpu_memory_gb': float(cost_alllayer_mem),
+            'feature_dim': int(train_alllayer.shape[1]),
+        },
+    }
     if train_matrices is not None:
-        print("  Fitting Mahalanobis on KNOWLEDGE MATRICES...")
-        det_matrix = MahalanobisDetector(max_components=256)
-        det_matrix.fit(train_matrices, train_mat_labels, num_classes)
-        detectors['knowledge_matrix'] = det_matrix
+        computational_cost['knowledge_matrix'] = {
+            'seconds_per_1000': float(cost_matrix_time * 1000 / len(train_matrices)),
+            'peak_gpu_memory_gb': float(cost_matrix_mem),
+            'feature_dim': int(train_matrices.shape[1]),
+        }
 
     # -----------------------------------------------------------------------
-    # 4. Score clean test data (for FPR calibration)
+    # 3. Build training representation dict
+    # -----------------------------------------------------------------------
+    train_reps = {
+        'penultimate': (train_penult, train_labels_np),
+        'all_layer': (train_alllayer, train_labels_np),
+    }
+    if train_matrices is not None:
+        train_reps['knowledge_matrix'] = (train_matrices, train_mat_labels)
+
+    rep_names = list(train_reps.keys())
+
+    # -----------------------------------------------------------------------
+    # 4. Fit all 6 detectors on each representation
+    # -----------------------------------------------------------------------
+    # fitted_detectors[det_name][rep_name] = fitted detector instance
+    fitted_detectors = {}
+    for det_name, det_factory in DETECTORS.items():
+        fitted_detectors[det_name] = {}
+        for rn in rep_names:
+            feats, labs = train_reps[rn]
+            print(f"  Fitting {det_name} on {rn}...")
+            det = det_factory()
+            det.fit(feats, labs, num_classes)
+            fitted_detectors[det_name][rn] = det
+
+    # -----------------------------------------------------------------------
+    # 5. Score clean test data
     # -----------------------------------------------------------------------
     print("  Scoring clean test data...")
     _, test_set = get_dataset(dataset, data_loader=False, data_path=temp_dir)
     test_data, test_labels = subset(test_set, 2000, input_shape)
 
-    clean_scores = {}
-    clean_scores['penultimate'] = det_penult.score(
-        extract_penultimate_features(model, test_data))
-    clean_scores['all_layer'] = det_alllayer.score(
-        extract_all_layer_features(model, test_data))
-    if 'knowledge_matrix' in detectors:
+    # Extract test representations once
+    test_feats = {
+        'penultimate': extract_penultimate_features(model, test_data),
+        'all_layer': extract_all_layer_features(model, test_data),
+    }
+    if 'knowledge_matrix' in rep_names:
         test_mats = load_matrices_as_features(base, 'test', max_samples=2000)
         if test_mats is not None and len(test_mats) > 0:
-            clean_scores['knowledge_matrix'] = det_matrix.score(test_mats)
+            test_feats['knowledge_matrix'] = test_mats
         else:
-            # Cannot score clean test matrices, remove from comparison
-            del detectors['knowledge_matrix']
+            # Cannot score clean test matrices — remove from comparison
+            rep_names = [r for r in rep_names if r != 'knowledge_matrix']
+            for det_name in fitted_detectors:
+                fitted_detectors[det_name].pop('knowledge_matrix', None)
+
+    # clean_scores[det_name][rep_name] = 1D array of scores
+    clean_scores = {}
+    for det_name in DETECTORS:
+        clean_scores[det_name] = {}
+        for rn in rep_names:
+            if rn in fitted_detectors[det_name] and rn in test_feats:
+                clean_scores[det_name][rn] = fitted_detectors[det_name][rn].score(test_feats[rn])
 
     # -----------------------------------------------------------------------
-    # 5. Score adversarial data per attack
+    # 6. Score adversarial data per attack
     # -----------------------------------------------------------------------
     results = {}
     available_attacks = []
@@ -360,129 +627,188 @@ def run_comparison(experiment_name, temp_dir=None):
         adv_data = torch.load(
             Path(base) / 'adversarial_examples' / attack / 'adversarial_examples.pth',
             map_location='cpu')
-
-        # Limit to avoid OOM
         if len(adv_data) > 2000:
             adv_data = adv_data[:2000]
 
+        # Extract adversarial representations once per attack
+        adv_feats = {
+            'penultimate': extract_penultimate_features(model, adv_data),
+            'all_layer': extract_all_layer_features(model, adv_data),
+        }
+        if 'knowledge_matrix' in rep_names:
+            km_feats = load_matrices_as_features(base, attack, max_samples=2000)
+            if km_feats is not None and len(km_feats) > 0:
+                adv_feats['knowledge_matrix'] = km_feats
+
+        # results[attack][det_name][rep_name] = metrics dict
         attack_results = {}
-
-        for rep_name, detector in detectors.items():
-            if rep_name == 'penultimate':
-                adv_feats = extract_penultimate_features(model, adv_data)
-            elif rep_name == 'all_layer':
-                adv_feats = extract_all_layer_features(model, adv_data)
-            elif rep_name == 'knowledge_matrix':
-                adv_feats = load_matrices_as_features(base, attack, max_samples=2000)
-                if adv_feats is None or len(adv_feats) == 0:
+        for det_name in DETECTORS:
+            attack_results[det_name] = {}
+            for rn in rep_names:
+                if rn not in adv_feats or rn not in clean_scores[det_name]:
                     continue
-
-            adv_scores = detector.score(adv_feats)
-            clean = clean_scores[rep_name]
-
-            # Compute AUROC: higher Mahalanobis distance = more adversarial
-            n_clean = len(clean)
-            n_adv = len(adv_scores)
-            labels = np.concatenate([np.zeros(n_clean), np.ones(n_adv)])
-            scores = np.concatenate([clean, adv_scores])
-
-            try:
-                auroc = roc_auc_score(labels, scores)
-            except ValueError:
-                auroc = 0.5
-
-            # TPR at fixed FPR thresholds
-            fpr_arr, tpr_arr, _ = roc_curve(labels, scores)
-            tpr_at_5 = tpr_arr[np.searchsorted(fpr_arr, 0.05, side='right') - 1] if len(fpr_arr) > 1 else 0
-            tpr_at_10 = tpr_arr[np.searchsorted(fpr_arr, 0.10, side='right') - 1] if len(fpr_arr) > 1 else 0
-
-            attack_results[rep_name] = {
-                'auroc': float(auroc),
-                'tpr_at_fpr5': float(tpr_at_5),
-                'tpr_at_fpr10': float(tpr_at_10),
-                'n_adv': n_adv,
-                'n_clean': n_clean,
-            }
+                adv_scores = fitted_detectors[det_name][rn].score(adv_feats[rn])
+                metrics = compute_detection_metrics(
+                    clean_scores[det_name][rn], adv_scores)
+                attack_results[det_name][rn] = metrics
 
         results[attack] = attack_results
 
     # -----------------------------------------------------------------------
-    # 6. Aggregate and report
+    # 7. SVD rank ablation (optional)
+    # -----------------------------------------------------------------------
+    svd_ablation_results = None
+    if svd_ablation:
+        print("\n  Running SVD rank ablation (Mahalanobis)...")
+        svd_ranks = [16, 32, 64, 128, 256, 512]
+        svd_ablation_results = {}
+        for rank in svd_ranks:
+            svd_ablation_results[rank] = {}
+            for rn in rep_names:
+                feats, labs = train_reps[rn]
+                if feats.shape[1] < rank:
+                    continue
+                print(f"    rank={rank}, rep={rn}...")
+                det = MahalanobisDetector(max_components=rank)
+                det.fit(feats, labs, num_classes)
+                # Score clean
+                clean_sc = det.score(test_feats[rn]) if rn in test_feats else None
+                if clean_sc is None:
+                    continue
+                # Average AUROC across attacks
+                aurocs = []
+                for attack in available_attacks:
+                    adv_path = Path(base) / 'adversarial_examples' / attack / 'adversarial_examples.pth'
+                    if not adv_path.exists():
+                        continue
+                    adv_data = torch.load(adv_path, map_location='cpu')
+                    if len(adv_data) > 2000:
+                        adv_data = adv_data[:2000]
+                    if rn == 'penultimate':
+                        af = extract_penultimate_features(model, adv_data)
+                    elif rn == 'all_layer':
+                        af = extract_all_layer_features(model, adv_data)
+                    else:
+                        af = load_matrices_as_features(base, attack, max_samples=2000)
+                        if af is None or len(af) == 0:
+                            continue
+                    adv_sc = det.score(af)
+                    m = compute_detection_metrics(clean_sc, adv_sc)
+                    aurocs.append(m['auroc'])
+                svd_ablation_results[rank][rn] = {
+                    'mean_auroc': float(np.mean(aurocs)) if aurocs else None,
+                    'n_attacks': len(aurocs),
+                }
+
+    # -----------------------------------------------------------------------
+    # 8. Aggregate and report
     # -----------------------------------------------------------------------
     print(f"\n{'='*70}")
     print(f"  RESULTS: {experiment_name}")
+    print(f"  6 detectors x {len(rep_names)} representations x {len(available_attacks)} attacks")
     print(f"{'='*70}")
 
-    # Per-attack table
-    rep_names = list(detectors.keys())
-    header = f"  {'Attack':<12s}"
-    for rn in rep_names:
-        short = {'penultimate': 'Penult.', 'all_layer': 'AllLayer', 'knowledge_matrix': 'KnowMat'}[rn]
-        header += f" | {short:>8s}"
-    print(header)
-    print("  " + "-" * (len(header) - 2))
+    # Summary: average AUROC per (detector, representation)
+    aggregate = {}  # aggregate[det_name][rep_name] = list of aurocs
+    for det_name in DETECTORS:
+        aggregate[det_name] = {rn: [] for rn in rep_names}
 
-    aggregate = {rn: [] for rn in rep_names}
     for attack in available_attacks:
         if attack not in results:
             continue
-        line = f"  {attack:<12s}"
+        for det_name in DETECTORS:
+            for rn in rep_names:
+                if rn in results[attack].get(det_name, {}):
+                    aggregate[det_name][rn].append(
+                        results[attack][det_name][rn]['auroc'])
+
+    # Print grid: rows = detectors, columns = representations
+    short_names = {'penultimate': 'Penult.', 'all_layer': 'AllLayer',
+                   'knowledge_matrix': 'KnowMat'}
+    header = f"  {'Detector':<18s}"
+    for rn in rep_names:
+        header += f" | {short_names[rn]:>8s}"
+    print(header)
+    print("  " + "-" * (len(header) - 2))
+
+    for det_name in DETECTORS:
+        line = f"  {det_name:<18s}"
         for rn in rep_names:
-            if rn in results[attack]:
-                auroc = results[attack][rn]['auroc']
-                line += f" | {auroc:>8.4f}"
-                aggregate[rn].append(auroc)
+            vals = aggregate[det_name][rn]
+            if vals:
+                line += f" | {np.mean(vals):>8.4f}"
             else:
                 line += f" | {'---':>8s}"
         print(line)
 
-    # Average AUROC
-    print("  " + "-" * (len(header) - 2))
-    line = f"  {'AVERAGE':<12s}"
-    for rn in rep_names:
-        if aggregate[rn]:
-            avg = np.mean(aggregate[rn])
-            line += f" | {avg:>8.4f}"
-        else:
-            line += f" | {'---':>8s}"
-    print(line)
-
-    # Category breakdown
-    print(f"\n  BY CATEGORY:")
+    # Category breakdown (best detector per representation)
+    print(f"\n  BY CATEGORY (best detector per representation):")
     for cat_name, cat_attacks in ATTACK_CATEGORIES.items():
         cat_line = f"    {cat_name:<16s}"
         for rn in rep_names:
-            cat_aurocs = [results[a][rn]['auroc'] for a in cat_attacks
-                         if a in results and rn in results[a]]
-            if cat_aurocs:
-                cat_line += f" | {np.mean(cat_aurocs):>8.4f}"
+            best_auroc = -1
+            for det_name in DETECTORS:
+                aurocs = [results[a][det_name][rn]['auroc']
+                         for a in cat_attacks
+                         if a in results and rn in results[a].get(det_name, {})]
+                if aurocs and np.mean(aurocs) > best_auroc:
+                    best_auroc = np.mean(aurocs)
+            if best_auroc >= 0:
+                cat_line += f" | {best_auroc:>8.4f}"
             else:
                 cat_line += f" | {'---':>8s}"
         print(cat_line)
 
-    # TPR@FPR=5% summary
-    print(f"\n  TPR @ FPR=5% (averaged across attacks):")
+    # Computational cost summary
+    print(f"\n  COMPUTATIONAL COST:")
     for rn in rep_names:
-        tprs = [results[a][rn]['tpr_at_fpr5'] for a in available_attacks
-                if a in results and rn in results[a]]
-        short = {'penultimate': 'Penultimate Features', 'all_layer': 'All-Layer Features',
-                 'knowledge_matrix': 'Knowledge Matrices'}[rn]
-        if tprs:
-            print(f"    {short:<25s}: {np.mean(tprs):.4f}")
+        if rn in computational_cost:
+            cc = computational_cost[rn]
+            print(f"    {short_names[rn]:<12s}: {cc['seconds_per_1000']:.1f} s/1000 samples, "
+                  f"{cc['peak_gpu_memory_gb']:.2f} GB peak, dim={cc['feature_dim']}")
+
+    # SVD ablation summary
+    if svd_ablation_results:
+        print(f"\n  SVD RANK ABLATION (Mahalanobis mean AUROC):")
+        for rank in sorted(svd_ablation_results.keys()):
+            line = f"    rank={rank:<4d}"
+            for rn in rep_names:
+                if rn in svd_ablation_results[rank]:
+                    val = svd_ablation_results[rank][rn]['mean_auroc']
+                    line += f" | {short_names[rn]}={val:.4f}" if val else f" | {short_names[rn]}=---"
+                else:
+                    line += f" | {short_names[rn]}=---"
+            print(line)
 
     # Save results
     out_dir = Path(f'experiments/{experiment_name}/comparison/')
     out_dir.mkdir(parents=True, exist_ok=True)
     out_file = out_dir / 'representation_comparison.json'
+
+    # Compute average AUROC summary
+    avg_auroc = {}
+    for det_name in DETECTORS:
+        avg_auroc[det_name] = {}
+        for rn in rep_names:
+            vals = aggregate[det_name][rn]
+            avg_auroc[det_name][rn] = float(np.mean(vals)) if vals else None
+
     save_data = {
         'experiment': experiment_name,
         'dataset': dataset,
         'architecture_index': arch_idx,
         'representations': rep_names,
+        'detectors': list(DETECTORS.keys()),
         'per_attack': results,
-        'average_auroc': {rn: float(np.mean(aggregate[rn])) if aggregate[rn] else None
-                          for rn in rep_names},
+        'average_auroc': avg_auroc,
+        'computational_cost': computational_cost,
     }
+    if svd_ablation_results:
+        # Convert int keys to strings for JSON
+        save_data['svd_ablation'] = {
+            str(k): v for k, v in svd_ablation_results.items()
+        }
+
     with open(out_file, 'w') as f:
         json.dump(save_data, f, indent=2)
     print(f"\n  Results saved to {out_file}")
@@ -499,48 +825,68 @@ def print_cross_experiment_summary(all_results):
     print(f"  CROSS-EXPERIMENT SUMMARY")
     print(f"{'#'*70}")
 
-    # Collect all representation names
     all_reps = set()
+    all_dets = set()
     for r in all_results:
         all_reps.update(r['representations'])
+        all_dets.update(r.get('detectors', ['Mahalanobis']))
     all_reps = sorted(all_reps)
+    all_dets = sorted(all_dets)
 
-    header = f"  {'Experiment':<20s}"
-    for rn in all_reps:
-        short = {'penultimate': 'Penult.', 'all_layer': 'AllLayer', 'knowledge_matrix': 'KnowMat'}[rn]
-        header += f" | {short:>8s}"
-    print(header)
-    print("  " + "-" * (len(header) - 2))
+    short_names = {'penultimate': 'Penult.', 'all_layer': 'AllLayer',
+                   'knowledge_matrix': 'KnowMat'}
 
-    for r in all_results:
-        line = f"  {r['experiment']:<20s}"
+    # Per-detector summary
+    for det_name in all_dets:
+        print(f"\n  --- {det_name} ---")
+        header = f"  {'Experiment':<20s}"
         for rn in all_reps:
-            avg = r['average_auroc'].get(rn)
-            if avg is not None:
-                line += f" | {avg:>8.4f}"
-            else:
-                line += f" | {'---':>8s}"
-        print(line)
+            header += f" | {short_names[rn]:>8s}"
+        print(header)
+        print("  " + "-" * (len(header) - 2))
 
-    # Win counts
-    print(f"\n  WINS (highest AUROC per attack):")
+        for r in all_results:
+            line = f"  {r['experiment']:<20s}"
+            avg = r['average_auroc']
+            for rn in all_reps:
+                # New format: avg[det_name][rep_name]; old format: avg[rep_name]
+                if isinstance(avg.get(det_name), dict):
+                    val = avg[det_name].get(rn)
+                else:
+                    val = avg.get(rn) if det_name == 'Mahalanobis' else None
+                if val is not None:
+                    line += f" | {val:>8.4f}"
+                else:
+                    line += f" | {'---':>8s}"
+            print(line)
+
+    # Win counts (best representation across all detectors and attacks)
+    print(f"\n  WINS (highest AUROC per attack, best detector):")
     wins = {rn: 0 for rn in all_reps}
     total = 0
     for r in all_results:
         for attack, attack_res in r['per_attack'].items():
             best_auroc = -1
             best_rep = None
-            for rn in all_reps:
-                if rn in attack_res and attack_res[rn]['auroc'] > best_auroc:
-                    best_auroc = attack_res[rn]['auroc']
-                    best_rep = rn
+            for det_name in all_dets:
+                det_res = attack_res.get(det_name, attack_res)
+                for rn in all_reps:
+                    auroc_val = None
+                    if isinstance(det_res.get(rn), dict):
+                        auroc_val = det_res[rn].get('auroc')
+                    if auroc_val is not None and auroc_val > best_auroc:
+                        best_auroc = auroc_val
+                        best_rep = rn
             if best_rep:
                 wins[best_rep] += 1
                 total += 1
-    for rn in all_reps:
-        short = {'penultimate': 'Penultimate Features', 'all_layer': 'All-Layer Features',
-                 'knowledge_matrix': 'Knowledge Matrices'}[rn]
-        print(f"    {short:<25s}: {wins[rn]}/{total} ({100*wins[rn]/total:.1f}%)")
+
+    if total > 0:
+        for rn in all_reps:
+            long_name = {'penultimate': 'Penultimate Features',
+                         'all_layer': 'All-Layer Features',
+                         'knowledge_matrix': 'Knowledge Matrices'}[rn]
+            print(f"    {long_name:<25s}: {wins[rn]}/{total} ({100*wins[rn]/total:.1f}%)")
 
 
 def parse_args():
@@ -550,6 +896,8 @@ def parse_args():
                         help="Experiment name(s)")
     parser.add_argument("--temp_dir", type=str, default=None,
                         help="Temporary directory for cluster")
+    parser.add_argument("--svd_ablation", action="store_true",
+                        help="Run SVD rank ablation for Mahalanobis detector")
     return parser.parse_args()
 
 
@@ -557,7 +905,8 @@ def main():
     args = parse_args()
     all_results = []
     for exp in args.experiment:
-        result = run_comparison(exp, args.temp_dir)
+        result = run_comparison(exp, args.temp_dir,
+                                svd_ablation=args.svd_ablation)
         if result:
             all_results.append(result)
 

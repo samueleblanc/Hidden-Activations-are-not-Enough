@@ -10,6 +10,7 @@ Usage:
     python generate_latex_tables.py --output tables/
 """
 
+import json
 import pandas as pd
 import numpy as np
 from pathlib import Path
@@ -22,7 +23,7 @@ def parse_args():
     parser = ArgumentParser(description="Generate LaTeX tables from grid search results")
     parser.add_argument("--experiments", nargs="+",
                         default=["lenet_cifar10", "alexnet_cifar10", "resnet_cifar10",
-                                 "vgg_cifar10", "resnet_cifar100"],
+                                 "vgg_cifar10"],
                         help="Experiment names to include")
     parser.add_argument("--output", type=str, default="tables",
                         help="Output directory for LaTeX files")
@@ -341,26 +342,371 @@ def generate_full_attack_table(experiments: list, output_dir: Path):
     print(f"Generated {output_dir / 'full_attack_results.tex'}")
 
 
+# ---------------------------------------------------------------------------
+# New AUROC-based tables (from compare_representations.py output)
+# ---------------------------------------------------------------------------
+
+def load_comparison_json(experiment: str) -> dict:
+    """Load representation_comparison.json for an experiment."""
+    path = Path(f"experiments/{experiment}/comparison/representation_comparison.json")
+    if not path.exists():
+        return {}
+    with open(path) as f:
+        return json.load(f)
+
+
+def generate_representation_comparison_table(experiments: list, output_dir: Path):
+    """Central table: 3 representations x 6 detectors, AUROC averaged across attacks.
+    One sub-table per experiment, or a single combined table."""
+    all_data = {}
+    for exp in experiments:
+        data = load_comparison_json(exp)
+        if data:
+            all_data[exp] = data
+
+    if not all_data:
+        print("No representation comparison data found.")
+        return
+
+    # Collect detector and rep names from first available experiment
+    sample = next(iter(all_data.values()))
+    det_names = sample.get('detectors', ['Mahalanobis'])
+    rep_names = sample.get('representations', [])
+
+    short_reps = {'penultimate': 'Penultimate', 'all_layer': 'All-Layer',
+                  'knowledge_matrix': 'Knowledge Matrix'}
+
+    n_reps = len(rep_names)
+    col_spec = "l" + "|c" * n_reps
+
+    lines = [
+        r"\begin{table}[t]",
+        r"\centering",
+        r"\caption{Mean AUROC across all attacks for each detector--representation pair. "
+        r"Bold indicates the best representation per detector. "
+        r"Higher is better.}",
+        r"\label{tab:rep_comparison}",
+        r"\resizebox{\textwidth}{!}{%",
+        f"\\begin{{tabular}}{{{col_spec}}}",
+        r"\toprule",
+    ]
+
+    # Header row
+    header = "Detector"
+    for rn in rep_names:
+        header += f" & {escape_latex(short_reps.get(rn, rn))}"
+    lines.append(header + r" \\")
+    lines.append(r"\midrule")
+
+    for exp_name, data in all_data.items():
+        if len(all_data) > 1:
+            arch = exp_name.split("_")[0].capitalize()
+            dataset = exp_name.split("_", 1)[1].upper().replace("_", "-")
+            lines.append(f"\\multicolumn{{{n_reps + 1}}}{{l}}"
+                         f"{{\\textit{{{arch} / {dataset}}}}} \\\\")
+
+        avg_auroc = data.get('average_auroc', {})
+        for det_name in det_names:
+            vals = {}
+            for rn in rep_names:
+                if isinstance(avg_auroc.get(det_name), dict):
+                    vals[rn] = avg_auroc[det_name].get(rn)
+                else:
+                    vals[rn] = None
+
+            # Find best
+            best_val = -1
+            for v in vals.values():
+                if v is not None and v > best_val:
+                    best_val = v
+
+            row = escape_latex(det_name)
+            for rn in rep_names:
+                v = vals[rn]
+                if v is not None:
+                    s = f"{v:.3f}"
+                    if abs(v - best_val) < 1e-4:
+                        s = f"\\textbf{{{s}}}"
+                    row += f" & {s}"
+                else:
+                    row += " & ---"
+            lines.append(row + r" \\")
+
+        if len(all_data) > 1:
+            lines.append(r"\midrule")
+
+    # Remove trailing midrule
+    if lines[-1] == r"\midrule":
+        lines.pop()
+
+    lines += [
+        r"\bottomrule",
+        r"\end{tabular}}",
+        r"\end{table}",
+    ]
+
+    (output_dir / "representation_comparison.tex").write_text("\n".join(lines))
+    print(f"Generated {output_dir / 'representation_comparison.tex'}")
+
+
+def generate_per_attack_auroc_table(experiments: list, output_dir: Path):
+    """Per-attack AUROC for best detector per representation."""
+    all_data = {}
+    for exp in experiments:
+        data = load_comparison_json(exp)
+        if data:
+            all_data[exp] = data
+
+    if not all_data:
+        return
+
+    sample = next(iter(all_data.values()))
+    det_names = sample.get('detectors', ['Mahalanobis'])
+    rep_names = sample.get('representations', [])
+
+    short_reps = {'penultimate': 'Penult.', 'all_layer': 'AllLayer',
+                  'knowledge_matrix': 'KnowMat'}
+
+    n_reps = len(rep_names)
+    col_spec = "l|" + "c" * n_reps
+
+    for exp_name, data in all_data.items():
+        arch = exp_name.split("_")[0].capitalize()
+        per_attack = data.get('per_attack', {})
+        attack_order = [a for a in ATTACKS if a in per_attack]
+
+        lines = [
+            r"\begin{table}[t]",
+            r"\centering",
+            f"\\caption{{Per-attack AUROC for {arch} (best detector per representation). "
+            r"Bold indicates the best representation per attack.}",
+            f"\\label{{tab:per_attack_auroc_{exp_name}}}",
+            f"\\begin{{tabular}}{{{col_spec}}}",
+            r"\toprule",
+        ]
+
+        header = "Attack"
+        for rn in rep_names:
+            header += f" & {short_reps.get(rn, rn)}"
+        lines.append(header + r" \\")
+        lines.append(r"\midrule")
+
+        avg_by_rep = {rn: [] for rn in rep_names}
+
+        for atk in attack_order:
+            atk_data = per_attack[atk]
+            # Best detector per representation
+            vals = {}
+            for rn in rep_names:
+                best = -1
+                for dn in det_names:
+                    if dn in atk_data and rn in atk_data[dn]:
+                        auroc = atk_data[dn][rn].get('auroc', 0)
+                        if auroc > best:
+                            best = auroc
+                vals[rn] = best if best >= 0 else None
+                if vals[rn] is not None:
+                    avg_by_rep[rn].append(vals[rn])
+
+            best_val = max((v for v in vals.values() if v is not None), default=-1)
+            row = escape_latex(atk)
+            for rn in rep_names:
+                v = vals[rn]
+                if v is not None:
+                    s = f"{v:.3f}"
+                    if abs(v - best_val) < 1e-4:
+                        s = f"\\textbf{{{s}}}"
+                    row += f" & {s}"
+                else:
+                    row += " & ---"
+            lines.append(row + r" \\")
+
+        # Average row
+        lines.append(r"\midrule")
+        row = "Average"
+        best_avg = max((np.mean(v) for v in avg_by_rep.values() if v), default=-1)
+        for rn in rep_names:
+            if avg_by_rep[rn]:
+                avg = np.mean(avg_by_rep[rn])
+                s = f"{avg:.3f}"
+                if abs(avg - best_avg) < 1e-4:
+                    s = f"\\textbf{{{s}}}"
+                row += f" & {s}"
+            else:
+                row += " & ---"
+        lines.append(row + r" \\")
+
+        lines += [
+            r"\bottomrule",
+            r"\end{tabular}",
+            r"\end{table}",
+        ]
+
+        fname = f"per_attack_auroc_{exp_name}.tex"
+        (output_dir / fname).write_text("\n".join(lines))
+        print(f"Generated {output_dir / fname}")
+
+
+def generate_cost_table(experiments: list, output_dir: Path):
+    """Computational cost comparison table."""
+    rows = []
+    for exp in experiments:
+        data = load_comparison_json(exp)
+        if not data or 'computational_cost' not in data:
+            continue
+        arch = exp.split("_")[0].capitalize()
+        dataset = exp.split("_", 1)[1].upper().replace("_", "-")
+        cost = data['computational_cost']
+        for rn in data.get('representations', []):
+            if rn in cost:
+                rows.append({
+                    'Architecture': arch,
+                    'Dataset': dataset,
+                    'Representation': {'penultimate': 'Penultimate',
+                                       'all_layer': 'All-Layer',
+                                       'knowledge_matrix': 'Knowledge Matrix'}.get(rn, rn),
+                    'Dim': cost[rn].get('feature_dim', '---'),
+                    'Time': cost[rn].get('seconds_per_1000', np.nan),
+                    'Memory': cost[rn].get('peak_gpu_memory_gb', np.nan),
+                })
+
+    if not rows:
+        print("No computational cost data found.")
+        return
+
+    lines = [
+        r"\begin{table}[t]",
+        r"\centering",
+        r"\caption{Computational cost of representation extraction. "
+        r"Time is seconds per 1000 samples; memory is peak GPU allocation in GB.}",
+        r"\label{tab:cost}",
+        r"\begin{tabular}{ll|lrcc}",
+        r"\toprule",
+        r"Architecture & Dataset & Representation & Dim & s/1000 & GPU (GB) \\",
+        r"\midrule",
+    ]
+
+    for row in rows:
+        t = f"{row['Time']:.1f}" if not np.isnan(row['Time']) else "---"
+        m = f"{row['Memory']:.2f}" if not np.isnan(row['Memory']) else "---"
+        lines.append(
+            f"{row['Architecture']} & {row['Dataset']} & "
+            f"{row['Representation']} & {row['Dim']} & {t} & {m} \\\\"
+        )
+
+    lines += [
+        r"\bottomrule",
+        r"\end{tabular}",
+        r"\end{table}",
+    ]
+
+    (output_dir / "cost_comparison.tex").write_text("\n".join(lines))
+    print(f"Generated {output_dir / 'cost_comparison.tex'}")
+
+
+def generate_svd_ablation_table(experiments: list, output_dir: Path):
+    """SVD rank ablation table: rank vs AUROC per representation."""
+    all_ablation = {}
+    for exp in experiments:
+        data = load_comparison_json(exp)
+        if data and 'svd_ablation' in data:
+            all_ablation[exp] = data['svd_ablation']
+
+    if not all_ablation:
+        print("No SVD ablation data found.")
+        return
+
+    # Get rep names from first experiment
+    sample_data = load_comparison_json(next(iter(all_ablation)))
+    rep_names = sample_data.get('representations', [])
+    short_reps = {'penultimate': 'Penult.', 'all_layer': 'AllLayer',
+                  'knowledge_matrix': 'KnowMat'}
+
+    n_reps = len(rep_names)
+    col_spec = "r|" + "c" * n_reps
+
+    for exp_name, ablation in all_ablation.items():
+        arch = exp_name.split("_")[0].capitalize()
+        ranks = sorted(ablation.keys(), key=lambda x: int(x))
+
+        lines = [
+            r"\begin{table}[t]",
+            r"\centering",
+            f"\\caption{{SVD rank ablation for {arch} (Mahalanobis detector, mean AUROC). "
+            r"Shows how dimensionality reduction affects detection per representation.}",
+            f"\\label{{tab:svd_ablation_{exp_name}}}",
+            f"\\begin{{tabular}}{{{col_spec}}}",
+            r"\toprule",
+        ]
+
+        header = "Rank"
+        for rn in rep_names:
+            header += f" & {short_reps.get(rn, rn)}"
+        lines.append(header + r" \\")
+        lines.append(r"\midrule")
+
+        for rank in ranks:
+            row = str(rank)
+            rank_data = ablation[rank]
+            best_val = -1
+            for rn in rep_names:
+                if rn in rank_data and rank_data[rn].get('mean_auroc') is not None:
+                    if rank_data[rn]['mean_auroc'] > best_val:
+                        best_val = rank_data[rn]['mean_auroc']
+
+            for rn in rep_names:
+                if rn in rank_data and rank_data[rn].get('mean_auroc') is not None:
+                    v = rank_data[rn]['mean_auroc']
+                    s = f"{v:.3f}"
+                    if abs(v - best_val) < 1e-4:
+                        s = f"\\textbf{{{s}}}"
+                    row += f" & {s}"
+                else:
+                    row += " & ---"
+            lines.append(row + r" \\")
+
+        lines += [
+            r"\bottomrule",
+            r"\end{tabular}",
+            r"\end{table}",
+        ]
+
+        fname = f"svd_ablation_{exp_name}.tex"
+        (output_dir / fname).write_text("\n".join(lines))
+        print(f"Generated {output_dir / fname}")
+
+
 def main():
     args = parse_args()
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Filter to experiments that actually have results
+    # --- Original tables (from grid_search results) ---
     available = [exp for exp in args.experiments
                  if Path(f"experiments/{exp}/grid_search/grid_search.txt").exists()]
     if not available:
         print("No grid search results found for any experiment.")
         print(f"Looked in: {args.experiments}")
-        print("Generating method comparison table (static content)...")
-        generate_method_comparison_table(output_dir)
-        return
+    else:
+        print(f"Found grid search results for: {available}")
+        generate_main_comparison_table(available, output_dir)
+        generate_per_attack_table(available, output_dir)
+        generate_full_attack_table(available, output_dir)
 
-    print(f"Found results for: {available}")
-    generate_main_comparison_table(available, output_dir)
-    generate_per_attack_table(available, output_dir)
     generate_method_comparison_table(output_dir)
-    generate_full_attack_table(available, output_dir)
+
+    # --- New AUROC-based tables (from compare_representations.py) ---
+    comparison_available = [exp for exp in args.experiments
+                           if Path(f"experiments/{exp}/comparison/representation_comparison.json").exists()]
+    if comparison_available:
+        print(f"\nFound representation comparison results for: {comparison_available}")
+        generate_representation_comparison_table(comparison_available, output_dir)
+        generate_per_attack_auroc_table(comparison_available, output_dir)
+        generate_cost_table(comparison_available, output_dir)
+        generate_svd_ablation_table(comparison_available, output_dir)
+    else:
+        print("No representation comparison results found (run compare_representations.py first).")
+
     print(f"\nAll tables written to {output_dir}/")
 
 

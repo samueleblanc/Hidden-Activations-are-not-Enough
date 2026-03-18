@@ -5,7 +5,8 @@ Runs before the main pipeline to:
 1. Train the model for 2 epochs with random weights → measure training time/memory
 2. Binary-search for the optimal batch_size achieving ~93% GPU utilization
 3. Time matrix computation on ~50 samples → estimate total pipeline duration
-4. Save everything to experiments/{experiment}/calibration.json
+4. Time adversarial attacks on 10 samples → estimate Step C duration
+5. Save everything to experiments/{experiment}/calibration.json
 
 If calibration.json already exists, exits immediately.
 
@@ -42,7 +43,6 @@ def parse_args():
     parser.add_argument("--total_chunks", type=int, default=8)
     parser.add_argument("--num_samples_per_class", type=int, default=100)
     parser.add_argument("--samples_per_attack", type=int, default=500)
-    parser.add_argument("--num_samples_rejection_level", type=int, default=10000)
     parser.add_argument("--force", action="store_true", help="Force re-calibration even if calibration.json exists")
     return parser.parse_args()
 
@@ -196,6 +196,71 @@ def time_matrix_computation(model, dataset_tensor, batch_size, device, n_samples
     return avg
 
 
+def calibrate_adversarial_attacks(model, test_data, test_labels, weights_path,
+                                  architecture_index, input_shape, num_classes,
+                                  temp_dir, n_timing_samples=10):
+    """
+    Time each adversarial attack on a small sample and extrapolate total runtime.
+    Returns (total_time_seconds, per_attack_times_dict).
+    """
+    from generate_adversarial_examples import apply_attack
+    from pathlib import Path
+    import tempfile
+
+    total_test = len(test_data)
+    attack_list = ["test"] + list(ATTACKS)
+    per_attack_seconds = {}
+
+    # Use a temporary path for attack outputs (we only care about timing)
+    timing_dir = Path(temp_dir or tempfile.gettempdir()) / "calibration_attacks"
+
+    # Take a small subset for timing
+    n = min(n_timing_samples, total_test)
+    timing_data = test_data[:n]
+    timing_labels = test_labels[:n]
+
+    print(f"  Timing {len(attack_list)} attacks on {n} samples...", flush=True)
+
+    for attack_name in attack_list:
+        # Use a fresh directory for each attack so apply_attack doesn't skip
+        atk_dir = timing_dir / f"timing_{attack_name}"
+        atk_dir.mkdir(parents=True, exist_ok=True)
+        # Remove any prior timing artifacts
+        save_path = atk_dir / f"{attack_name}/adversarial_examples.pth"
+        if save_path.exists():
+            save_path.unlink()
+
+        start = time.time()
+        try:
+            apply_attack(
+                attack_name=attack_name,
+                data=timing_data,
+                labels=timing_labels,
+                weights_path=weights_path,
+                architecture_index=architecture_index,
+                path_adv_examples=atk_dir,
+                input_shape=input_shape,
+                num_classes=num_classes,
+                batch_size=8,
+            )
+        except Exception as e:
+            print(f"    {attack_name}: FAILED ({e})", flush=True)
+            per_attack_seconds[attack_name] = 0.0
+            continue
+        elapsed = time.time() - start
+
+        # Extrapolate to full test set
+        estimated = (elapsed / n) * total_test
+        per_attack_seconds[attack_name] = round(estimated, 2)
+        print(f"    {attack_name}: {elapsed:.1f}s / {n} samples -> {estimated:.0f}s estimated", flush=True)
+
+    total_time = sum(per_attack_seconds.values())
+    print(f"  Total estimated adversarial time: {total_time:.0f}s "
+          f"({total_time/3600:.1f}h)", flush=True)
+
+    return total_time, per_attack_seconds
+
+
 def main():
     args = parse_args()
     experiment = args.experiment_name
@@ -291,13 +356,41 @@ def main():
         model, sample_data, batch_size, device, args.timing_samples
     )
 
-    # --- Step 4: Estimate pipeline durations ---
-    print("\n--- Step 4: Estimating pipeline durations ---", flush=True)
+    # --- Step 4: Calibrate adversarial attack timing ---
+    print("\n--- Step 4: Adversarial attack timing ---", flush=True)
+
+    # Load test dataset for attack timing
+    _, test_set = get_dataset(
+        data_set=dataset_name,
+        data_loader=False,
+        data_path=args.temp_dir
+    )
+    test_data_subset, test_labels_subset = subset(
+        test_set, min(len(test_set), 10000), input_shape
+    )
+    # Find weights path (random weights are fine — timing depends on architecture)
+    weights_path = os.path.join(calib_dir, "weights")
+
+    adv_total_time, per_attack_seconds = calibrate_adversarial_attacks(
+        model=model,
+        test_data=test_data_subset,
+        test_labels=test_labels_subset,
+        weights_path=weights_path,
+        architecture_index=architecture_index,
+        input_shape=input_shape,
+        num_classes=num_classes,
+        temp_dir=args.temp_dir,
+        n_timing_samples=10,
+    )
+
+    # --- Step 5: Estimate pipeline durations ---
+    print("\n--- Step 5: Estimating pipeline durations ---", flush=True)
 
     num_attacks = len(ATTACKS) + 1  # +1 for "test"
-    time_padding = 1.15      # +15% for A, B, D
+    time_padding = 1.15      # +15% for A, B
     time_padding_adv = 3.0   # 3× for F (adversarial examples are much slower)
     mem_padding = 1.20       # +20%
+    adv_grace_seconds = 1800  # 30 min grace for Step C
 
     # Training: extrapolate from 2 epochs
     est_train_time = (train_time / 2) * total_epochs * time_padding
@@ -307,9 +400,9 @@ def main():
     est_B_per_chunk = avg_time * num_classes * args.num_samples_per_class / args.total_chunks * time_padding
     est_B_mem = int(peak_matrix_mem * mem_padding)
 
-    # Step D: rejection level per chunk
-    est_D_per_chunk = avg_time * args.num_samples_rejection_level / args.total_chunks * time_padding
-    est_D_mem = int(peak_matrix_mem * mem_padding)
+    # Step C: adversarial examples (calibrated from attack timing)
+    est_C_time = adv_total_time * time_padding + adv_grace_seconds
+    est_C_mem = int(train_peak_mem * mem_padding)  # model + dataset, same GPU task type
 
     # Step F: adversarial matrices per chunk
     est_F_per_chunk = avg_time * num_attacks * args.samples_per_attack / args.total_chunks * time_padding_adv
@@ -328,11 +421,12 @@ def main():
             "time_seconds": est_B_per_chunk,
             "mem_bytes": est_B_mem,
         },
-        "D": {
-            "time": seconds_to_slurm_time(est_D_per_chunk),
-            "mem": bytes_to_slurm_mem(est_D_mem),
-            "time_seconds": est_D_per_chunk,
-            "mem_bytes": est_D_mem,
+        "C": {
+            "time": seconds_to_slurm_time(est_C_time),
+            "mem": bytes_to_slurm_mem(est_C_mem),
+            "time_seconds": est_C_time,
+            "mem_bytes": est_C_mem,
+            "per_attack_seconds": per_attack_seconds,
         },
         "F": {
             "time": seconds_to_slurm_time(est_F_per_chunk),
@@ -342,9 +436,9 @@ def main():
         },
     }
 
-    print(f"\n  Step A (Training):      time={slurm_resources['A']['time']}, mem={slurm_resources['A']['mem']}", flush=True)
+    print(f"\n  Step A (Training):       time={slurm_resources['A']['time']}, mem={slurm_resources['A']['mem']}", flush=True)
     print(f"  Step B (Matrices/chunk): time={slurm_resources['B']['time']}, mem={slurm_resources['B']['mem']}", flush=True)
-    print(f"  Step D (RejLevel/chunk): time={slurm_resources['D']['time']}, mem={slurm_resources['D']['mem']}", flush=True)
+    print(f"  Step C (AdvExamples):    time={slurm_resources['C']['time']}, mem={slurm_resources['C']['mem']}", flush=True)
     print(f"  Step F (AdvMats/chunk):  time={slurm_resources['F']['time']}, mem={slurm_resources['F']['mem']}", flush=True)
 
     # --- Save calibration.json ---
@@ -366,7 +460,6 @@ def main():
             "total_chunks": args.total_chunks,
             "num_samples_per_class": args.num_samples_per_class,
             "samples_per_attack": args.samples_per_attack,
-            "num_samples_rejection_level": args.num_samples_rejection_level,
         },
         "input_shape": list(input_shape),
         "total_positions": input_shape[0] * input_shape[1] * input_shape[2],
