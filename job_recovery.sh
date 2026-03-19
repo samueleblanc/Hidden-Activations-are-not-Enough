@@ -67,8 +67,7 @@ JOB_B_IDS=""
 JOB_C=""
 JOB_D_IDS=""
 JOB_E=""
-JOB_F_IDS=""
-JOB_G=""
+JOB_F=""
 ALL_JOBS=""
 
 # ==============================================================
@@ -218,150 +217,19 @@ STEPC_EOF
 fi
 
 # ==============================================================
-# Step D: Rejection level matrices (per chunk)
+# Step D: Adversarial matrices (per chunk, depends on C)
 # ==============================================================
 if [ "$RECOVER_STEP_D" = "true" ]; then
     for CHUNK in $RECOVER_STEP_D_CHUNKS; do
         cat > "$RECOVERY_DIR/step_D_chunk_${CHUNK}.sh" << STEPD_EOF
 #!/bin/bash
 #SBATCH --account=$ACCOUNT
-#SBATCH --gres=gpu:1
-#SBATCH --cpus-per-task=16
-#SBATCH --time=09:00:00
-#SBATCH --mem=180G
-#SBATCH --output=slurm_out/REC_D_rej_lev_${CHUNK}_%A.out
-#SBATCH --error=slurm_err/REC_D_rej_lev_${CHUNK}_%A.err
-
-mkdir -p \$SLURM_SUBMIT_DIR/slurm_out
-mkdir -p \$SLURM_SUBMIT_DIR/slurm_err
-
-module load StdEnv/2023 python/3.11.5 scipy-stack/2025a
-source env_rorqual/bin/activate
-
-EXPERIMENT="$EXPERIMENT"
-TASK_ID=$CHUNK
-ZIP_OUTPUT_FILE="matrices_task_\$TASK_ID.zip"
-
-mkdir -p \$SLURM_TMPDIR/experiments/\$EXPERIMENT/weights/
-cp \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/weights/* \$SLURM_TMPDIR/experiments/\$EXPERIMENT/weights/
-
-mkdir -p \$SLURM_TMPDIR/data/cifar-10-batches-py/
-cp -r data/cifar-10-batches-py/* \$SLURM_TMPDIR/data/cifar-10-batches-py/ 2>/dev/null || true
-mkdir -p \$SLURM_TMPDIR/data/cifar-100-python/
-cp -r data/cifar-100-python/* \$SLURM_TMPDIR/data/cifar-100-python/ 2>/dev/null || true
-
-mkdir -p \$SLURM_TMPDIR/experiments/\$EXPERIMENT/rejection_levels/
-
-EXPERIMENT_DATA_TRAIN="\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/rejection_levels/exp_dataset_train.pth"
-EXPERIMENT_DATA_LABELS="\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/rejection_levels/exp_dataset_labels.pth"
-if [ -f "\$EXPERIMENT_DATA_TRAIN" ]; then
-    cp "\$EXPERIMENT_DATA_TRAIN" "\$SLURM_TMPDIR/experiments/\$EXPERIMENT/rejection_levels/"
-fi
-if [ -f "\$EXPERIMENT_DATA_LABELS" ]; then
-    cp "\$EXPERIMENT_DATA_LABELS" "\$SLURM_TMPDIR/experiments/\$EXPERIMENT/rejection_levels/"
-fi
-
-ZIP_FILE="\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/rejection_levels/\$ZIP_OUTPUT_FILE"
-if [ -f "\$ZIP_FILE" ]; then
-    cp "\$ZIP_FILE" "\$SLURM_TMPDIR/experiments/\$EXPERIMENT/rejection_levels/"
-    cd "\$SLURM_TMPDIR/experiments/\$EXPERIMENT/rejection_levels/"
-    unzip -o "\$ZIP_OUTPUT_FILE"
-    cd -
-fi
-
-timeout 8h python compute_matrices_for_rejection_level.py \
-    --experiment_name \$EXPERIMENT \
-    --temp_dir \$SLURM_TMPDIR \
-    --batch_size $BATCH_SIZE \
-    --chunk_id \$TASK_ID \
-    --total_chunks $TOTAL_CHUNKS
-
-MATRICES_DIR="\$SLURM_TMPDIR/experiments/\$EXPERIMENT/rejection_levels/matrices"
-ZIP_OUTPUT_DIR="\$SLURM_TMPDIR/experiments/\$EXPERIMENT/rejection_levels"
-
-if [ -d "\$MATRICES_DIR" ]; then
-    cd "\$ZIP_OUTPUT_DIR"
-    zip -r "\$ZIP_OUTPUT_FILE" matrices || { echo "Zip failed"; exit 1; }
-
-    cd \$SLURM_SUBMIT_DIR
-    python -m utils.data_integrity --verify-zip "\$ZIP_OUTPUT_DIR/\$ZIP_OUTPUT_FILE" || { echo "Zip verification failed"; exit 1; }
-fi
-
-DEST_DIR="\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/rejection_levels/"
-mkdir -p "\$DEST_DIR"
-if [ -f "\$ZIP_OUTPUT_DIR/\$ZIP_OUTPUT_FILE" ]; then
-    cp "\$ZIP_OUTPUT_DIR/\$ZIP_OUTPUT_FILE" "\$DEST_DIR" || { echo "Failed to copy zip"; exit 1; }
-fi
-echo "Step D chunk $CHUNK complete."
-STEPD_EOF
-
-        DEP=""
-        if [ -n "$JOB_A" ]; then
-            DEP="$JOB_A"
-        fi
-        JOB_ID=$(submit_job "$RECOVERY_DIR/step_D_chunk_${CHUNK}.sh" "$DEP")
-        JOB_D_IDS="${JOB_D_IDS:+$JOB_D_IDS:}$JOB_ID"
-        ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}$JOB_ID"
-        echo "[Step D] Rejection level chunk $CHUNK submitted: Job $JOB_ID (depends on: ${DEP:-none})"
-    done
-fi
-
-# ==============================================================
-# Step E: Matrix statistics (depends on all B jobs)
-# ==============================================================
-if [ "$RECOVER_STEP_E" = "true" ]; then
-    cat > "$RECOVERY_DIR/step_E.sh" << STEPE_EOF
-#!/bin/bash
-#SBATCH --account=$ACCOUNT
-#SBATCH --cpus-per-task=2
-#SBATCH --time=01:00:00
-#SBATCH --mem-per-cpu=8G
-#SBATCH --output=slurm_out/REC_E_mat_stats_%A.out
-#SBATCH --error=slurm_err/REC_E_mat_stats_%A.err
-
-mkdir -p \$SLURM_SUBMIT_DIR/slurm_out
-mkdir -p \$SLURM_SUBMIT_DIR/slurm_err
-
-module load StdEnv/2023 python/3.11.5 scipy-stack/2025a
-source env_rorqual/bin/activate
-
-EXPERIMENT="$EXPERIMENT"
-
-mkdir -p \$SLURM_TMPDIR/experiments/\$EXPERIMENT/matrices/
-
-for i in \$(seq 0 $(( TOTAL_CHUNKS - 1 ))); do
-    cp experiments/\$EXPERIMENT/matrices_task_\$i.zip \$SLURM_TMPDIR/experiments/\$EXPERIMENT/
-    unzip "\$SLURM_TMPDIR/experiments/\$EXPERIMENT/matrices_task_\$i.zip" -d "\$SLURM_TMPDIR/experiments/\$EXPERIMENT/"
-done
-
-echo "Matrices unzipped. Computing statistics..."
-python compute_matrix_statistics.py --experiment_name \$EXPERIMENT --temp_dir \$SLURM_TMPDIR
-echo "Step E (matrix statistics) complete."
-STEPE_EOF
-
-    DEP=""
-    if [ -n "$JOB_B_IDS" ]; then
-        DEP="$JOB_B_IDS"
-    fi
-    JOB_E=$(submit_job "$RECOVERY_DIR/step_E.sh" "$DEP")
-    ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}$JOB_E"
-    echo "[Step E] Matrix statistics submitted: Job $JOB_E (depends on: ${DEP:-none})"
-fi
-
-# ==============================================================
-# Step F: Adversarial matrices (per chunk, depends on C)
-# ==============================================================
-if [ "$RECOVER_STEP_F" = "true" ]; then
-    for CHUNK in $RECOVER_STEP_F_CHUNKS; do
-        cat > "$RECOVERY_DIR/step_F_chunk_${CHUNK}.sh" << STEPF_EOF
-#!/bin/bash
-#SBATCH --account=$ACCOUNT
 #SBATCH --gpus=h100:1
 #SBATCH --cpus-per-task=12
 #SBATCH --time=12:00:00
 #SBATCH --mem=280G
-#SBATCH --output=slurm_out/REC_F_adv_mats_${CHUNK}_%A.out
-#SBATCH --error=slurm_err/REC_F_adv_mats_${CHUNK}_%A.err
+#SBATCH --output=slurm_out/REC_D_adv_mats_${CHUNK}_%A.out
+#SBATCH --error=slurm_err/REC_D_adv_mats_${CHUNK}_%A.err
 
 mkdir -p \$SLURM_SUBMIT_DIR/slurm_out
 mkdir -p \$SLURM_SUBMIT_DIR/slurm_err
@@ -393,90 +261,125 @@ cd \$SLURM_SUBMIT_DIR
 python -m utils.data_integrity --verify-zip \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adv_matrices_task_\$TASK_ID.zip || { echo "Zip verification failed"; exit 1; }
 
 cp \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adv_matrices_task_\$TASK_ID.zip \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/ || { echo "Failed to copy zip"; exit 1; }
-echo "Step F chunk $CHUNK complete."
-STEPF_EOF
+echo "Step D chunk $CHUNK complete."
+STEPD_EOF
 
         DEP=""
         if [ -n "$JOB_C" ]; then
             DEP="$JOB_C"
         fi
-        JOB_ID=$(submit_job "$RECOVERY_DIR/step_F_chunk_${CHUNK}.sh" "$DEP")
-        JOB_F_IDS="${JOB_F_IDS:+$JOB_F_IDS:}$JOB_ID"
+        JOB_ID=$(submit_job "$RECOVERY_DIR/step_D_chunk_${CHUNK}.sh" "$DEP")
+        JOB_D_IDS="${JOB_D_IDS:+$JOB_D_IDS:}$JOB_ID"
         ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}$JOB_ID"
-        echo "[Step F] Adversarial matrices chunk $CHUNK submitted: Job $JOB_ID (depends on: ${DEP:-none})"
+        echo "[Step D] Adversarial matrices chunk $CHUNK submitted: Job $JOB_ID (depends on: ${DEP:-none})"
     done
 fi
 
 # ==============================================================
-# Step G: Grid search (depends on E + all F + all D)
+# Step E: Representation Comparison (depends on A + all B + C + all D)
 # ==============================================================
-if [ "$RECOVER_STEP_G" = "true" ]; then
-    cat > "$RECOVERY_DIR/step_G.sh" << STEPG_EOF
+if [ "$RECOVER_STEP_E" = "true" ]; then
+    cat > "$RECOVERY_DIR/step_E.sh" << STEPE_EOF
 #!/bin/bash
 #SBATCH --account=$ACCOUNT
-#SBATCH --cpus-per-task=64
-#SBATCH --time=48:00:00
-#SBATCH --mem-per-cpu=42G
-#SBATCH --output=slurm_out/REC_G_grid_search_%A.out
-#SBATCH --error=slurm_err/REC_G_grid_search_%A.err
+#SBATCH --gpus=h100:1
+#SBATCH --cpus-per-task=8
+#SBATCH --time=08:00:00
+#SBATCH --mem=64G
+#SBATCH --output=slurm_out/REC_E_rep_comp_%A.out
+#SBATCH --error=slurm_err/REC_E_rep_comp_%A.err
 
 mkdir -p \$SLURM_SUBMIT_DIR/slurm_out
 mkdir -p \$SLURM_SUBMIT_DIR/slurm_err
 
 module load StdEnv/2023 python/3.11.5 scipy-stack/2025a
 source env_rorqual/bin/activate
-export OMP_NUM_THREADS=\$SLURM_CPUS_PER_TASK
 
 EXPERIMENT="$EXPERIMENT"
-
-mkdir -p \$SLURM_TMPDIR/experiments/\$EXPERIMENT/weights/
-cp experiments/\$EXPERIMENT/weights/* \$SLURM_TMPDIR/experiments/\$EXPERIMENT/weights/
 
 mkdir -p \$SLURM_TMPDIR/data/cifar-10-batches-py/
 cp -r data/cifar-10-batches-py/* \$SLURM_TMPDIR/data/cifar-10-batches-py/ 2>/dev/null || true
 mkdir -p \$SLURM_TMPDIR/data/cifar-100-python/
 cp -r data/cifar-100-python/* \$SLURM_TMPDIR/data/cifar-100-python/ 2>/dev/null || true
 
-mkdir -p \$SLURM_TMPDIR/experiments/\$EXPERIMENT/matrices/
-cp experiments/\$EXPERIMENT/matrices/matrix_statistics.json \$SLURM_TMPDIR/experiments/\$EXPERIMENT/matrices/
+mkdir -p \$SLURM_TMPDIR/experiments/\$EXPERIMENT/weights/
+cp experiments/\$EXPERIMENT/weights/* \$SLURM_TMPDIR/experiments/\$EXPERIMENT/weights/
 
-mkdir -p \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adversarial_matrices/
+mkdir -p \$SLURM_TMPDIR/experiments/\$EXPERIMENT/matrices/
 for i in \$(seq 0 $(( TOTAL_CHUNKS - 1 ))); do
-    cp experiments/\$EXPERIMENT/adv_matrices_task_\$i.zip \$SLURM_TMPDIR/experiments/\$EXPERIMENT/
-    unzip \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adv_matrices_task_\$i.zip -d \$SLURM_TMPDIR/experiments/\$EXPERIMENT/
+    if [ -f "experiments/\$EXPERIMENT/matrices_task_\$i.zip" ]; then
+        cp experiments/\$EXPERIMENT/matrices_task_\$i.zip \$SLURM_TMPDIR/experiments/\$EXPERIMENT/
+        unzip -o \$SLURM_TMPDIR/experiments/\$EXPERIMENT/matrices_task_\$i.zip -d \$SLURM_TMPDIR/experiments/\$EXPERIMENT/
+    fi
 done
 
 mkdir -p \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adversarial_examples/
-cp -r experiments/\$EXPERIMENT/adversarial_examples/* \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adversarial_examples/
+cp -r experiments/\$EXPERIMENT/adversarial_examples/* \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adversarial_examples/ 2>/dev/null || true
 
-mkdir -p \$SLURM_TMPDIR/experiments/\$EXPERIMENT/rejection_levels/matrices/
-cp -r experiments/\$EXPERIMENT/rejection_levels/* \$SLURM_TMPDIR/experiments/\$EXPERIMENT/rejection_levels/
-
+mkdir -p \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adversarial_matrices/
 for i in \$(seq 0 $(( TOTAL_CHUNKS - 1 ))); do
-    if [ -f "\$SLURM_TMPDIR/experiments/\$EXPERIMENT/rejection_levels/matrices_task_\$i.zip" ]; then
-        unzip \$SLURM_TMPDIR/experiments/\$EXPERIMENT/rejection_levels/matrices_task_\$i.zip -d \$SLURM_TMPDIR/experiments/\$EXPERIMENT/rejection_levels/
+    if [ -f "experiments/\$EXPERIMENT/adv_matrices_task_\$i.zip" ]; then
+        cp experiments/\$EXPERIMENT/adv_matrices_task_\$i.zip \$SLURM_TMPDIR/experiments/\$EXPERIMENT/
+        unzip -o \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adv_matrices_task_\$i.zip -d \$SLURM_TMPDIR/experiments/\$EXPERIMENT/
     fi
 done
 
-echo "All data ready. Starting grid search..."
-python grid_search.py --nb_workers \$SLURM_CPUS_PER_TASK --experiment_name \$EXPERIMENT --temp_dir \$SLURM_TMPDIR --rej_lev 0
-echo "Step G (grid search) complete."
-STEPG_EOF
+echo "All data ready. Starting representation comparison..."
+python compare_representations.py --experiment \$EXPERIMENT --temp_dir \$SLURM_TMPDIR --svd_ablation
 
-    # Build dependency: E + all F + all D
-    G_DEPS=""
-    if [ -n "$JOB_E" ]; then
-        G_DEPS="$JOB_E"
+mkdir -p \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/comparison/
+cp -r \$SLURM_TMPDIR/experiments/\$EXPERIMENT/comparison/* \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/comparison/ 2>/dev/null || true
+echo "Step E (representation comparison) complete."
+STEPE_EOF
+
+    # Build dependency: A + all B + C + all D
+    E_DEPS=""
+    if [ -n "$JOB_A" ]; then
+        E_DEPS="$JOB_A"
     fi
-    if [ -n "$JOB_F_IDS" ]; then
-        G_DEPS="${G_DEPS:+$G_DEPS:}$JOB_F_IDS"
+    if [ -n "$JOB_B_IDS" ]; then
+        E_DEPS="${E_DEPS:+$E_DEPS:}$JOB_B_IDS"
+    fi
+    if [ -n "$JOB_C" ]; then
+        E_DEPS="${E_DEPS:+$E_DEPS:}$JOB_C"
     fi
     if [ -n "$JOB_D_IDS" ]; then
-        G_DEPS="${G_DEPS:+$G_DEPS:}$JOB_D_IDS"
+        E_DEPS="${E_DEPS:+$E_DEPS:}$JOB_D_IDS"
     fi
-    JOB_G=$(submit_job "$RECOVERY_DIR/step_G.sh" "$G_DEPS")
-    ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}$JOB_G"
-    echo "[Step G] Grid search submitted: Job $JOB_G (depends on: ${G_DEPS:-none})"
+    JOB_E=$(submit_job "$RECOVERY_DIR/step_E.sh" "$E_DEPS")
+    ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}$JOB_E"
+    echo "[Step E] Rep. comparison submitted: Job $JOB_E (depends on: ${E_DEPS:-none})"
+fi
+
+# ==============================================================
+# Step F: LaTeX Tables (depends on E)
+# ==============================================================
+if [ "$RECOVER_STEP_F" = "true" ]; then
+    cat > "$RECOVERY_DIR/step_F.sh" << STEPF_EOF
+#!/bin/bash
+#SBATCH --account=$ACCOUNT
+#SBATCH --cpus-per-task=2
+#SBATCH --time=00:15:00
+#SBATCH --mem=4G
+#SBATCH --output=slurm_out/REC_F_latex_%A.out
+#SBATCH --error=slurm_err/REC_F_latex_%A.err
+
+mkdir -p \$SLURM_SUBMIT_DIR/slurm_out
+mkdir -p \$SLURM_SUBMIT_DIR/slurm_err
+
+module load StdEnv/2023 python/3.11.5 scipy-stack/2025a
+source env_rorqual/bin/activate
+
+cd \$SLURM_SUBMIT_DIR
+mkdir -p tables
+python generate_latex_tables.py --output tables/
+echo "Step F (LaTeX tables) complete."
+STEPF_EOF
+
+    F_DEPS="${JOB_E:-}"
+    JOB_F=$(submit_job "$RECOVERY_DIR/step_F.sh" "$F_DEPS")
+    ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}$JOB_F"
+    echo "[Step F] LaTeX tables submitted: Job $JOB_F (depends on: ${F_DEPS:-none})"
 fi
 
 # ==============================================================
@@ -560,13 +463,10 @@ if [ -n "$JOB_B_IDS" ]; then
 fi
 [ -n "$JOB_C" ]     && echo "    Step C (Adv examples):        $JOB_C"
 if [ -n "$JOB_D_IDS" ]; then
-    echo "    Step D (Rejection levels):    ${JOB_D_IDS//:/, }"
+    echo "    Step D (Adv matrices):        ${JOB_D_IDS//:/, }"
 fi
-[ -n "$JOB_E" ]     && echo "    Step E (Matrix statistics):   $JOB_E"
-if [ -n "$JOB_F_IDS" ]; then
-    echo "    Step F (Adv matrices):        ${JOB_F_IDS//:/, }"
-fi
-[ -n "$JOB_G" ]     && echo "    Step G (Grid search):         $JOB_G"
+[ -n "$JOB_E" ]     && echo "    Step E (Rep. comparison):     $JOB_E"
+[ -n "$JOB_F" ]     && echo "    Step F (LaTeX tables):        $JOB_F"
 echo "    Final Audit:                  $FINAL_AUDIT_JOB"
 echo ""
 echo "  Monitor with: squeue -u \$USER"

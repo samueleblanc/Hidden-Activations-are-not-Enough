@@ -10,8 +10,7 @@ import re
 # ── Step metadata ─────────────────────────────────────────────────────────
 
 STEP_ORDER = [
-    "CALIB", "PREAUDIT", "A", "B", "C", "D", "E", "F", "Ga", "GaMerge", "Gb", "H",
-    "G",  # backward compat for old logs
+    "CALIB", "PREAUDIT", "A", "B", "C", "D", "E", "F",
     "AUDIT", "DISPATCH", "ERRSCAN",
 ]
 
@@ -21,14 +20,9 @@ STEP_LABELS = {
     "A": "Training",
     "B": "Matrices",
     "C": "Adv Examples",
-    "D": "Rejection Levels",
-    "E": "Matrix Stats",
-    "F": "Adv Matrices",
-    "Ga": "KM Grid Search",
-    "GaMerge": "KM Grid Merge",
-    "Gb": "Baselines",
-    "H": "LaTeX Tables",
-    "G": "Grid Search",       # backward compat
+    "D": "Adv Matrices",
+    "E": "Rep. Comparison",
+    "F": "LaTeX Tables",
     "AUDIT": "Final Audit",
     "DISPATCH": "Dispatcher",
     "ERRSCAN": "Error Scan",
@@ -36,21 +30,16 @@ STEP_LABELS = {
 
 # Labels with step letter prefix (used by pipeline_report.py)
 STEP_LABELS_PREFIXED = {
-    k: (f"{k} ({v})" if len(k) <= 2 and k not in ("G",) else v)
+    k: (f"{k} ({v})" if len(k) <= 2 else v)
     for k, v in STEP_LABELS.items()
 }
 # Override specific ones for clearer display
 STEP_LABELS_PREFIXED["A"] = "A (Training)"
 STEP_LABELS_PREFIXED["B"] = "B (Matrices)"
 STEP_LABELS_PREFIXED["C"] = "C (Adv Examples)"
-STEP_LABELS_PREFIXED["D"] = "D (Rejection Levels)"
-STEP_LABELS_PREFIXED["E"] = "E (Matrix Stats)"
-STEP_LABELS_PREFIXED["F"] = "F (Adv Matrices)"
-STEP_LABELS_PREFIXED["G"] = "G (Grid Search)"
-STEP_LABELS_PREFIXED["Ga"] = "Ga (KM Grid Search)"
-STEP_LABELS_PREFIXED["GaMerge"] = "Ga (KM Grid Merge)"
-STEP_LABELS_PREFIXED["Gb"] = "Gb (Baselines)"
-STEP_LABELS_PREFIXED["H"] = "H (LaTeX Tables)"
+STEP_LABELS_PREFIXED["D"] = "D (Adv Matrices)"
+STEP_LABELS_PREFIXED["E"] = "E (Rep. Comparison)"
+STEP_LABELS_PREFIXED["F"] = "F (LaTeX Tables)"
 
 
 # ── Error patterns ────────────────────────────────────────────────────────
@@ -93,9 +82,9 @@ ERROR_CATEGORIES = ["slurm", "code", "data", "environment", "unknown"]
 # ── Log filename pattern ──────────────────────────────────────────────────
 
 # Matches both regular and array job log filenames.
-# Regular:   PIPE_Ga_alexnet_cifar10_12345.out
+# Regular:   PIPE_E_alexnet_cifar10_12345.out
 # Chunked:   PIPE_B_alexnet_cifar10_c3_12345.out
-# Array job:  PIPE_Ga_alexnet_cifar10_12345_3.out
+# Array job:  PIPE_D_alexnet_cifar10_12345_3.out
 # Groups: (1)prefix (2)step (3)experiment (4)chunk_or_None (5)job_id (6)array_task_or_None (7)ext
 LOG_PATTERN = re.compile(
     r'^(PIPE|REC)_([A-Za-z]+)_(.+?)(?:_c(\d+))?_(\d+)(?:_(\d+))?\.(out|err)$'

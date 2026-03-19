@@ -44,7 +44,7 @@ PRIORITY_3=(
 ALL_EXPERIMENTS=("${PRIORITY_1[@]}" "${PRIORITY_2[@]}")
 
 # =============================================================================
-# STEP 1: Run full pipelines (A→G) for each experiment
+# STEP 1: Run full pipelines (A→F) for each experiment
 # =============================================================================
 if [ "$COMPARE_ONLY" = false ]; then
     echo "=============================================="
@@ -67,7 +67,7 @@ if [ "$COMPARE_ONLY" = false ]; then
 fi
 
 # =============================================================================
-# STEP 2: Run representation comparison (Step H)
+# STEP 2: Run representation comparison (Step E)
 # =============================================================================
 if [ "$COMPARE_ONLY" = true ]; then
     echo "=============================================="

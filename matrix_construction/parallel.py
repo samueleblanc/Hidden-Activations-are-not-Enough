@@ -176,7 +176,7 @@ class ParallelMatrixConstruction:
                     del matrix_computer
                     torch.cuda.empty_cache()
                     matrix_computer = KnowledgeMatrixComputer(self._model, batch_size=new_bs, device=self.device)
-            os.makedirs(root)
+            os.makedirs(root, exist_ok=True)
             torch.save(matrix, matrix_path)
             del matrix
             torch.cuda.empty_cache()

@@ -7,8 +7,8 @@
 # multiple experiments.
 #
 # Pipeline: Calibration -> A(Train) -> B(Matrices),C(AdvExamples)
-#           -> F(AdvMatrices) -> Gc(RepComparison)
-#           -> H(LaTeXTables)
+#           -> D(AdvMatrices) -> E(RepComparison)
+#           -> F(LaTeXTables)
 #
 # Usage:
 #   bash run_experiment.sh
@@ -36,7 +36,7 @@ MODULES="StdEnv/2023 python/3.11.5 scipy-stack/2025a"
 SLURM_OUT_DIR="slurm_out"
 SLURM_ERR_DIR="slurm_err"
 # --- Incremental save settings ---
-SAVE_INTERVAL=1000          # Incremental save every N new matrices
+SAVE_INTERVAL=200           # Incremental save every N new matrices
 SAVE_CHECK_SECONDS=60       # How often background process checks
 SAVE_GRACE_SECONDS=180      # Seconds before wall time to trigger emergency save
 
@@ -56,20 +56,20 @@ C_GPU="--gres=gpu:1"
 C_CPUS=16
 C_TIME="12:00:00"
 C_MEM="124G"
-# Step F
-F_GPU="--gpus=h100:1"
-F_CPUS=12
-F_TIME="12:00:00"
-F_MEM="280G"
-# Step Gc (Representation Comparison - GPU)
-GC_GPU="--gpus=h100:1"
-GC_CPUS=8
-GC_TIME="08:00:00"
-GC_MEM="64G"
-# Step H (LaTeX Tables - CPU-only, lightweight)
-H_CPUS=2
-H_TIME="00:15:00"
-H_MEM="4G"
+# Step D (Adv Matrices)
+D_GPU="--gpus=h100:1"
+D_CPUS=12
+D_TIME="12:00:00"
+D_MEM="280G"
+# Step E (Representation Comparison - GPU)
+E_GPU="--gpus=h100:1"
+E_CPUS=8
+E_TIME="08:00:00"
+E_MEM="64G"
+# Step F (LaTeX Tables - CPU-only, lightweight)
+F_CPUS=2
+F_TIME="00:15:00"
+F_MEM="4G"
 # Audit
 AUDIT_CPUS=4
 AUDIT_TIME="02:00:00"
@@ -110,17 +110,17 @@ if [ "$TEST_MODE" = "true" ]; then
     C_CPUS=4
     C_TIME="00:30:00"
     C_MEM="32G"
-    F_GPU="--gpus=h100:1"
-    F_CPUS=4
-    F_TIME="00:30:00"
-    F_MEM="32G"
-    GC_GPU="--gpus=h100:1"
-    GC_CPUS=4
-    GC_TIME="01:00:00"
-    GC_MEM="16G"
-    H_CPUS=2
-    H_TIME="00:10:00"
-    H_MEM="2G"
+    D_GPU="--gpus=h100:1"
+    D_CPUS=4
+    D_TIME="00:30:00"
+    D_MEM="32G"
+    E_GPU="--gpus=h100:1"
+    E_CPUS=4
+    E_TIME="01:00:00"
+    E_MEM="16G"
+    F_CPUS=2
+    F_TIME="00:10:00"
+    F_MEM="2G"
     AUDIT_CPUS=2
     AUDIT_TIME="00:30:00"
     AUDIT_MEM="16G"
@@ -129,6 +129,12 @@ fi
 # --- Resolve per-type accounts (default to ACCOUNT) ---
 GPU_ACCOUNT="${GPU_ACCOUNT:-$ACCOUNT}"
 CPU_ACCOUNT="${CPU_ACCOUNT:-$ACCOUNT}"
+
+# --- Load environment (needed for pre-flight Python calls) ---
+module load $MODULES 2>/dev/null || true
+if [ -d "$ENV_NAME" ]; then
+    source $ENV_NAME/bin/activate
+fi
 
 # ==============================================================
 # Pre-flight checks
@@ -390,7 +396,7 @@ read_checkpoint_status() {
 }
 
 submit_full_pipeline() {
-    # Submits the full A->G pipeline for a single experiment.
+    # Submits the full A->F pipeline for a single experiment.
     # Used by both --skip-audit and the dispatcher.
     local EXP="$1"
     local DEP_PREFIX="$2"  # optional dependency (e.g., audit job)
@@ -401,7 +407,7 @@ submit_full_pipeline() {
     COPY_DATA=$(get_dataset_copy_commands "$DATASET")
 
     # Track job IDs
-    local JOB_A="" JOB_B_IDS="" JOB_C="" JOB_F_IDS="" JOB_GC="" JOB_H=""
+    local JOB_A="" JOB_B_IDS="" JOB_C="" JOB_D_IDS="" JOB_E="" JOB_F=""
 
     # Checkpoint support: compute experiment metadata
     local EPOCH NUM_CLASSES B_CHUNK_TOTAL NUM_ATTACKS
@@ -514,7 +520,7 @@ LAST_SAVED_COUNT=0
 incremental_save() {
     while true; do
         sleep $SAVE_CHECK_SECONDS
-        CURRENT=\$(find "\$TEMP_DIR/experiments/\$EXPERIMENT/matrices" -name "matrix.pth" 2>/dev/null | wc -l)
+        CURRENT=\$(find "\$TEMP_DIR/experiments/\$EXPERIMENT/matrices" -name "matrix.pt" 2>/dev/null | wc -l)
         if [ "\$CURRENT" -ge \$((LAST_SAVED_COUNT + $SAVE_INTERVAL)) ]; then
             echo "[INCREMENTAL] \$CURRENT matrices (\$((CURRENT - LAST_SAVED_COUNT)) new). Saving..."
             sleep 2
@@ -543,7 +549,7 @@ emergency_save() {
     zip -rq "matrices_task_\$TASK_ID.zip" matrices 2>/dev/null || true
     cp "matrices_task_\$TASK_ID.zip" "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/matrices_task_\$TASK_ID.zip.tmp" 2>/dev/null && \
     mv "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/matrices_task_\$TASK_ID.zip.tmp" "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/matrices_task_\$TASK_ID.zip" 2>/dev/null || true
-    COMPLETED=\$(find "\$TEMP_DIR/experiments/\$EXPERIMENT/matrices" -name "matrix.pth" 2>/dev/null | wc -l)
+    COMPLETED=\$(find "\$TEMP_DIR/experiments/\$EXPERIMENT/matrices" -name "matrix.pt" 2>/dev/null | wc -l)
     printf '{"status":"partial","completed":%d,"total":%d,"timestamp":"%s"}\n' \
         "\$COMPLETED" "$B_CHUNK_TOTAL" "\$(date -Iseconds)" > "\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints/step_B_chunk_${CHUNK}.json"
     echo "[EMERGENCY] Saved \$COMPLETED matrices."
@@ -569,7 +575,7 @@ echo "Step B chunk $CHUNK complete for $EXP."
 # Write checkpoint
 CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints"
 mkdir -p "\$CKPT_DIR"
-COMPLETED=\$(find "\$SLURM_TMPDIR/experiments/$EXP/matrices" -name "matrix.pth" 2>/dev/null | wc -l)
+COMPLETED=\$(find "\$SLURM_TMPDIR/experiments/$EXP/matrices" -name "matrix.pt" 2>/dev/null | wc -l)
 TOTAL=$B_CHUNK_TOTAL
 STATUS="complete"
 [ "\$COMPLETED" -lt "\$TOTAL" ] && STATUS="partial"
@@ -643,21 +649,21 @@ STEPC_EOF
     fi
 
     # ==========================================================
-    # Step F: Adversarial matrices (per chunk, depends on C)
+    # Step D: Adversarial matrices (per chunk, depends on C)
     # ==========================================================
-    local F_BASE=$((SAMPLES_PER_ATTACK / TOTAL_CHUNKS))
-    local F_REM=$((SAMPLES_PER_ATTACK % TOTAL_CHUNKS))
+    local D_BASE=$((SAMPLES_PER_ATTACK / TOTAL_CHUNKS))
+    local D_REM=$((SAMPLES_PER_ATTACK % TOTAL_CHUNKS))
     for CHUNK in $(seq 0 $((TOTAL_CHUNKS - 1))); do
-        if [ "$CHUNK" -lt "$F_REM" ]; then F_CHUNK_TOTAL=$((NUM_ATTACKS * (F_BASE + 1))); else F_CHUNK_TOTAL=$((NUM_ATTACKS * F_BASE)); fi
-        cat > "$JOB_DIR/step_F_chunk_${CHUNK}.sh" << STEPF_EOF
+        if [ "$CHUNK" -lt "$D_REM" ]; then D_CHUNK_TOTAL=$((NUM_ATTACKS * (D_BASE + 1))); else D_CHUNK_TOTAL=$((NUM_ATTACKS * D_BASE)); fi
+        cat > "$JOB_DIR/step_D_chunk_${CHUNK}.sh" << STEPD_EOF
 #!/bin/bash
 #SBATCH --account=$GPU_ACCOUNT
-#SBATCH $F_GPU
-#SBATCH --cpus-per-task=$F_CPUS
-#SBATCH --time=$F_TIME
-#SBATCH --mem=$F_MEM
-#SBATCH --output=$SLURM_OUT_DIR/PIPE_F_${EXP}_c${CHUNK}_%A.out
-#SBATCH --error=$SLURM_ERR_DIR/PIPE_F_${EXP}_c${CHUNK}_%A.err
+#SBATCH $D_GPU
+#SBATCH --cpus-per-task=$D_CPUS
+#SBATCH --time=$D_TIME
+#SBATCH --mem=$D_MEM
+#SBATCH --output=$SLURM_OUT_DIR/PIPE_D_${EXP}_c${CHUNK}_%A.out
+#SBATCH --error=$SLURM_ERR_DIR/PIPE_D_${EXP}_c${CHUNK}_%A.err
 #SBATCH --signal=B:USR1@$SAVE_GRACE_SECONDS
 
 mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
@@ -691,7 +697,7 @@ fi
 
 # GPU monitoring
 mkdir -p \$SLURM_SUBMIT_DIR/gpu-monitor/
-GPU_LOGFILE="\$SLURM_SUBMIT_DIR/gpu-monitor/\$EXPERIMENT.F.\$TASK_ID.log"
+GPU_LOGFILE="\$SLURM_SUBMIT_DIR/gpu-monitor/\$EXPERIMENT.D.\$TASK_ID.log"
 monitor_gpu() {
   echo "Timestamp, GPU Util (%), Mem Used (MiB), Mem Total (MiB)" > "\$GPU_LOGFILE"
   while true; do
@@ -718,7 +724,7 @@ incremental_save() {
             mv "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adv_matrices_task_\$TASK_ID.zip.tmp" "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adv_matrices_task_\$TASK_ID.zip" 2>/dev/null || \
             { echo "[INCREMENTAL] copy failed"; cd -; continue; }
             printf '{"status":"partial","completed":%d,"total":%d,"timestamp":"%s"}\n' \
-                "\$CURRENT" "$F_CHUNK_TOTAL" "\$(date -Iseconds)" > "\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints/step_F_chunk_${CHUNK}.json"
+                "\$CURRENT" "$D_CHUNK_TOTAL" "\$(date -Iseconds)" > "\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints/step_D_chunk_${CHUNK}.json"
             LAST_SAVED_COUNT=\$CURRENT
             echo "[INCREMENTAL] Done."
             cd - > /dev/null
@@ -739,7 +745,7 @@ emergency_save() {
     mv "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adv_matrices_task_\$TASK_ID.zip.tmp" "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adv_matrices_task_\$TASK_ID.zip" 2>/dev/null || true
     COMPLETED=\$(find "\$SLURM_TMPDIR/experiments/\$EXPERIMENT/adversarial_matrices" -name "matrix.pth" 2>/dev/null | wc -l)
     printf '{"status":"partial","completed":%d,"total":%d,"timestamp":"%s"}\n' \
-        "\$COMPLETED" "$F_CHUNK_TOTAL" "\$(date -Iseconds)" > "\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints/step_F_chunk_${CHUNK}.json"
+        "\$COMPLETED" "$D_CHUNK_TOTAL" "\$(date -Iseconds)" > "\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints/step_D_chunk_${CHUNK}.json"
     echo "[EMERGENCY] Saved \$COMPLETED matrices."
     kill 0 2>/dev/null; exit 0
 }
@@ -764,45 +770,45 @@ cd \$SLURM_SUBMIT_DIR
 python -m utils.data_integrity --verify-zip \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adv_matrices_task_\$TASK_ID.zip || { echo "Zip verification failed"; exit 1; }
 
 cp \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adv_matrices_task_\$TASK_ID.zip \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/ || { echo "Copy failed"; exit 1; }
-echo "Step F chunk $CHUNK complete for $EXP."
+echo "Step D chunk $CHUNK complete for $EXP."
 
 # Write checkpoint
 CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints"
 mkdir -p "\$CKPT_DIR"
 COMPLETED=\$(find "\$SLURM_TMPDIR/experiments/$EXP/adversarial_matrices" -name "matrix.pth" 2>/dev/null | wc -l)
-TOTAL=$F_CHUNK_TOTAL
+TOTAL=$D_CHUNK_TOTAL
 STATUS="complete"
 [ "\$COMPLETED" -lt "\$TOTAL" ] && STATUS="partial"
-printf '{"status":"%s","completed":%d,"total":%d,"timestamp":"%s"}\n' "\$STATUS" "\$COMPLETED" "\$TOTAL" "\$(date -Iseconds)" > "\$CKPT_DIR/step_F_chunk_${CHUNK}.json"
-STEPF_EOF
+printf '{"status":"%s","completed":%d,"total":%d,"timestamp":"%s"}\n' "\$STATUS" "\$COMPLETED" "\$TOTAL" "\$(date -Iseconds)" > "\$CKPT_DIR/step_D_chunk_${CHUNK}.json"
+STEPD_EOF
 
-        CKPT_F="$CKPT_BASE/step_F_chunk_${CHUNK}.json"
-        F_STATUS=$(read_checkpoint_status "$CKPT_F")
-        if [ "$F_STATUS" = "complete" ]; then
-            echo "  [F] Adv matrices chunk $CHUNK: SKIPPED (complete)"
+        CKPT_D="$CKPT_BASE/step_D_chunk_${CHUNK}.json"
+        D_STATUS=$(read_checkpoint_status "$CKPT_D")
+        if [ "$D_STATUS" = "complete" ]; then
+            echo "  [D] Adv matrices chunk $CHUNK: SKIPPED (complete)"
             continue
         fi
-        if [ "$F_STATUS" = "partial" ]; then
-            REMAINING=$(python3 -c "import json; c=json.load(open('$CKPT_F')); print(c['total']-c['completed'])")
-            echo "  [F] Adv matrices chunk $CHUNK: RESUMING ($REMAINING remaining)"
+        if [ "$D_STATUS" = "partial" ]; then
+            REMAINING=$(python3 -c "import json; c=json.load(open('$CKPT_D')); print(c['total']-c['completed'])")
+            echo "  [D] Adv matrices chunk $CHUNK: RESUMING ($REMAINING remaining)"
         fi
-        JOB_ID=$(submit_job "$JOB_DIR/step_F_chunk_${CHUNK}.sh" "${JOB_C:-}")
-        JOB_F_IDS="${JOB_F_IDS:+$JOB_F_IDS:}$JOB_ID"
-        echo "  [F] Adv matrices chunk $CHUNK: $JOB_ID"
+        JOB_ID=$(submit_job "$JOB_DIR/step_D_chunk_${CHUNK}.sh" "${JOB_C:-}")
+        JOB_D_IDS="${JOB_D_IDS:+$JOB_D_IDS:}$JOB_ID"
+        echo "  [D] Adv matrices chunk $CHUNK: $JOB_ID"
     done
 
     # ==========================================================
-    # Step Gc: Representation Comparison (depends on B + all F)
+    # Step E: Representation Comparison (depends on B + all D)
     # ==========================================================
-    cat > "$JOB_DIR/step_Gc.sh" << STEPGC_EOF
+    cat > "$JOB_DIR/step_E.sh" << STEPE_EOF
 #!/bin/bash
 #SBATCH --account=$GPU_ACCOUNT
-#SBATCH $GC_GPU
-#SBATCH --cpus-per-task=$GC_CPUS
-#SBATCH --time=$GC_TIME
-#SBATCH --mem=$GC_MEM
-#SBATCH --output=$SLURM_OUT_DIR/PIPE_Gc_${EXP}_%A.out
-#SBATCH --error=$SLURM_ERR_DIR/PIPE_Gc_${EXP}_%A.err
+#SBATCH $E_GPU
+#SBATCH --cpus-per-task=$E_CPUS
+#SBATCH --time=$E_TIME
+#SBATCH --mem=$E_MEM
+#SBATCH --output=$SLURM_OUT_DIR/PIPE_E_${EXP}_%A.out
+#SBATCH --error=$SLURM_ERR_DIR/PIPE_E_${EXP}_%A.err
 
 mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
 module load $MODULES
@@ -829,12 +835,12 @@ done
 mkdir -p \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adversarial_examples/
 cp -r \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adversarial_examples/* \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adversarial_examples/ 2>/dev/null || true
 
-# Unzip adversarial matrices (all F chunks)
+# Unzip adversarial matrices (all D chunks)
 mkdir -p \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adversarial_matrices/
 for i in \$(seq 0 $((TOTAL_CHUNKS - 1))); do
     if [ -f "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adv_matrices_task_\$i.zip" ]; then
         cp \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adv_matrices_task_\$i.zip \$SLURM_TMPDIR/experiments/\$EXPERIMENT/
-        unzip -o \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adv_matrices_task_\$i.zip -d \$SLURM_TMPDIR/experiments/\$EXPERIMENT/
+        unzip -o \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adv_matrices_task_\$i.zip -d \$SLURM_TMPDIR/experiments/\$EXPERIMENT/
     fi
 done
 
@@ -844,41 +850,41 @@ python compare_representations.py --experiment \$EXPERIMENT --temp_dir \$SLURM_T
 # Copy results back
 mkdir -p \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/comparison/
 cp -r \$SLURM_TMPDIR/experiments/\$EXPERIMENT/comparison/* \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/comparison/ 2>/dev/null || true
-echo "Step Gc (representation comparison) complete for $EXP."
+echo "Step E (representation comparison) complete for $EXP."
 
 # Write checkpoint
 CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints"
 mkdir -p "\$CKPT_DIR"
-printf '{"status":"complete","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_Gc.json"
-STEPGC_EOF
+printf '{"status":"complete","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_E.json"
+STEPE_EOF
 
-    # --- Submit Gc ---
-    CKPT_GC="$CKPT_BASE/step_Gc.json"
-    if [ "$(read_checkpoint_status "$CKPT_GC")" = "complete" ]; then
-        echo "  [Gc] Rep. comparison:    SKIPPED (complete)"
-        JOB_GC=""
+    # --- Submit E ---
+    CKPT_E="$CKPT_BASE/step_E.json"
+    if [ "$(read_checkpoint_status "$CKPT_E")" = "complete" ]; then
+        echo "  [E] Rep. comparison:     SKIPPED (complete)"
+        JOB_E=""
     else
-        # Gc depends on A + all B + C + all F (same as Gb)
-        local GC_DEPS="${JOB_A:-}"
-        [ -n "${JOB_B_IDS:-}" ] && GC_DEPS="${GC_DEPS:+$GC_DEPS:}$JOB_B_IDS"
-        [ -n "${JOB_C:-}" ] && GC_DEPS="${GC_DEPS:+$GC_DEPS:}$JOB_C"
-        [ -n "${JOB_F_IDS:-}" ] && GC_DEPS="${GC_DEPS:+$GC_DEPS:}$JOB_F_IDS"
+        # E depends on A + all B + C + all D
+        local E_DEPS="${JOB_A:-}"
+        [ -n "${JOB_B_IDS:-}" ] && E_DEPS="${E_DEPS:+$E_DEPS:}$JOB_B_IDS"
+        [ -n "${JOB_C:-}" ] && E_DEPS="${E_DEPS:+$E_DEPS:}$JOB_C"
+        [ -n "${JOB_D_IDS:-}" ] && E_DEPS="${E_DEPS:+$E_DEPS:}$JOB_D_IDS"
 
-        JOB_GC=$(submit_job "$JOB_DIR/step_Gc.sh" "$GC_DEPS")
-        echo "  [Gc] Rep. comparison:    $JOB_GC"
+        JOB_E=$(submit_job "$JOB_DIR/step_E.sh" "$E_DEPS")
+        echo "  [E] Rep. comparison:     $JOB_E"
     fi
 
     # ==========================================================
-    # Step H: LaTeX Tables (depends on Gc)
+    # Step F: LaTeX Tables (depends on E)
     # ==========================================================
-    cat > "$JOB_DIR/step_H.sh" << STEPH_EOF
+    cat > "$JOB_DIR/step_F.sh" << STEPF_EOF
 #!/bin/bash
 #SBATCH --account=$CPU_ACCOUNT
-#SBATCH --cpus-per-task=$H_CPUS
-#SBATCH --time=$H_TIME
-#SBATCH --mem=$H_MEM
-#SBATCH --output=$SLURM_OUT_DIR/PIPE_H_${EXP}_%A.out
-#SBATCH --error=$SLURM_ERR_DIR/PIPE_H_${EXP}_%A.err
+#SBATCH --cpus-per-task=$F_CPUS
+#SBATCH --time=$F_TIME
+#SBATCH --mem=$F_MEM
+#SBATCH --output=$SLURM_OUT_DIR/PIPE_F_${EXP}_%A.out
+#SBATCH --error=$SLURM_ERR_DIR/PIPE_F_${EXP}_%A.err
 
 mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
 module load $MODULES
@@ -887,24 +893,24 @@ source $ENV_NAME/bin/activate
 cd \$SLURM_SUBMIT_DIR
 mkdir -p tables
 python generate_latex_tables.py --output tables/
-echo "Step H (LaTeX tables) complete for $EXP."
+echo "Step F (LaTeX tables) complete for $EXP."
 
 # Write checkpoint
 CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints"
 mkdir -p "\$CKPT_DIR"
-printf '{"status":"complete","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_H.json"
-STEPH_EOF
+printf '{"status":"complete","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_F.json"
+STEPF_EOF
 
-    # --- Submit H ---
-    CKPT_H="$CKPT_BASE/step_H.json"
-    if [ "$(read_checkpoint_status "$CKPT_H")" = "complete" ]; then
-        echo "  [H] LaTeX tables:        SKIPPED (complete)"
-        JOB_H=""
+    # --- Submit F ---
+    CKPT_F="$CKPT_BASE/step_F.json"
+    if [ "$(read_checkpoint_status "$CKPT_F")" = "complete" ]; then
+        echo "  [F] LaTeX tables:        SKIPPED (complete)"
+        JOB_F=""
     else
-        # H depends on Gc
-        local H_DEPS="${JOB_GC:-}"
-        JOB_H=$(submit_job "$JOB_DIR/step_H.sh" "$H_DEPS")
-        echo "  [H] LaTeX tables:        $JOB_H"
+        # F depends on E
+        local F_DEPS="${JOB_E:-}"
+        JOB_F=$(submit_job "$JOB_DIR/step_F.sh" "$F_DEPS")
+        echo "  [F] LaTeX tables:        $JOB_F"
     fi
 
     # ==========================================================
@@ -972,16 +978,16 @@ FINALAUDIT_EOF
     [ -n "${JOB_A:-}" ] && ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}${JOB_A}"
     [ -n "${JOB_B_IDS:-}" ] && ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}${JOB_B_IDS}"
     [ -n "${JOB_C:-}" ] && ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}${JOB_C}"
-    [ -n "${JOB_F_IDS:-}" ] && ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}${JOB_F_IDS}"
-    [ -n "${JOB_GC:-}" ] && ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}${JOB_GC}"
-    [ -n "${JOB_H:-}" ] && ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}${JOB_H}"
+    [ -n "${JOB_D_IDS:-}" ] && ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}${JOB_D_IDS}"
+    [ -n "${JOB_E:-}" ] && ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}${JOB_E}"
+    [ -n "${JOB_F:-}" ] && ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}${JOB_F}"
 
     if [ -z "$ALL_JOBS" ]; then
         echo "  [*] Pipeline complete — no jobs submitted."
     else
-        # Final audit depends on Gc and H
-        local FINAL_DEPS="${JOB_GC:-}"
-        [ -n "${JOB_H:-}" ] && FINAL_DEPS="${FINAL_DEPS:+$FINAL_DEPS:}${JOB_H}"
+        # Final audit depends on E and F
+        local FINAL_DEPS="${JOB_E:-}"
+        [ -n "${JOB_F:-}" ] && FINAL_DEPS="${FINAL_DEPS:+$FINAL_DEPS:}${JOB_F}"
         local FINAL_AUDIT_JOB
         FINAL_AUDIT_JOB=$(submit_job "$JOB_DIR/final_audit.sh" "$FINAL_DEPS")
         echo "  [*] Final audit:         $FINAL_AUDIT_JOB"
@@ -1117,19 +1123,19 @@ CALIB_EOF
         B_MEM=$(python3 -c "import json; print(json.load(open('$CALIB_FILE'))['slurm_resources']['B']['mem'])")
         C_TIME=$(python3 -c "import json; print(json.load(open('$CALIB_FILE'))['slurm_resources']['C']['time'])")
         C_MEM=$(python3 -c "import json; print(json.load(open('$CALIB_FILE'))['slurm_resources']['C']['mem'])")
-        F_TIME=$(python3 -c "import json; print(json.load(open('$CALIB_FILE'))['slurm_resources']['F']['time'])")
-        F_MEM=$(python3 -c "import json; print(json.load(open('$CALIB_FILE'))['slurm_resources']['F']['mem'])")
+        D_TIME=$(python3 -c "import json; d=json.load(open('$CALIB_FILE'))['slurm_resources']; print(d.get('D', d.get('F', {})).get('time', '$D_TIME'))")
+        D_MEM=$(python3 -c "import json; d=json.load(open('$CALIB_FILE'))['slurm_resources']; print(d.get('D', d.get('F', {})).get('mem', '$D_MEM'))")
         BATCH_SIZE=$(python3 -c "import json; print(json.load(open('$CALIB_FILE'))['batch_size'])")
         echo "    A: time=$A_TIME mem=$A_MEM"
         echo "    B: time=$B_TIME mem=$B_MEM  batch_size=$BATCH_SIZE"
         echo "    C: time=$C_TIME mem=$C_MEM"
-        echo "    F: time=$F_TIME mem=$F_MEM"
+        echo "    D: time=$D_TIME mem=$D_MEM"
 
         # Enforce per-step minimum floors on calibrated times
         A_TIME=$(enforce_min_time "$A_TIME" "01:00:00")   # 1h floor for training
         B_TIME=$(enforce_min_time "$B_TIME" "02:00:00")   # 2h floor for matrices
         C_TIME=$(enforce_min_time "$C_TIME" "08:00:00")   # 8h floor for adv examples
-        F_TIME=$(enforce_min_time "$F_TIME" "04:00:00")   # 4h floor for adv matrices
+        D_TIME=$(enforce_min_time "$D_TIME" "04:00:00")   # 4h floor for adv matrices
     fi
 
     if [ "$SKIP_AUDIT" = "true" ]; then
@@ -1242,12 +1248,12 @@ for entry in report["steps"]["adversarial_examples"]:
         fname = os.path.basename(os.path.dirname(entry["path"]))
         reason_c.append(f"adversarial_examples/{fname}: {entry['status']}")
 
-recover_f = False; recover_f_chunks = []; reason_f = []
+recover_d = False; recover_d_chunks = []; reason_d = []
 for i, entry in enumerate(report["steps"]["adv_matrices_zips"]):
     if entry["status"] != "OK":
-        recover_f = True
-        recover_f_chunks.append(str(i))
-        reason_f.append(f"adv_matrices_task_{i}.zip: {entry['status']}")
+        recover_d = True
+        recover_d_chunks.append(str(i))
+        reason_d.append(f"adv_matrices_task_{i}.zip: {entry['status']}")
 
 # --- Propagate dependencies ---
 if recover_a:
@@ -1256,29 +1262,29 @@ if recover_a:
         reason_b.append("Propagated: depends on Step A")
     if not recover_c:
         recover_c = True; reason_c.append("Propagated: depends on Step A")
-if recover_c and not recover_f:
-    recover_f = True; recover_f_chunks = [str(i) for i in range(total_chunks)]
-    reason_f.append("Propagated: depends on Step C")
-# Gc (representation comparison) — recover if comparison JSON missing
+if recover_c and not recover_d:
+    recover_d = True; recover_d_chunks = [str(i) for i in range(total_chunks)]
+    reason_d.append("Propagated: depends on Step C")
+# E (representation comparison) — recover if comparison JSON missing
 comparison_path = os.path.join(experiment_dir, "comparison", "representation_comparison.json")
-recover_gc = not os.path.exists(comparison_path)
-reason_gc = ["comparison/representation_comparison.json missing"] if recover_gc else []
-# Gc depends on A + B + C + F (same as Gb)
-if (recover_a or recover_b or recover_c or recover_f) and not recover_gc:
-    recover_gc = True; deps = []
+recover_e = not os.path.exists(comparison_path)
+reason_e = ["comparison/representation_comparison.json missing"] if recover_e else []
+# E depends on A + B + C + D
+if (recover_a or recover_b or recover_c or recover_d) and not recover_e:
+    recover_e = True; deps = []
     if recover_a: deps.append("A")
     if recover_b: deps.append("B")
     if recover_c: deps.append("C")
-    if recover_f: deps.append("F")
-    reason_gc.append(f"Propagated: depends on {'+'.join(deps)}")
+    if recover_d: deps.append("D")
+    reason_e.append(f"Propagated: depends on {'+'.join(deps)}")
 
-# H depends on Gc
-recover_h = recover_gc
-reason_h = []
-if recover_h:
-    reason_h.append("Propagated: depends on Gc")
+# F depends on E
+recover_f = recover_e
+reason_f = []
+if recover_f:
+    reason_f.append("Propagated: depends on E")
 
-recovery_needed = any([recover_a, recover_b, recover_c, recover_f, recover_gc, recover_h])
+recovery_needed = any([recover_a, recover_b, recover_c, recover_d, recover_e, recover_f])
 
 # --- Write recovery_plan.sh ---
 plan_path = os.path.join(submit_dir, "experiments", experiment, "recovery_plan.sh")
@@ -1302,9 +1308,9 @@ with open(plan_path, "w") as f:
     write_step(f, "A", "Training", recover_a, reason_a)
     write_step(f, "B", "Generate matrices", recover_b, reason_b, recover_b_chunks)
     write_step(f, "C", "Adversarial examples", recover_c, reason_c)
-    write_step(f, "F", "Adversarial matrices", recover_f, reason_f, recover_f_chunks)
-    write_step(f, "Gc", "Rep. Comparison", recover_gc, reason_gc)
-    write_step(f, "H", "LaTeX Tables", recover_h, reason_h)
+    write_step(f, "D", "Adversarial matrices", recover_d, reason_d, recover_d_chunks)
+    write_step(f, "E", "Rep. Comparison", recover_e, reason_e)
+    write_step(f, "F", "LaTeX Tables", recover_f, reason_f)
     f.write(f"RECOVERY_NEEDED={'true' if recovery_needed else 'false'}\n")
 
 print(f"Recovery plan saved to: {plan_path}")
@@ -1358,17 +1364,17 @@ C_GPU="__C_GPU__"
 C_CPUS=__C_CPUS__
 C_TIME="__C_TIME__"
 C_MEM="__C_MEM__"
-F_GPU="__F_GPU__"
+D_GPU="__D_GPU__"
+D_CPUS=__D_CPUS__
+D_TIME="__D_TIME__"
+D_MEM="__D_MEM__"
+E_GPU="__E_GPU__"
+E_CPUS=__E_CPUS__
+E_TIME="__E_TIME__"
+E_MEM="__E_MEM__"
 F_CPUS=__F_CPUS__
 F_TIME="__F_TIME__"
 F_MEM="__F_MEM__"
-GC_GPU="__GC_GPU__"
-GC_CPUS=__GC_CPUS__
-GC_TIME="__GC_TIME__"
-GC_MEM="__GC_MEM__"
-H_CPUS=__H_CPUS__
-H_TIME="__H_TIME__"
-H_MEM="__H_MEM__"
 AUDIT_CPUS=__AUDIT_CPUS__
 AUDIT_TIME="__AUDIT_TIME__"
 AUDIT_MEM="__AUDIT_MEM__"
@@ -1431,7 +1437,7 @@ if [ "$TEST_SIZE" != "-1" ]; then
     C_TEST_SIZE_ARG="--test_size $TEST_SIZE"
 fi
 
-JOB_A="" JOB_B_IDS="" JOB_C="" JOB_F_IDS="" JOB_GC="" JOB_H=""
+JOB_A="" JOB_B_IDS="" JOB_C="" JOB_D_IDS="" JOB_E="" JOB_F=""
 ALL_JOBS=""
 
 # --- Step A ---
@@ -1545,18 +1551,18 @@ EOF_C
     echo "[C] Adv examples: $JOB_C"
 fi
 
-# --- Step F (per chunk, depends on C) ---
-if [ "$RECOVER_STEP_F" = "true" ]; then
-    for CHUNK in $RECOVER_STEP_F_CHUNKS; do
-        cat > "$JOB_DIR/step_F_c${CHUNK}.sh" << EOF_F
+# --- Step D (per chunk, depends on C) ---
+if [ "$RECOVER_STEP_D" = "true" ]; then
+    for CHUNK in $RECOVER_STEP_D_CHUNKS; do
+        cat > "$JOB_DIR/step_D_c${CHUNK}.sh" << EOF_D
 #!/bin/bash
 #SBATCH --account=$GPU_ACCOUNT
-#SBATCH $F_GPU
-#SBATCH --cpus-per-task=$F_CPUS
-#SBATCH --time=$F_TIME
-#SBATCH --mem=$F_MEM
-#SBATCH --output=$SLURM_OUT_DIR/REC_F_${EXPERIMENT}_c${CHUNK}_%A.out
-#SBATCH --error=$SLURM_ERR_DIR/REC_F_${EXPERIMENT}_c${CHUNK}_%A.err
+#SBATCH $D_GPU
+#SBATCH --cpus-per-task=$D_CPUS
+#SBATCH --time=$D_TIME
+#SBATCH --mem=$D_MEM
+#SBATCH --output=$SLURM_OUT_DIR/REC_D_${EXPERIMENT}_c${CHUNK}_%A.out
+#SBATCH --error=$SLURM_ERR_DIR/REC_D_${EXPERIMENT}_c${CHUNK}_%A.err
 mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
 module load $MODULES
 source $ENV_NAME/bin/activate
@@ -1578,7 +1584,7 @@ if [ -f "\$CALIB_FILE" ]; then
     echo "Using calibrated batch_size=\$BATCH_SIZE"
 fi
 mkdir -p \$SLURM_SUBMIT_DIR/gpu-monitor/
-GPU_LOGFILE="\$SLURM_SUBMIT_DIR/gpu-monitor/$EXPERIMENT.F.${CHUNK}.log"
+GPU_LOGFILE="\$SLURM_SUBMIT_DIR/gpu-monitor/$EXPERIMENT.D.${CHUNK}.log"
 monitor_gpu() {
   echo "Timestamp, GPU Util (%), Mem Used (MiB), Mem Total (MiB)" > "\$GPU_LOGFILE"
   while true; do
@@ -1597,27 +1603,27 @@ zip -r adv_matrices_task_${CHUNK}.zip adversarial_matrices/ || { echo "Zip faile
 cd \$SLURM_SUBMIT_DIR
 python -m utils.data_integrity --verify-zip \$SLURM_TMPDIR/experiments/$EXPERIMENT/adv_matrices_task_${CHUNK}.zip || { echo "Verify failed"; exit 1; }
 cp \$SLURM_TMPDIR/experiments/$EXPERIMENT/adv_matrices_task_${CHUNK}.zip \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/
-echo "Step F chunk $CHUNK complete."
-EOF_F
+echo "Step D chunk $CHUNK complete."
+EOF_D
         DEP="${JOB_C:-}"
-        JOB_ID=$(submit_job "$JOB_DIR/step_F_c${CHUNK}.sh" "$DEP")
-        JOB_F_IDS="${JOB_F_IDS:+$JOB_F_IDS:}$JOB_ID"
+        JOB_ID=$(submit_job "$JOB_DIR/step_D_c${CHUNK}.sh" "$DEP")
+        JOB_D_IDS="${JOB_D_IDS:+$JOB_D_IDS:}$JOB_ID"
         ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}$JOB_ID"
-        echo "[F] Adv matrices chunk $CHUNK: $JOB_ID"
+        echo "[D] Adv matrices chunk $CHUNK: $JOB_ID"
     done
 fi
 
-# --- Step Gc (Representation Comparison, depends on A + all B + C + all F) ---
-if [ "${RECOVER_STEP_Gc:-false}" = "true" ]; then
-    cat > "$JOB_DIR/step_Gc.sh" << EOF_Gc
+# --- Step E (Representation Comparison, depends on A + all B + C + all D) ---
+if [ "${RECOVER_STEP_E:-false}" = "true" ]; then
+    cat > "$JOB_DIR/step_E.sh" << EOF_E
 #!/bin/bash
 #SBATCH --account=$GPU_ACCOUNT
-#SBATCH $GC_GPU
-#SBATCH --cpus-per-task=$GC_CPUS
-#SBATCH --time=$GC_TIME
-#SBATCH --mem=$GC_MEM
-#SBATCH --output=$SLURM_OUT_DIR/REC_Gc_${EXPERIMENT}_%A.out
-#SBATCH --error=$SLURM_ERR_DIR/REC_Gc_${EXPERIMENT}_%A.err
+#SBATCH $E_GPU
+#SBATCH --cpus-per-task=$E_CPUS
+#SBATCH --time=$E_TIME
+#SBATCH --mem=$E_MEM
+#SBATCH --output=$SLURM_OUT_DIR/REC_E_${EXPERIMENT}_%A.out
+#SBATCH --error=$SLURM_ERR_DIR/REC_E_${EXPERIMENT}_%A.err
 mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
 module load $MODULES
 source $ENV_NAME/bin/activate
@@ -1644,48 +1650,48 @@ echo "All data ready. Starting representation comparison..."
 python compare_representations.py --experiment $EXPERIMENT --temp_dir \$SLURM_TMPDIR --svd_ablation
 mkdir -p \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/comparison/
 cp -r \$SLURM_TMPDIR/experiments/$EXPERIMENT/comparison/* \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/comparison/ 2>/dev/null || true
-echo "Step Gc complete."
+echo "Step E complete."
 
 CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/checkpoints"
 mkdir -p "\$CKPT_DIR"
-printf '{"status":"complete","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_Gc.json"
-EOF_Gc
-    GC_DEPS=""
-    [ -n "$JOB_A" ] && GC_DEPS="$JOB_A"
-    [ -n "$JOB_B_IDS" ] && GC_DEPS="${GC_DEPS:+$GC_DEPS:}$JOB_B_IDS"
-    [ -n "$JOB_C" ] && GC_DEPS="${GC_DEPS:+$GC_DEPS:}$JOB_C"
-    [ -n "$JOB_F_IDS" ] && GC_DEPS="${GC_DEPS:+$GC_DEPS:}$JOB_F_IDS"
-    JOB_GC=$(submit_job "$JOB_DIR/step_Gc.sh" "$GC_DEPS")
-    ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}$JOB_GC"
-    echo "[Gc] Rep. comparison: $JOB_GC"
+printf '{"status":"complete","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_E.json"
+EOF_E
+    E_DEPS=""
+    [ -n "$JOB_A" ] && E_DEPS="$JOB_A"
+    [ -n "$JOB_B_IDS" ] && E_DEPS="${E_DEPS:+$E_DEPS:}$JOB_B_IDS"
+    [ -n "$JOB_C" ] && E_DEPS="${E_DEPS:+$E_DEPS:}$JOB_C"
+    [ -n "$JOB_D_IDS" ] && E_DEPS="${E_DEPS:+$E_DEPS:}$JOB_D_IDS"
+    JOB_E=$(submit_job "$JOB_DIR/step_E.sh" "$E_DEPS")
+    ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}$JOB_E"
+    echo "[E] Rep. comparison: $JOB_E"
 fi
 
-# --- Step H (LaTeX Tables, depends on Gc) ---
-if [ "$RECOVER_STEP_H" = "true" ]; then
-    cat > "$JOB_DIR/step_H.sh" << EOF_H
+# --- Step F (LaTeX Tables, depends on E) ---
+if [ "$RECOVER_STEP_F" = "true" ]; then
+    cat > "$JOB_DIR/step_F.sh" << EOF_F_LATEX
 #!/bin/bash
 #SBATCH --account=$CPU_ACCOUNT
-#SBATCH --cpus-per-task=$H_CPUS
-#SBATCH --time=$H_TIME
-#SBATCH --mem=$H_MEM
-#SBATCH --output=$SLURM_OUT_DIR/REC_H_${EXPERIMENT}_%A.out
-#SBATCH --error=$SLURM_ERR_DIR/REC_H_${EXPERIMENT}_%A.err
+#SBATCH --cpus-per-task=$F_CPUS
+#SBATCH --time=$F_TIME
+#SBATCH --mem=$F_MEM
+#SBATCH --output=$SLURM_OUT_DIR/REC_F_${EXPERIMENT}_%A.out
+#SBATCH --error=$SLURM_ERR_DIR/REC_F_${EXPERIMENT}_%A.err
 mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
 module load $MODULES
 source $ENV_NAME/bin/activate
 cd \$SLURM_SUBMIT_DIR
 mkdir -p tables
 python generate_latex_tables.py --output tables/
-echo "Step H (LaTeX tables) complete."
+echo "Step F (LaTeX tables) complete."
 
 CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/checkpoints"
 mkdir -p "\$CKPT_DIR"
-printf '{"status":"complete","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_H.json"
-EOF_H
-    H_DEPS="${JOB_GC:-}"
-    JOB_H=$(submit_job "$JOB_DIR/step_H.sh" "$H_DEPS")
-    ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}$JOB_H"
-    echo "[H] LaTeX tables: $JOB_H"
+printf '{"status":"complete","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_F.json"
+EOF_F_LATEX
+    F_DEPS="${JOB_E:-}"
+    JOB_F=$(submit_job "$JOB_DIR/step_F.sh" "$F_DEPS")
+    ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}$JOB_F"
+    echo "[F] LaTeX tables: $JOB_F"
 fi
 
 echo ""
@@ -1749,17 +1755,17 @@ DISPATCH_BODY
         sed -i "s|__C_CPUS__|$C_CPUS|g" "$JOB_DIR/dispatch.sh"
         sed -i "s|__C_TIME__|$C_TIME|g" "$JOB_DIR/dispatch.sh"
         sed -i "s|__C_MEM__|$C_MEM|g" "$JOB_DIR/dispatch.sh"
-        sed -i "s|__F_GPU__|$F_GPU|g" "$JOB_DIR/dispatch.sh"
+        sed -i "s|__D_GPU__|$D_GPU|g" "$JOB_DIR/dispatch.sh"
+        sed -i "s|__D_CPUS__|$D_CPUS|g" "$JOB_DIR/dispatch.sh"
+        sed -i "s|__D_TIME__|$D_TIME|g" "$JOB_DIR/dispatch.sh"
+        sed -i "s|__D_MEM__|$D_MEM|g" "$JOB_DIR/dispatch.sh"
+        sed -i "s|__E_GPU__|$E_GPU|g" "$JOB_DIR/dispatch.sh"
+        sed -i "s|__E_CPUS__|$E_CPUS|g" "$JOB_DIR/dispatch.sh"
+        sed -i "s|__E_TIME__|$E_TIME|g" "$JOB_DIR/dispatch.sh"
+        sed -i "s|__E_MEM__|$E_MEM|g" "$JOB_DIR/dispatch.sh"
         sed -i "s|__F_CPUS__|$F_CPUS|g" "$JOB_DIR/dispatch.sh"
         sed -i "s|__F_TIME__|$F_TIME|g" "$JOB_DIR/dispatch.sh"
         sed -i "s|__F_MEM__|$F_MEM|g" "$JOB_DIR/dispatch.sh"
-        sed -i "s|__GC_GPU__|$GC_GPU|g" "$JOB_DIR/dispatch.sh"
-        sed -i "s|__GC_CPUS__|$GC_CPUS|g" "$JOB_DIR/dispatch.sh"
-        sed -i "s|__GC_TIME__|$GC_TIME|g" "$JOB_DIR/dispatch.sh"
-        sed -i "s|__GC_MEM__|$GC_MEM|g" "$JOB_DIR/dispatch.sh"
-        sed -i "s|__H_CPUS__|$H_CPUS|g" "$JOB_DIR/dispatch.sh"
-        sed -i "s|__H_TIME__|$H_TIME|g" "$JOB_DIR/dispatch.sh"
-        sed -i "s|__H_MEM__|$H_MEM|g" "$JOB_DIR/dispatch.sh"
         sed -i "s|__AUDIT_CPUS__|$AUDIT_CPUS|g" "$JOB_DIR/dispatch.sh"
         sed -i "s|__AUDIT_TIME__|$AUDIT_TIME|g" "$JOB_DIR/dispatch.sh"
         sed -i "s|__AUDIT_MEM__|$AUDIT_MEM|g" "$JOB_DIR/dispatch.sh"

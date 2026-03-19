@@ -235,20 +235,14 @@ class TestLogPattern:
         assert parse_log_filename("random_file.txt") is None
 
     def test_array_job(self):
-        p = parse_log_filename("PIPE_Ga_alexnet_cifar10_12345_3.out")
+        p = parse_log_filename("PIPE_D_alexnet_cifar10_12345_3.out")
         assert p is not None
         assert p["prefix"] == "PIPE"
-        assert p["step"] == "Ga"
+        assert p["step"] == "D"
         assert p["exp"] == "alexnet_cifar10"
         assert p["chunk"] == "3"  # array task ID becomes chunk
         assert p["job_id"] == "12345"
         assert p["ext"] == "out"
-
-    def test_ga_merge(self):
-        p = parse_log_filename("PIPE_GaMerge_alexnet_cifar10_12345.out")
-        assert p is not None
-        assert p["step"] == "GaMerge"
-        assert p["chunk"] is None
 
 
 # ── Metadata consistency ─────────────────────────────────────────────────

@@ -222,7 +222,7 @@ def parse_gpu_logs(experiment, total_chunks):
     gpu_dir = "gpu-monitor"
     results = {}
     patterns = [("Calibration", f"{experiment}.calibration.log")]
-    for step in ["B", "D", "F"]:
+    for step in ["B", "D"]:
         for c in range(total_chunks):
             patterns.append((f"{step}.{c}", f"{experiment}.{step}.{c}.log"))
 
@@ -280,39 +280,17 @@ def generate_recommendations(step_a_ok, integrity_report):
     if bad_c:
         recs.append(f"Re-run Step C -- missing attacks: {', '.join(bad_c)}")
 
-    # Step D
+    # Step D (Adv Matrices)
     bad_d = []
-    for i, e in enumerate(steps.get("rejection_level_zips", [])):
+    for i, e in enumerate(steps.get("adv_matrices_zips", [])):
         if e["status"] != "OK":
             bad_d.append(str(i))
     if bad_d:
         recs.append(f"Re-run Step D chunks [{', '.join(bad_d)}]")
 
-    # Step E
-    mat_stats = steps.get("matrix_statistics", {})
-    if mat_stats.get("status") != "OK":
-        recs.append("Re-run Step E (Matrix Statistics)")
-
-    # Step F
-    bad_f = []
-    for i, e in enumerate(steps.get("adv_matrices_zips", [])):
-        if e["status"] != "OK":
-            bad_f.append(str(i))
-    if bad_f:
-        recs.append(f"Re-run Step F chunks [{', '.join(bad_f)}]")
-
-    # Steps Ga/Gb
-    gs = steps.get("grid_search", {})
-    if gs.get("status") != "OK":
-        recs.append("Re-run Step Ga (KM Grid Search) and/or Step Gb (Baselines)")
-
     # Dependency propagation
-    if bad_b and mat_stats.get("status") == "OK":
-        recs.append("  (propagated) Step E needs re-run due to Step B failure")
-    if bad_c and not bad_f:
-        recs.append("  (propagated) Step F needs re-run due to Step C failure")
-    if (bad_b or bad_d or bad_f) and gs.get("status") == "OK":
-        recs.append("  (propagated) Step Ga needs re-run due to upstream failures")
+    if bad_c and not bad_d:
+        recs.append("  (propagated) Step D needs re-run due to Step C failure")
 
     return recs
 
@@ -420,12 +398,7 @@ def write_report(experiment, test_mode, total_chunks, jobs, sacct_data,
             for e in adv:
                 if e["status"] != "OK":
                     w(f"       MISSING: {os.path.basename(os.path.dirname(e['path']))}")
-        w(f"  [D] Rejection level zips:   {count_status(steps.get('rejection_level_zips', []))}")
-        ms = steps.get("matrix_statistics", {})
-        w(f"  [E] Matrix statistics:      {ms.get('status', 'MISSING')}")
-        w(f"  [F] Adv matrix zips:        {count_status(steps.get('adv_matrices_zips', []))}")
-        gs = steps.get("grid_search", {})
-        w(f"  [G] Grid search:            {gs.get('status', 'MISSING')}")
+        w(f"  [D] Adv matrix zips:        {count_status(steps.get('adv_matrices_zips', []))}")
 
         summary = integrity_report.get("summary", {})
         w(f"\n  Summary: {summary.get('ok',0)} OK, {summary.get('missing',0)} MISSING, {summary.get('corrupt',0)} CORRUPT")

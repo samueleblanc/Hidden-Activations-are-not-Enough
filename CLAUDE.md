@@ -8,23 +8,22 @@ Research implementation of "Hidden Activations Are Not Enough" — adversarial e
 
 The core research question: **are knowledge matrices better than penultimate-layer activations for detecting adversarial examples?**
 
-- **Knowledge matrices** (quiver representations capturing full forward-pass structure) — the proposed method. Step Ga runs the KM-specific ellipsoid detector.
-- **Penultimate-layer activations** (last hidden layer features) — the baseline. Step Gb runs 6 standard detectors (KNN, KDE, GMM, OCSVM, Isolation Forest, Mahalanobis) on penultimate features and on matrices.
-- Step H generates LaTeX tables comparing both approaches across all experiments.
+- **Knowledge matrices** (quiver representations capturing full forward-pass structure) — the proposed method.
+- **Penultimate-layer activations** (last hidden layer features) — the baseline.
+- Step E runs 6 detectors (KNN, KDE, GMM, OCSVM, Isolation Forest, Mahalanobis) on 3 representations (penultimate activations, matrices, SVD-reduced matrices) and compares them.
+- Step F generates LaTeX tables from the comparison results.
 
 ## Pipeline Architecture
 
-9-step Slurm pipeline orchestrated by `run_experiment.sh`:
+6-step Slurm pipeline orchestrated by `run_experiment.sh`:
 
 ```
-A (Training) → B (Matrices ×8) ──→ E (MatStats) ──→ Ga (KMGridSearch)
-             → C (AdvExamples) ──→ F (AdvMats ×8) ──→ Ga
-             → D (RejLevel ×8) ────────────────────→ Ga
-             A,B,C,F ─────────────────────────────→ Gb (Baselines)
-                                              Ga,Gb → H (LaTeXTables)
+A (Training) → B (Matrices ×8) ──────────────→ E (RepComparison)
+             → C (AdvExamples) → D (AdvMats ×8) → E
+                                          A,B,C,D → E → F (LaTeXTables)
 ```
 
-Steps B, D, F run as 8 parallel Slurm jobs (chunks). Steps B, C, D, F, Gb require GPU (H100). Steps E, Ga, H are CPU-only.
+Steps B, D run as 8 parallel Slurm jobs (chunks). Steps A, B, C, D, E require GPU (H100). Step F is CPU-only.
 
 ## Key Commands
 
@@ -46,15 +45,12 @@ python pipeline_report.py --experiment alexnet_cifar10
 python pipeline_report.py --experiment alexnet_cifar10 --test
 
 # Run individual steps manually
-python training.py --experiment_name alexnet_cifar10 --temp_dir $SLURM_TMPDIR
-python generate_matrices.py --experiment alexnet_cifar10 --chunk_id 0 --total_chunks 8 --batch_size 1800
-python generate_adversarial_examples.py --experiment_name alexnet_cifar10 --temp_dir $SLURM_TMPDIR
-python compute_matrices_for_rejection_level.py --experiment_name alexnet_cifar10 --chunk_id 0 --total_chunks 8
-python generate_adversarial_matrices.py --experiment_name alexnet_cifar10 --chunk_id 0 --total_chunks 8
-python compute_matrix_statistics.py --experiment_name alexnet_cifar10
-python grid_search.py --experiment_name alexnet_cifar10 --nb_workers 64 --rej_lev 0
-python grid_search.py --baseline_only --experiment_name alexnet_cifar10 --temp_dir $SLURM_TMPDIR
-python generate_latex_tables.py --output tables/
+python training.py --experiment_name alexnet_cifar10 --temp_dir $SLURM_TMPDIR                    # Step A
+python generate_matrices.py --experiment alexnet_cifar10 --chunk_id 0 --total_chunks 8 --batch_size 1800  # Step B
+python generate_adversarial_examples.py --experiment_name alexnet_cifar10 --temp_dir $SLURM_TMPDIR       # Step C
+python generate_adversarial_matrices.py --experiment_name alexnet_cifar10 --chunk_id 0 --total_chunks 8  # Step D
+python compare_representations.py --experiment alexnet_cifar10 --temp_dir $SLURM_TMPDIR --svd_ablation   # Step E
+python generate_latex_tables.py --output tables/                                                          # Step F
 
 # Unit tests
 python -m pytest unit_test/
@@ -89,17 +85,13 @@ Main experiments: `alexnet_cifar10`, `resnet_cifar10`, `resnet_cifar100`, `vgg_c
 experiments/{experiment}/
 ├── weights/epoch_{N}.pth           # Step A output
 ├── matrices_task_{0-7}.zip         # Step B output (chunked zips)
-├── matrices/matrix_statistics.json # Step E output
 ├── adversarial_examples/{attack}/  # Step C output
-├── rejection_levels/matrices_task_{0-7}.zip  # Step D output
-├── adv_matrices_task_{0-7}.zip     # Step F output
-├── grid_search/grid_search.txt     # Step Ga output
-├── grid_search/baseline.txt        # Step Gb output (penultimate-feature baselines)
-├── grid_search/baseline_matrices.txt # Step Gb output (matrix baselines)
+├── adv_matrices_task_{0-7}.zip     # Step D output
+├── comparison/representation_comparison.json  # Step E output
 ├── calibration.json                # GPU calibration results
 ├── checkpoints/                    # Per-step completion tracking
 └── orchestrator_jobs/              # Generated Slurm scripts
-tables/*.tex                           # Step H output (4 LaTeX tables)
+tables/*.tex                           # Step F output (LaTeX tables)
 ```
 
 ## Key Files
@@ -113,8 +105,8 @@ tables/*.tex                           # Step H output (4 LaTeX tables)
 | `matrix_construction/parallel.py` | `ParallelMatrixConstruction` — chunked matrix computation |
 | `calibrate.py` | GPU batch_size binary search, SLURM time/memory estimation |
 | `pipeline_report.py` | Post-run analysis with error classification |
-| `generate_latex_tables.py` | Step H: generates comparison LaTeX tables |
-| `detect_adversarial_examples.py` | Baseline detection (`reject_predicted_attacks_baseline()`) |
+| `compare_representations.py` | Step E: representation comparison (6 detectors × 3 representations) |
+| `generate_latex_tables.py` | Step F: generates comparison LaTeX tables |
 
 ## Slurm Log Locations
 

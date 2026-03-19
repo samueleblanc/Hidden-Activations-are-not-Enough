@@ -401,7 +401,7 @@ def main():
 
     num_attacks = len(ATTACKS) + 1  # +1 for "test"
     time_padding = 1.15      # +15% for A, B
-    time_padding_adv = 3.0   # 3× for F (adversarial examples are much slower)
+    time_padding_adv = 3.0   # 3× for D (adversarial examples are much slower)
     mem_padding = 1.20       # +20%
     adv_grace_seconds = 1800  # 30 min grace for Step C
 
@@ -417,9 +417,9 @@ def main():
     est_C_time = adv_total_time * time_padding + adv_grace_seconds
     est_C_mem = int(train_peak_mem * mem_padding)  # model + dataset, same GPU task type
 
-    # Step F: adversarial matrices per chunk
-    est_F_per_chunk = avg_time * num_attacks * args.samples_per_attack / args.total_chunks * time_padding_adv
-    est_F_mem = int(peak_matrix_mem * mem_padding)
+    # Step D: adversarial matrices per chunk
+    est_D_per_chunk = avg_time * num_attacks * args.samples_per_attack / args.total_chunks * time_padding_adv
+    est_D_mem = int(peak_matrix_mem * mem_padding)
 
     slurm_resources = {
         "A": {
@@ -441,18 +441,18 @@ def main():
             "mem_bytes": est_C_mem,
             "per_attack_seconds": per_attack_seconds,
         },
-        "F": {
-            "time": seconds_to_slurm_time(est_F_per_chunk),
-            "mem": bytes_to_slurm_mem(est_F_mem),
-            "time_seconds": est_F_per_chunk,
-            "mem_bytes": est_F_mem,
+        "D": {
+            "time": seconds_to_slurm_time(est_D_per_chunk),
+            "mem": bytes_to_slurm_mem(est_D_mem),
+            "time_seconds": est_D_per_chunk,
+            "mem_bytes": est_D_mem,
         },
     }
 
     print(f"\n  Step A (Training):       time={slurm_resources['A']['time']}, mem={slurm_resources['A']['mem']}", flush=True)
     print(f"  Step B (Matrices/chunk): time={slurm_resources['B']['time']}, mem={slurm_resources['B']['mem']}", flush=True)
     print(f"  Step C (AdvExamples):    time={slurm_resources['C']['time']}, mem={slurm_resources['C']['mem']}", flush=True)
-    print(f"  Step F (AdvMats/chunk):  time={slurm_resources['F']['time']}, mem={slurm_resources['F']['mem']}", flush=True)
+    print(f"  Step D (AdvMats/chunk):  time={slurm_resources['D']['time']}, mem={slurm_resources['D']['mem']}", flush=True)
 
     # --- Save calibration.json ---
     calibration = {

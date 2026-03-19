@@ -133,45 +133,28 @@ for entry in report["steps"]["adversarial_examples"]:
         fname = os.path.basename(os.path.dirname(entry["path"]))
         reason_c.append(f"adversarial_examples/{fname}: {entry['status']}")
 
-# Step D: rejection_level_zips
+# Step D: adv_matrices_task_*.zip
 recover_d = False
 recover_d_chunks = []
 reason_d = []
-for i, entry in enumerate(report["steps"]["rejection_level_zips"]):
+for i, entry in enumerate(report["steps"]["adv_matrices_zips"]):
     if entry["status"] != "OK":
         recover_d = True
         recover_d_chunks.append(str(i))
-        reason_d.append(f"rejection_levels/matrices_task_{i}.zip: {entry['status']}")
+        reason_d.append(f"adv_matrices_task_{i}.zip: {entry['status']}")
 
-# Step E: matrix_statistics.json
-mat_stats = report["steps"]["matrix_statistics"]
-recover_e = mat_stats["status"] != "OK"
+# Step E: representation comparison
+comparison_path = os.path.join(experiment_dir, "comparison", "representation_comparison.json")
+recover_e = not os.path.exists(comparison_path)
 reason_e = []
 if recover_e:
-    reason_e.append(f"matrix_statistics.json: {mat_stats['status']}")
+    reason_e.append("comparison/representation_comparison.json missing")
 
-# Step F: adv_matrices_task_*.zip
-recover_f = False
-recover_f_chunks = []
+# Step F: LaTeX tables (depends on E)
+recover_f = recover_e
 reason_f = []
-for i, entry in enumerate(report["steps"]["adv_matrices_zips"]):
-    if entry["status"] != "OK":
-        recover_f = True
-        recover_f_chunks.append(str(i))
-        reason_f.append(f"adv_matrices_task_{i}.zip: {entry['status']}")
-
-# Step G: grid_search
-grid_status = report["steps"]["grid_search"]["status"]
-recover_g = grid_status != "OK"
-reason_g = []
-if recover_g:
-    reason_g.append(f"grid_search: {grid_status}")
-
-# Also check rejection_level_jsons for G
-for entry in report["steps"].get("rejection_level_jsons", []):
-    if entry["status"] != "OK":
-        recover_g = True
-        reason_g.append(f"rejection_level_jsons: {entry['status']}")
+if recover_f:
+    reason_f.append("Propagated: depends on Step E")
 
 # --- Propagate dependencies ---
 
@@ -184,37 +167,31 @@ if recover_a:
     if not recover_c:
         recover_c = True
         reason_c.append("Propagated: depends on Step A")
+
+# If C is bad, D needs re-run
+if recover_c:
     if not recover_d:
         recover_d = True
         recover_d_chunks = [str(i) for i in range(total_chunks)]
-        reason_d.append("Propagated: depends on Step A")
+        reason_d.append("Propagated: depends on Step C")
 
-# If any B chunk is bad, E needs re-run
-if recover_b and not recover_e:
+# If A, B, C, or D changed, E needs re-run
+if (recover_a or recover_b or recover_c or recover_d) and not recover_e:
     recover_e = True
-    reason_e.append("Propagated: depends on Step B")
-
-# If C is bad, F needs re-run
-if recover_c:
-    if not recover_f:
-        recover_f = True
-        recover_f_chunks = [str(i) for i in range(total_chunks)]
-        reason_f.append("Propagated: depends on Step C")
-
-# If E, F, or D changed, G needs re-run
-if (recover_e or recover_f or recover_d) and not recover_g:
-    recover_g = True
     deps = []
-    if recover_e:
-        deps.append("Step E")
-    if recover_f:
-        deps.append("Step F")
-    if recover_d:
-        deps.append("Step D")
-    reason_g.append(f"Propagated: depends on {' + '.join(deps)}")
+    if recover_a: deps.append("Step A")
+    if recover_b: deps.append("Step B")
+    if recover_c: deps.append("Step C")
+    if recover_d: deps.append("Step D")
+    reason_e.append(f"Propagated: depends on {' + '.join(deps)}")
+
+# If E changed, F needs re-run
+if recover_e and not recover_f:
+    recover_f = True
+    reason_f.append("Propagated: depends on Step E")
 
 recovery_needed = any([recover_a, recover_b, recover_c, recover_d,
-                       recover_e, recover_f, recover_g])
+                       recover_e, recover_f])
 
 # --- Write recovery_plan.sh ---
 plan_path = os.path.join(submit_dir, "experiments", experiment, "recovery_plan.sh")
@@ -243,10 +220,9 @@ with open(plan_path, "w") as f:
     write_step(f, "A", "Training", recover_a, reason_a)
     write_step(f, "B", "Generate matrices", recover_b, reason_b, recover_b_chunks)
     write_step(f, "C", "Adversarial examples", recover_c, reason_c)
-    write_step(f, "D", "Rejection level matrices", recover_d, reason_d, recover_d_chunks)
-    write_step(f, "E", "Matrix statistics", recover_e, reason_e)
-    write_step(f, "F", "Adversarial matrices", recover_f, reason_f, recover_f_chunks)
-    write_step(f, "G", "Grid search", recover_g, reason_g)
+    write_step(f, "D", "Adversarial matrices", recover_d, reason_d, recover_d_chunks)
+    write_step(f, "E", "Rep. Comparison", recover_e, reason_e)
+    write_step(f, "F", "LaTeX Tables", recover_f, reason_f)
 
     f.write(f"RECOVERY_NEEDED={'true' if recovery_needed else 'false'}\n")
 
