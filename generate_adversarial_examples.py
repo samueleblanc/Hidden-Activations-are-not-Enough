@@ -38,6 +38,13 @@ def parse_args(
         type = str,
         help = "Temporary directory for reading data when using clusters."
     )
+    parser.add_argument(
+        "--attacks",
+        nargs = "+",
+        default = None,
+        help = "Subset of attacks to run (e.g. --attacks FGSM PGD CW). "
+               "If not specified, all attacks from ATTACKS are run."
+    )
     return parser.parse_args()
 
 
@@ -176,6 +183,7 @@ def generate_adversarial_examples(
         experiment_name: str,
         input_shape,
         num_classes: int,
+        attacks: list = None,
     ) -> None:
     """
         Args:
@@ -185,6 +193,8 @@ def generate_adversarial_examples(
             architecture_index: the index of the architecture (See constants/constants.py).
             experiment_name: the name of the experiment (See constants/constants.py).
             input_shape: the shape of the input.
+            num_classes: the number of classes.
+            attacks: optional list of attack names to run. If None, all ATTACKS are used.
     """
 
     experiment_dir = Path(f'experiments/{experiment_name}/adversarial_examples')
@@ -195,7 +205,8 @@ def generate_adversarial_examples(
     exp_dataset_test = exp_dataset_test.detach().clone()
     exp_labels_test = exp_labels_test.detach().clone()
 
-    for attack_name in ["test"] + ATTACKS:
+    attack_list = attacks if attacks is not None else ATTACKS
+    for attack_name in ["test"] + attack_list:
         try:
             apply_attack(attack_name,
                          exp_dataset_test,
@@ -249,6 +260,7 @@ def main() -> None:
         experiment_name = experiment,
         input_shape = input_shape,
         num_classes = num_classes,
+        attacks = args.attacks,
     )
 
 

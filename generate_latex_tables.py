@@ -22,8 +22,8 @@ from constants.constants import ATTACKS, ATTACK_CATEGORIES
 def parse_args():
     parser = ArgumentParser(description="Generate LaTeX tables from grid search results")
     parser.add_argument("--experiments", nargs="+",
-                        default=["lenet_cifar10", "alexnet_cifar10", "resnet_cifar10",
-                                 "vgg_cifar10"],
+                        default=["alexnet_cifar10", "resnet_cifar10",
+                                 "resnet_cifar100", "vgg_cifar100"],
                         help="Experiment names to include")
     parser.add_argument("--output", type=str, default="tables",
                         help="Output directory for LaTeX files")
@@ -432,6 +432,17 @@ def generate_representation_comparison_table(experiments: list, output_dir: Path
                     row += " & ---"
             lines.append(row + r" \\")
 
+        # Add Lee et al. (2018) baseline row if available
+        lee_auroc = data.get('lee2018_mean_auroc')
+        if lee_auroc is not None:
+            lines.append(r"\midrule")
+            row = r"Lee et al.\ (2018)$^\dagger$"
+            for rn in rep_names:
+                if rn == rep_names[0]:  # Show the baseline AUROC in first column
+                    row += f" & \\multicolumn{{{n_reps}}}{{c}}{{{lee_auroc:.3f}}}"
+                    break
+            lines.append(row + r" \\")
+
         if len(all_data) > 1:
             lines.append(r"\midrule")
 
@@ -676,6 +687,210 @@ def generate_svd_ablation_table(experiments: list, output_dir: Path):
         print(f"Generated {output_dir / fname}")
 
 
+def generate_lee2018_comparison_table(experiments: list, output_dir: Path):
+    """Table comparing Lee et al. (2018) baseline vs best detector per representation."""
+    rows = []
+    for exp in experiments:
+        data = load_comparison_json(exp)
+        if not data:
+            continue
+        arch = exp.split("_")[0].capitalize()
+        dataset = exp.split("_", 1)[1].upper().replace("_", "-")
+
+        # Best detector per representation (average AUROC)
+        avg_auroc = data.get('average_auroc', {})
+        rep_names = data.get('representations', [])
+        det_names = data.get('detectors', [])
+
+        best_per_rep = {}
+        for rn in rep_names:
+            best = -1
+            for dn in det_names:
+                if isinstance(avg_auroc.get(dn), dict):
+                    v = avg_auroc[dn].get(rn)
+                    if v is not None and v > best:
+                        best = v
+            best_per_rep[rn] = best if best >= 0 else None
+
+        lee_auroc = data.get('lee2018_mean_auroc')
+
+        rows.append({
+            'Architecture': arch,
+            'Dataset': dataset,
+            'penultimate': best_per_rep.get('penultimate'),
+            'all_layer': best_per_rep.get('all_layer'),
+            'knowledge_matrix': best_per_rep.get('knowledge_matrix'),
+            'lee2018': lee_auroc,
+        })
+
+    if not rows:
+        return
+
+    lines = [
+        r"\begin{table}[t]",
+        r"\centering",
+        r"\caption{Best mean AUROC per representation (best of 6 detectors) "
+        r"compared with Lee et al.\ (2018) multi-layer Mahalanobis baseline. "
+        r"Higher is better. Bold indicates the overall best.}",
+        r"\label{tab:lee2018_comparison}",
+        r"\begin{tabular}{ll|ccc|c}",
+        r"\toprule",
+        r"Arch & Dataset & Penultimate & All-Layer & Know.\ Matrix & Lee et al. \\",
+        r"\midrule",
+    ]
+
+    for row in rows:
+        vals = [row['penultimate'], row['all_layer'],
+                row['knowledge_matrix'], row['lee2018']]
+        best_val = max((v for v in vals if v is not None), default=-1)
+        parts = [f"{row['Architecture']}", f"{row['Dataset']}"]
+        for v in vals:
+            if v is not None:
+                s = f"{v:.3f}"
+                if abs(v - best_val) < 1e-4:
+                    s = f"\\textbf{{{s}}}"
+                parts.append(s)
+            else:
+                parts.append("---")
+        lines.append(" & ".join(parts) + r" \\")
+
+    lines += [
+        r"\bottomrule",
+        r"\end{tabular}",
+        r"\end{table}",
+    ]
+
+    (output_dir / "lee2018_comparison.tex").write_text("\n".join(lines))
+    print(f"Generated {output_dir / 'lee2018_comparison.tex'}")
+
+
+def load_theorem45_json(experiment: str) -> dict:
+    """Load theorem45_results.json for an experiment."""
+    path = Path(f"experiments/{experiment}/theorem45/theorem45_results.json")
+    if not path.exists():
+        return {}
+    with open(path) as f:
+        return json.load(f)
+
+
+def generate_theorem45_table(experiments: list, output_dir: Path):
+    """Theorem 4.5 validation table: gamma, d_M/d_f, d_h/d_f, d_M/d_h per attack."""
+    all_data = {}
+    for exp in experiments:
+        data = load_theorem45_json(exp)
+        if data and data.get('per_attack'):
+            all_data[exp] = data
+
+    if not all_data:
+        print("No Theorem 4.5 validation data found.")
+        return
+
+    # --- Per-experiment detailed tables ---
+    for exp_name, data in all_data.items():
+        arch = exp_name.split("_")[0].capitalize()
+        per_attack = data['per_attack']
+        attack_order = [a for a in ATTACKS if a in per_attack]
+
+        lines = [
+            r"\begin{table}[t]",
+            r"\centering",
+            f"\\caption{{Theorem~4.5 validation for {arch}: knowledge matrix distances "
+            r"lower-bound logit distances ($\|M(x) - M(x')\| \geq \gamma \cdot \|f(x) - f(x')\|$). "
+            r"$d_M/d_h > 1$ shows KMs amplify more than penultimate features.}",
+            f"\\label{{tab:theorem45_{exp_name}}}",
+            r"\resizebox{\textwidth}{!}{%",
+            r"\begin{tabular}{l|cccc|c}",
+            r"\toprule",
+            r"Attack & $\hat{\gamma}$ & $d_M/d_f$ & $d_h/d_f$ & $d_M/d_h$ & Bound \% \\",
+            r"\midrule",
+        ]
+
+        for atk in attack_order:
+            r = per_attack[atk]
+            gamma = r['gamma_empirical']
+            amp_M = r['amplification_M_median']
+            amp_h = r['amplification_h_median']
+            ratio = amp_M / amp_h if amp_h > 1e-12 else float('inf')
+            bound = r['bound_satisfaction_rate'] * 100
+
+            # Bold the d_M/d_h column if > 1 (KMs better)
+            ratio_s = f"{ratio:.2f}"
+            if ratio > 1.0:
+                ratio_s = f"\\textbf{{{ratio_s}}}"
+
+            lines.append(
+                f"{escape_latex(atk)} & {gamma:.3f} & {amp_M:.2f} & "
+                f"{amp_h:.2f} & {ratio_s} & {bound:.0f} \\\\"
+            )
+
+        # Aggregate row
+        agg = data.get('aggregate', {})
+        if agg:
+            lines.append(r"\midrule")
+            g = agg.get('gamma_global', 0)
+            mM = agg.get('mean_amplification_M', 0)
+            mh = agg.get('mean_amplification_h', 0)
+            r_mh = agg.get('ratio_M_over_h')
+            r_s = f"{r_mh:.2f}" if r_mh is not None else "---"
+            if r_mh is not None and r_mh > 1.0:
+                r_s = f"\\textbf{{{r_s}}}"
+            lines.append(
+                f"Overall & {g:.3f} & {mM:.2f} & {mh:.2f} & {r_s} & --- \\\\"
+            )
+
+        lines += [
+            r"\bottomrule",
+            r"\end{tabular}}",
+            r"\end{table}",
+        ]
+
+        fname = f"theorem45_{exp_name}.tex"
+        (output_dir / fname).write_text("\n".join(lines))
+        print(f"Generated {output_dir / fname}")
+
+    # --- Cross-experiment summary table ---
+    if len(all_data) > 1:
+        lines = [
+            r"\begin{table}[t]",
+            r"\centering",
+            r"\caption{Theorem~4.5 summary across experiments. "
+            r"$\hat{\gamma}$ is the global distance lower-bound constant; "
+            r"$d_M/d_h$ shows the advantage of knowledge matrices over penultimate features.}",
+            r"\label{tab:theorem45_summary}",
+            r"\begin{tabular}{ll|cccc}",
+            r"\toprule",
+            r"Arch & Dataset & $\hat{\gamma}$ & $d_M/d_f$ & $d_h/d_f$ & $d_M/d_h$ \\",
+            r"\midrule",
+        ]
+
+        for exp_name, data in all_data.items():
+            arch = exp_name.split("_")[0].capitalize()
+            dataset = exp_name.split("_", 1)[1].upper().replace("_", "-")
+            agg = data.get('aggregate', {})
+            g = agg.get('gamma_global')
+            mM = agg.get('mean_amplification_M')
+            mh = agg.get('mean_amplification_h')
+            r_mh = agg.get('ratio_M_over_h')
+
+            g_s = f"{g:.3f}" if g is not None else "---"
+            mM_s = f"{mM:.2f}" if mM is not None else "---"
+            mh_s = f"{mh:.2f}" if mh is not None else "---"
+            r_s = f"{r_mh:.2f}" if r_mh is not None else "---"
+            if r_mh is not None and r_mh > 1.0:
+                r_s = f"\\textbf{{{r_s}}}"
+
+            lines.append(f"{arch} & {dataset} & {g_s} & {mM_s} & {mh_s} & {r_s} \\\\")
+
+        lines += [
+            r"\bottomrule",
+            r"\end{tabular}",
+            r"\end{table}",
+        ]
+
+        (output_dir / "theorem45_summary.tex").write_text("\n".join(lines))
+        print(f"Generated {output_dir / 'theorem45_summary.tex'}")
+
+
 def main():
     args = parse_args()
     output_dir = Path(args.output)
@@ -704,8 +919,18 @@ def main():
         generate_per_attack_auroc_table(comparison_available, output_dir)
         generate_cost_table(comparison_available, output_dir)
         generate_svd_ablation_table(comparison_available, output_dir)
+        generate_lee2018_comparison_table(comparison_available, output_dir)
     else:
         print("No representation comparison results found (run compare_representations.py first).")
+
+    # --- Theorem 4.5 tables (from validate_theorem45.py) ---
+    theorem45_available = [exp for exp in args.experiments
+                           if Path(f"experiments/{exp}/theorem45/theorem45_results.json").exists()]
+    if theorem45_available:
+        print(f"\nFound Theorem 4.5 results for: {theorem45_available}")
+        generate_theorem45_table(theorem45_available, output_dir)
+    else:
+        print("No Theorem 4.5 results found (run validate_theorem45.py first).")
 
     print(f"\nAll tables written to {output_dir}/")
 

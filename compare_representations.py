@@ -44,6 +44,7 @@ from utils.utils import (
     get_device, subset,
 )
 from constants.constants import DEFAULT_EXPERIMENTS, ATTACKS, ATTACK_CATEGORIES
+from baselines.lee2018 import MultiLayerMahalanobisDetector
 
 
 # ---------------------------------------------------------------------------
@@ -701,6 +702,56 @@ def run_comparison(experiment_name, temp_dir=None, svd_ablation=False):
                 }
 
     # -----------------------------------------------------------------------
+    # 7b. Lee et al. (2018) multi-layer Mahalanobis baseline
+    # -----------------------------------------------------------------------
+    lee2018_results = {}
+    print("\n  Running Lee et al. (2018) multi-layer Mahalanobis baseline...")
+    try:
+        lee_det = MultiLayerMahalanobisDetector(
+            model, num_classes, device=device, max_components=256, batch_size=64
+        )
+        lee_det.fit(train_data, train_labels_np)
+
+        # Score clean test data (per-layer scores)
+        clean_layer_scores = lee_det.score_per_layer(test_data)
+
+        # Score first available attack to fit logistic regression
+        first_attack = available_attacks[0] if available_attacks else None
+        if first_attack:
+            adv_path_lr = Path(base) / 'adversarial_examples' / first_attack / 'adversarial_examples.pth'
+            adv_lr = torch.load(adv_path_lr, map_location='cpu')
+            if len(adv_lr) > 1000:
+                adv_lr = adv_lr[:1000]
+            adv_layer_scores_lr = lee_det.score_per_layer(adv_lr)
+            lee_det.fit_logistic(clean_layer_scores, adv_layer_scores_lr)
+            print(f"    Logistic regression fitted on {first_attack}")
+
+        # Score clean (final combined score)
+        lee_clean_scores = lee_det.score(test_data)
+
+        # Evaluate per attack
+        for attack in available_attacks:
+            adv_path = Path(base) / 'adversarial_examples' / attack / 'adversarial_examples.pth'
+            if not adv_path.exists():
+                continue
+            adv_data = torch.load(adv_path, map_location='cpu')
+            if len(adv_data) > 2000:
+                adv_data = adv_data[:2000]
+            lee_adv_scores = lee_det.score(adv_data)
+            lee2018_results[attack] = compute_detection_metrics(
+                lee_clean_scores, lee_adv_scores
+            )
+
+        lee_det.cleanup()
+
+        if lee2018_results:
+            lee_aurocs = [m['auroc'] for m in lee2018_results.values()]
+            print(f"    Lee et al. mean AUROC: {np.mean(lee_aurocs):.4f} "
+                  f"({len(lee_aurocs)} attacks)")
+    except Exception as e:
+        print(f"    WARNING: Lee et al. baseline failed: {e}")
+
+    # -----------------------------------------------------------------------
     # 8. Aggregate and report
     # -----------------------------------------------------------------------
     print(f"\n{'='*70}")
@@ -803,6 +854,10 @@ def run_comparison(experiment_name, temp_dir=None, svd_ablation=False):
         'average_auroc': avg_auroc,
         'computational_cost': computational_cost,
     }
+    if lee2018_results:
+        save_data['lee2018_baseline'] = lee2018_results
+        lee_aurocs = [m['auroc'] for m in lee2018_results.values()]
+        save_data['lee2018_mean_auroc'] = float(np.mean(lee_aurocs))
     if svd_ablation_results:
         # Convert int keys to strings for JSON
         save_data['svd_ablation'] = {

@@ -186,7 +186,7 @@ def main() -> None:
         scheduler = StepLR(optimizer=optimizer, step_size=30, gamma=0.1)
 
     elif sched == 'cosine':
-        scheduler = CosineAnnealingLR(optimizer, T_max=120)
+        scheduler = CosineAnnealingLR(optimizer, T_max=epochs)
 
     elif sched == 'exp':
         scheduler = ExponentialLR(optimizer, gamma=0.95)

@@ -15,15 +15,16 @@ The core research question: **are knowledge matrices better than penultimate-lay
 
 ## Pipeline Architecture
 
-6-step Slurm pipeline orchestrated by `run_experiment.sh`:
+7-step Slurm pipeline orchestrated by `run_experiment.sh`:
 
 ```
-A (Training) → B (Matrices ×8) ──────────────→ E (RepComparison)
-             → C (AdvExamples) → D (AdvMats ×8) → E
-                                          A,B,C,D → E → F (LaTeXTables)
+A (Training) → B (Matrices ×8) ──────────────→ E (RepComparison) ─→ F (LaTeXTables)
+             → C (AdvExamples) → D (AdvMats ×8) → E                ↗
+             → G (Theorem4.5) ─────────────────────────────────────→ F
 ```
 
-Steps B, D run as 8 parallel Slurm jobs (chunks). Steps A, B, C, D, E require GPU (H100). Step F is CPU-only.
+Steps B, D run as 8 parallel Slurm jobs (chunks). Steps A, B, C, D, E, G require GPU (H100). Step F is CPU-only.
+Step G runs in parallel with B/C/D/E (depends only on A).
 
 ## Key Commands
 
@@ -50,6 +51,7 @@ python generate_matrices.py --experiment alexnet_cifar10 --chunk_id 0 --total_ch
 python generate_adversarial_examples.py --experiment_name alexnet_cifar10 --temp_dir $SLURM_TMPDIR       # Step C
 python generate_adversarial_matrices.py --experiment_name alexnet_cifar10 --chunk_id 0 --total_chunks 8  # Step D
 python compare_representations.py --experiment alexnet_cifar10 --temp_dir $SLURM_TMPDIR --svd_ablation   # Step E
+python validate_theorem45.py --experiment alexnet_cifar10 --temp_dir $SLURM_TMPDIR                       # Step G
 python generate_latex_tables.py --output tables/                                                          # Step F
 
 # Unit tests
@@ -88,6 +90,8 @@ experiments/{experiment}/
 ├── adversarial_examples/{attack}/  # Step C output
 ├── adv_matrices_task_{0-7}.zip     # Step D output
 ├── comparison/representation_comparison.json  # Step E output
+├── theorem45/theorem45_results.json           # Step G output
+├── isomorphism/isomorphism_results.json       # Isomorphism experiment
 ├── calibration.json                # GPU calibration results
 ├── checkpoints/                    # Per-step completion tracking
 └── orchestrator_jobs/              # Generated Slurm scripts
@@ -105,8 +109,11 @@ tables/*.tex                           # Step F output (LaTeX tables)
 | `matrix_construction/parallel.py` | `ParallelMatrixConstruction` — chunked matrix computation |
 | `calibrate.py` | GPU batch_size binary search, SLURM time/memory estimation |
 | `pipeline_report.py` | Post-run analysis with error classification |
-| `compare_representations.py` | Step E: representation comparison (6 detectors × 3 representations) |
+| `compare_representations.py` | Step E: representation comparison (6 detectors × 3 representations) + Lee et al. baseline |
 | `generate_latex_tables.py` | Step F: generates comparison LaTeX tables |
+| `validate_theorem45.py` | Step G: empirical validation of Theorem 4.5 (distance lower bound) |
+| `baselines/lee2018.py` | Lee et al. (2018) multi-layer Mahalanobis baseline detector |
+| `isomorphism_experiment.py` | Isomorphism invariance demonstration (Stage 6) |
 
 ## Slurm Log Locations
 

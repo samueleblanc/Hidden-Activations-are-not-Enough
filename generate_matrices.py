@@ -2,6 +2,7 @@
     This script computes matrices for a subset of a dataset for a neural network trained with specific hyper parameters.
 """
 import os
+import time
 import torch
 from argparse import ArgumentParser, Namespace
 
@@ -66,8 +67,11 @@ def main() -> None:
 
     print(f"Processing chunk {chunk_id} on GPU {gpu_id}", flush=True)
 
+    t_start = time.perf_counter()
     mat_constructer = ParallelMatrixConstruction(dict_exp)
     success = mat_constructer.values_on_epoch(chunk_id=chunk_id)
+    t_elapsed = time.perf_counter() - t_start
+    print(f"Chunk {chunk_id} wall-clock time: {t_elapsed:.1f}s ({t_elapsed/3600:.2f}h)", flush=True)
 
     if success:
         done_file = os.path.join(save_path, f"done_chunk_{args.chunk_id}.txt")

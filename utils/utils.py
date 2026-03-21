@@ -19,7 +19,7 @@ from knowledgematrix.models.vgg11 import VGG11
 from constants.constants import ARCHITECTURES
 
 
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, random_split
 from PIL import Image
 import torchvision.transforms as transforms
 from torchvision.datasets import CIFAR10
@@ -540,31 +540,10 @@ def get_dataset(
         test_set = CIFAR100(root=data_path or './data', train=False, download=True, transform=test_transform)
 
     elif data_set == 'imagenet':
-        val_loader, val_set = get_imagenet_val_dataset(data_path or '/datashare/imagenet/ILSVRC2012', batch_size=batch_size)
-        if data_loader:
-            return None, val_loader  # No train loader, return val as test
-        else:
-            return None, val_set  # No train set, return val as test
-        '''
-            preprocess = transforms.Compose([
-                transforms.Resize(256),
-                transforms.CenterCrop(224),
-                transforms.ToTensor(),
-                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-            ])
-            train_set = torchvision.datasets.Imagenette(
-                root = data_path, 
-                train = True, 
-                transform = preprocess, 
-                download = True
-            )
-            test_set = torchvision.datasets.Imagenette(
-                root = data_path, 
-                train = False, 
-                transform = preprocess, 
-                download = True
-            )
-        '''
+        _, val_set = get_imagenet_val_dataset(data_path or '/datashare/imagenet/ILSVRC2012', batch_size=batch_size)
+        # Split the 50k validation set into 25k train / 25k test with a fixed seed
+        generator = torch.Generator().manual_seed(42)
+        train_set, test_set = random_split(val_set, [25000, 25000], generator=generator)
     else:
         print(f"Dataset {data_set} not supported...")
         exit(1)
@@ -585,18 +564,19 @@ def get_dataset(
         return train_set, test_set
 
 
-def find_matrices(base_dir: str):
+def find_matrices(base_dir: str, num_classes: int = 10):
     """
         Finds the matrices for the given base directory.
 
         Args:
             base_dir: The base directory to search for matrices.
+            num_classes: The number of classes (e.g., 10 for CIFAR-10, 100 for CIFAR-100).
         Returns:
-            A dictionary with the keys being the class indices and the values 
+            A dictionary with the keys being the class indices and the values
             being the paths to the matrices.
     """
     matrix_paths = {}
-    for j in range(10):  # Considering subfolders '0' to '9'
+    for j in range(num_classes):
         matrices_path = os.path.join(base_dir, str(j))  # Only use training data
         if os.path.exists(matrices_path):
             for i in os.listdir(matrices_path):  # Iterating through each 'i' subdirectory
@@ -642,14 +622,16 @@ def compute_statistics(
 
 def compute_train_statistics(
         experiment_name:str = None,
-        path = None
+        path = None,
+        num_classes: int = 10
     ) -> None:
     """
         Computes the statistics for the given path.
 
         Args:
-            default_index: The index of the experiment.
+            experiment_name: The name of the experiment.
             path: The path to the matrices.
+            num_classes: The number of classes in the dataset.
     """
     if path is not None:
         original_matrices_path = f'{path}/experiments/{experiment_name}/matrices/'
@@ -657,7 +639,7 @@ def compute_train_statistics(
         original_matrices_path = f'experiments/{experiment_name}/matrices/'
 
     print(f'Path to matrices: {original_matrices_path}', flush=True)
-    original_matrices_paths = find_matrices(original_matrices_path)
+    original_matrices_paths = find_matrices(original_matrices_path, num_classes=num_classes)
     print(f'Matrices paths: {original_matrices_paths}', flush=True)
     statistics = compute_statistics(original_matrices_paths)
 

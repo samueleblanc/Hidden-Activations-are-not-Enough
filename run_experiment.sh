@@ -8,7 +8,7 @@
 #
 # Pipeline: Calibration -> A(Train) -> B(Matrices),C(AdvExamples)
 #           -> D(AdvMatrices) -> E(RepComparison)
-#           -> F(LaTeXTables)
+#           -> G(Theorem4.5) -> F(LaTeXTables)
 #
 # Usage:
 #   bash run_experiment.sh
@@ -66,6 +66,11 @@ E_GPU="--gpus=h100:1"
 E_CPUS=8
 E_TIME="08:00:00"
 E_MEM="64G"
+# Step G (Theorem 4.5 Validation - GPU)
+G_GPU="--gpus=h100:1"
+G_CPUS=4
+G_TIME="03:00:00"
+G_MEM="64G"
 # Step F (LaTeX Tables - CPU-only, lightweight)
 F_CPUS=2
 F_TIME="00:15:00"
@@ -437,8 +442,28 @@ source $ENV_NAME/bin/activate
 
 $COPY_DATA
 
+# GPU monitoring
+mkdir -p \$SLURM_SUBMIT_DIR/gpu-monitor/
+GPU_LOGFILE="\$SLURM_SUBMIT_DIR/gpu-monitor/$EXP.A.0.log"
+monitor_gpu() {
+  echo "Timestamp, GPU Util (%), Mem Used (MiB), Mem Total (MiB)" > "\$GPU_LOGFILE"
+  while true; do
+    ts=\$(date +%Y-%m-%dT%H:%M:%S)
+    nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits \
+      | awk -v t="\$ts" '{print t", "\$1", "\$2", "\$3}' >> "\$GPU_LOGFILE"
+    sleep 30
+  done
+}
+monitor_gpu &
+MONITOR_PID=\$!
+
+STEP_START=\$(date +%s)
 python training.py --experiment_name $EXP --temp_dir \$SLURM_TMPDIR
-echo "Step A (training) complete for $EXP."
+STEP_END=\$(date +%s)
+STEP_ELAPSED=\$(( STEP_END - STEP_START ))
+echo "Step A (training) complete for $EXP. Wall-clock: \${STEP_ELAPSED}s"
+
+kill \$MONITOR_PID 2>/dev/null || true
 
 # Write checkpoint
 CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints"
@@ -626,7 +651,28 @@ $COPY_DATA
 mkdir -p \$SLURM_TMPDIR/experiments/\$EXPERIMENT/weights/
 cp \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/weights/* \$SLURM_TMPDIR/experiments/\$EXPERIMENT/weights/
 
+# GPU monitoring
+mkdir -p \$SLURM_SUBMIT_DIR/gpu-monitor/
+GPU_LOGFILE="\$SLURM_SUBMIT_DIR/gpu-monitor/\$EXPERIMENT.C.0.log"
+monitor_gpu() {
+  echo "Timestamp, GPU Util (%), Mem Used (MiB), Mem Total (MiB)" > "\$GPU_LOGFILE"
+  while true; do
+    ts=\$(date +%Y-%m-%dT%H:%M:%S)
+    nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits \
+      | awk -v t="\$ts" '{print t", "\$1", "\$2", "\$3}' >> "\$GPU_LOGFILE"
+    sleep 30
+  done
+}
+monitor_gpu &
+MONITOR_PID=\$!
+
+STEP_START=\$(date +%s)
 python generate_adversarial_examples.py --experiment_name \$EXPERIMENT --temp_dir=\$SLURM_TMPDIR $C_TEST_SIZE_ARG
+STEP_END=\$(date +%s)
+STEP_ELAPSED=\$(( STEP_END - STEP_START ))
+echo "Step C wall-clock: \${STEP_ELAPSED}s"
+
+kill \$MONITOR_PID 2>/dev/null || true
 
 # Copy results back
 mkdir -p \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adversarial_examples/
@@ -845,17 +891,44 @@ for i in \$(seq 0 $((TOTAL_CHUNKS - 1))); do
 done
 
 echo "All data ready. Starting representation comparison..."
+
+# GPU monitoring
+mkdir -p \$SLURM_SUBMIT_DIR/gpu-monitor/
+GPU_LOGFILE="\$SLURM_SUBMIT_DIR/gpu-monitor/\$EXPERIMENT.E.0.log"
+monitor_gpu() {
+  echo "Timestamp, GPU Util (%), Mem Used (MiB), Mem Total (MiB)" > "\$GPU_LOGFILE"
+  while true; do
+    ts=\$(date +%Y-%m-%dT%H:%M:%S)
+    nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits \
+      | awk -v t="\$ts" '{print t", "\$1", "\$2", "\$3}' >> "\$GPU_LOGFILE"
+    sleep 30
+  done
+}
+monitor_gpu &
+MONITOR_PID=\$!
+
+STEP_START=\$(date +%s)
 python compare_representations.py --experiment \$EXPERIMENT --temp_dir \$SLURM_TMPDIR --svd_ablation
+STEP_END=\$(date +%s)
+STEP_ELAPSED=\$(( STEP_END - STEP_START ))
+echo "Step E wall-clock: \${STEP_ELAPSED}s"
+
+kill \$MONITOR_PID 2>/dev/null || true
 
 # Copy results back
 mkdir -p \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/comparison/
 cp -r \$SLURM_TMPDIR/experiments/\$EXPERIMENT/comparison/* \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/comparison/ 2>/dev/null || true
 echo "Step E (representation comparison) complete for $EXP."
 
-# Write checkpoint
-CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints"
-mkdir -p "\$CKPT_DIR"
-printf '{"status":"complete","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_E.json"
+# Write checkpoint only if output was actually produced
+if [ -f "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/comparison/representation_comparison.json" ]; then
+    CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints"
+    mkdir -p "\$CKPT_DIR"
+    printf '{"status":"complete","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_E.json"
+else
+    echo "ERROR: Step E did not produce representation_comparison.json"
+    exit 1
+fi
 STEPE_EOF
 
     # --- Submit E ---
@@ -875,7 +948,70 @@ STEPE_EOF
     fi
 
     # ==========================================================
-    # Step F: LaTeX Tables (depends on E)
+    # Step G: Theorem 4.5 Validation (depends on A only)
+    # ==========================================================
+    cat > "$JOB_DIR/step_G.sh" << STEPG_EOF
+#!/bin/bash
+#SBATCH --account=$GPU_ACCOUNT
+$G_GPU
+#SBATCH --cpus-per-task=$G_CPUS
+#SBATCH --time=$G_TIME
+#SBATCH --mem=$G_MEM
+#SBATCH --output=$SLURM_OUT_DIR/PIPE_G_${EXP}_%A.out
+#SBATCH --error=$SLURM_ERR_DIR/PIPE_G_${EXP}_%A.err
+
+mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
+module load $MODULES
+source $ENV_NAME/bin/activate
+
+EXPERIMENT="$EXP"
+export EXPERIMENT
+
+# Copy weights to fast local storage
+mkdir -p \$SLURM_TMPDIR/experiments/\$EXPERIMENT/
+cp -r \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/weights \$SLURM_TMPDIR/experiments/\$EXPERIMENT/
+
+# GPU monitoring
+nvidia-smi dmon -d 5 -s pucvmet > \$SLURM_SUBMIT_DIR/gpu-monitor/\$EXPERIMENT.G.0.log 2>&1 &
+MONITOR_PID=\$!
+
+cd \$SLURM_SUBMIT_DIR
+
+STEP_START=\$(date +%s)
+python validate_theorem45.py --experiment \$EXPERIMENT --temp_dir \$SLURM_TMPDIR --num_samples 200
+STEP_END=\$(date +%s)
+STEP_ELAPSED=\$(( STEP_END - STEP_START ))
+echo "Step G wall-clock: \${STEP_ELAPSED}s"
+
+kill \$MONITOR_PID 2>/dev/null || true
+
+echo "Step G (Theorem 4.5 validation) complete for $EXP."
+
+# Write checkpoint only if output was actually produced
+if [ -f "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/theorem45/theorem45_results.json" ]; then
+    CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/checkpoints"
+    mkdir -p "\$CKPT_DIR"
+    printf '{"status":"complete","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_G.json"
+else
+    echo "ERROR: Step G did not produce theorem45_results.json"
+    exit 1
+fi
+STEPG_EOF
+
+    # --- Submit G ---
+    CKPT_G="$CKPT_BASE/step_G.json"
+    if [ "$(read_checkpoint_status "$CKPT_G")" = "complete" ]; then
+        echo "  [G] Theorem 4.5:         SKIPPED (complete)"
+        JOB_G=""
+    else
+        # G depends on A only (generates adversarial examples on-the-fly)
+        local G_DEPS="${JOB_A:-}"
+        JOB_G=$(submit_job "$JOB_DIR/step_G.sh" "$G_DEPS")
+        echo "  [G] Theorem 4.5:         $JOB_G"
+    fi
+
+    # ==========================================================
+    # Step F: LaTeX Tables (depends on E + G)
     # ==========================================================
     cat > "$JOB_DIR/step_F.sh" << STEPF_EOF
 #!/bin/bash
@@ -907,8 +1043,9 @@ STEPF_EOF
         echo "  [F] LaTeX tables:        SKIPPED (complete)"
         JOB_F=""
     else
-        # F depends on E
+        # F depends on E + G
         local F_DEPS="${JOB_E:-}"
+        [ -n "${JOB_G:-}" ] && F_DEPS="${F_DEPS:+$F_DEPS:}$JOB_G"
         JOB_F=$(submit_job "$JOB_DIR/step_F.sh" "$F_DEPS")
         echo "  [F] LaTeX tables:        $JOB_F"
     fi
@@ -1652,9 +1789,15 @@ mkdir -p \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/comparison/
 cp -r \$SLURM_TMPDIR/experiments/$EXPERIMENT/comparison/* \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/comparison/ 2>/dev/null || true
 echo "Step E complete."
 
-CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/checkpoints"
-mkdir -p "\$CKPT_DIR"
-printf '{"status":"complete","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_E.json"
+# Write checkpoint only if output was actually produced
+if [ -f "\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/comparison/representation_comparison.json" ]; then
+    CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/checkpoints"
+    mkdir -p "\$CKPT_DIR"
+    printf '{"status":"complete","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_E.json"
+else
+    echo "ERROR: Step E did not produce representation_comparison.json"
+    exit 1
+fi
 EOF_E
     E_DEPS=""
     [ -n "$JOB_A" ] && E_DEPS="$JOB_A"
@@ -1666,7 +1809,42 @@ EOF_E
     echo "[E] Rep. comparison: $JOB_E"
 fi
 
-# --- Step F (LaTeX Tables, depends on E) ---
+# --- Step G (Theorem 4.5 Validation, depends on A) ---
+if [ "${RECOVER_STEP_G:-false}" = "true" ]; then
+    cat > "$JOB_DIR/step_G.sh" << EOF_G
+#!/bin/bash
+#SBATCH --account=$GPU_ACCOUNT
+#SBATCH $G_GPU
+#SBATCH --cpus-per-task=$G_CPUS
+#SBATCH --time=$G_TIME
+#SBATCH --mem=$G_MEM
+#SBATCH --output=$SLURM_OUT_DIR/REC_G_${EXPERIMENT}_%A.out
+#SBATCH --error=$SLURM_ERR_DIR/REC_G_${EXPERIMENT}_%A.err
+mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
+module load $MODULES
+source $ENV_NAME/bin/activate
+mkdir -p \$SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
+cp \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/weights/* \$SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
+cd \$SLURM_SUBMIT_DIR
+python validate_theorem45.py --experiment $EXPERIMENT --temp_dir \$SLURM_TMPDIR --num_samples 200
+echo "Step G (Theorem 4.5) complete."
+
+if [ -f "\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/theorem45/theorem45_results.json" ]; then
+    CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/checkpoints"
+    mkdir -p "\$CKPT_DIR"
+    printf '{"status":"complete","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_G.json"
+else
+    echo "ERROR: Step G did not produce theorem45_results.json"
+    exit 1
+fi
+EOF_G
+    G_DEPS="${JOB_A:-}"
+    JOB_G=$(submit_job "$JOB_DIR/step_G.sh" "$G_DEPS")
+    ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}$JOB_G"
+    echo "[G] Theorem 4.5: $JOB_G"
+fi
+
+# --- Step F (LaTeX Tables, depends on E + G) ---
 if [ "$RECOVER_STEP_F" = "true" ]; then
     cat > "$JOB_DIR/step_F.sh" << EOF_F_LATEX
 #!/bin/bash
@@ -1689,6 +1867,7 @@ mkdir -p "\$CKPT_DIR"
 printf '{"status":"complete","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_F.json"
 EOF_F_LATEX
     F_DEPS="${JOB_E:-}"
+    [ -n "${JOB_G:-}" ] && F_DEPS="${F_DEPS:+$F_DEPS:}$JOB_G"
     JOB_F=$(submit_job "$JOB_DIR/step_F.sh" "$F_DEPS")
     ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}$JOB_F"
     echo "[F] LaTeX tables: $JOB_F"
