@@ -29,6 +29,10 @@ Step G runs in parallel with B/C/D/E (depends only on A).
 ## Key Commands
 
 ```bash
+# Calibrate first, then run pipeline
+bash calibration.sh
+bash run_experiment.sh
+
 # Full pipeline (with audit/checkpointing)
 bash run_experiment.sh alexnet_cifar10
 
@@ -102,6 +106,8 @@ tables/*.tex                           # Step F output (LaTeX tables)
 
 | File | Role |
 |------|------|
+| `experiment_config.sh` | Shared config — accounts, resource profiles, helper functions |
+| `calibration.sh` | Standalone GPU calibration — produces `calibration.json` |
 | `run_experiment.sh` | Main orchestrator — generates and submits all Slurm jobs |
 | `constants/constants.py` | All experiment configs, attack lists, architectures |
 | `utils/utils.py` | `get_architecture()`, `get_model()`, `get_dataset()`, `get_device()` |

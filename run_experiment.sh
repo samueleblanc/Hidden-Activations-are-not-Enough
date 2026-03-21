@@ -6,9 +6,11 @@
 # Supports checkpointing (audit), skip-audit, test mode, and
 # multiple experiments.
 #
-# Pipeline: Calibration -> A(Train) -> B(Matrices),C(AdvExamples),G(Theorem4.5)
+# Pipeline: A(Train) -> B(Matrices),C(AdvExamples),G(Theorem4.5)
 #           -> D(AdvMatrices) -> E(RepComparison)
 #           -> E,G -> F(LaTeXTables)
+#
+# Calibration is handled separately by calibration.sh.
 #
 # Usage:
 #   bash run_experiment.sh
@@ -18,77 +20,14 @@
 
 set -euo pipefail
 
-# --- Default configuration ---
-ACCOUNT="def-assem"
-GPU_ACCOUNT=""              # Account for GPU jobs (defaults to ACCOUNT if empty)
-CPU_ACCOUNT=""              # Account for CPU jobs (defaults to ACCOUNT if empty)
-TOTAL_CHUNKS=8
-BATCH_SIZE=1800
-NUM_SAMPLES_PER_CLASS=100
-SAMPLES_PER_ATTACK=500
-TEST_SIZE=-1
-ENV_NAME="env"
+# --- Source shared configuration ---
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/experiment_config.sh"
+
+# --- Operational flags (not in shared config) ---
 DRY_RUN=false
 SKIP_AUDIT=true
 TEST_MODE=false
-NO_CALIBRATE=false
-MODULES="StdEnv/2023 python/3.11.5 scipy-stack/2025a"
-SLURM_OUT_DIR="slurm_out"
-SLURM_ERR_DIR="slurm_err"
-# --- Incremental save settings ---
-SAVE_INTERVAL=200           # Incremental save every N new matrices
-SAVE_CHECK_SECONDS=60       # How often background process checks
-SAVE_GRACE_SECONDS=180      # Seconds before wall time to trigger emergency save
-
-# --- Resource profiles (normal mode) ---
-# Step A
-A_GPU="--gpus=h100:1"
-A_CPUS=2
-A_TIME="06:00:00"
-A_MEM="15G"
-# Step B
-B_GPU="--gpus=h100:1"
-B_CPUS=12
-B_TIME="00:20:00"
-B_MEM="280G"
-# Step C
-C_GPU="--gres=gpu:1"
-C_CPUS=16
-C_TIME="12:00:00"
-C_MEM="124G"
-# Step D (Adv Matrices)
-D_GPU="--gpus=h100:1"
-D_CPUS=12
-D_TIME="12:00:00"
-D_MEM="280G"
-# Step E (Representation Comparison - GPU)
-E_GPU="--gpus=h100:1"
-E_CPUS=8
-E_TIME="08:00:00"
-E_MEM="64G"
-# Step G (Theorem 4.5 Validation - GPU)
-G_GPU="--gpus=h100:1"
-G_CPUS=4
-G_TIME="03:00:00"
-G_MEM="64G"
-# Step F (LaTeX Tables - CPU-only, lightweight)
-F_CPUS=2
-F_TIME="00:15:00"
-F_MEM="4G"
-# Audit
-AUDIT_CPUS=4
-AUDIT_TIME="02:00:00"
-AUDIT_MEM="100G"
-# Calibration
-CALIB_GPU="--gpus=h100:1"
-CALIB_CPUS=4
-CALIB_TIME="01:00:00"
-CALIB_MEM="32G"
-
-# ==============================================================
-# Argument parsing
-# ==============================================================
-EXPERIMENTS=("alexnet_cifar10")
 
 # ==============================================================
 # Test mode overrides
@@ -132,16 +71,6 @@ if [ "$TEST_MODE" = "true" ]; then
     AUDIT_CPUS=2
     AUDIT_TIME="00:30:00"
     AUDIT_MEM="16G"
-fi
-
-# --- Resolve per-type accounts (default to ACCOUNT) ---
-GPU_ACCOUNT="${GPU_ACCOUNT:-$ACCOUNT}"
-CPU_ACCOUNT="${CPU_ACCOUNT:-$ACCOUNT}"
-
-# --- Load environment (needed for pre-flight Python calls) ---
-module load $MODULES 2>/dev/null || true
-if [ -d "$ENV_NAME" ]; then
-    source $ENV_NAME/bin/activate
 fi
 
 # ==============================================================
@@ -294,113 +223,6 @@ WEIGHTS_CHECK_EOF
 echo ""
 echo "Pre-flight checks complete."
 echo ""
-
-# ==============================================================
-# Helper functions
-# ==============================================================
-submit_job() {
-    local script="$1"
-    local deps="$2"
-    local sbatch_cmd="sbatch --parsable"
-    if [ -n "$deps" ]; then
-        sbatch_cmd="sbatch --parsable --dependency=afterok:${deps}"
-    fi
-    local job_id
-    job_id=$($sbatch_cmd "$script")
-    echo "$job_id"
-}
-
-submit_job_afterany() {
-    local script="$1"
-    local deps="$2"
-    local sbatch_cmd="sbatch --parsable"
-    if [ -n "$deps" ]; then
-        sbatch_cmd="sbatch --parsable --dependency=afterany:${deps}"
-    fi
-    local job_id
-    job_id=$($sbatch_cmd "$script")
-    echo "$job_id"
-}
-
-enforce_min_time() {
-    # Ensures SLURM time is at least a minimum floor (default 30 min)
-    # Usage: enforce_min_time "HH:MM:SS" ["HH:MM:SS_floor"]
-    local time_str="$1"
-    local min_time="${2:-00:30:00}"
-    local h m s
-    IFS=: read -r h m s <<< "$time_str"
-    local total=$(( 10#$h * 3600 + 10#$m * 60 + 10#$s ))
-    IFS=: read -r h m s <<< "$min_time"
-    local min_seconds=$(( 10#$h * 3600 + 10#$m * 60 + 10#$s ))
-    if [ "$total" -lt "$min_seconds" ]; then
-        echo "$min_time"
-    else
-        echo "$time_str"
-    fi
-}
-
-# Determine dataset dirs to copy based on experiment
-get_dataset_copy_commands() {
-    local dataset="$1"
-    case "$dataset" in
-        cifar10)
-            echo 'mkdir -p $SLURM_TMPDIR/data/cifar-10-batches-py/'
-            echo 'cp -r $SLURM_SUBMIT_DIR/data/cifar-10-batches-py/* $SLURM_TMPDIR/data/cifar-10-batches-py/ 2>/dev/null || true'
-            ;;
-        cifar100)
-            echo 'mkdir -p $SLURM_TMPDIR/data/cifar-100-python/'
-            echo 'cp -r $SLURM_SUBMIT_DIR/data/cifar-100-python/* $SLURM_TMPDIR/data/cifar-100-python/ 2>/dev/null || true'
-            ;;
-        mnist)
-            echo 'mkdir -p $SLURM_TMPDIR/data/MNIST/'
-            echo 'cp -r $SLURM_SUBMIT_DIR/data/MNIST/* $SLURM_TMPDIR/data/MNIST/ 2>/dev/null || true'
-            ;;
-        fashion)
-            echo 'mkdir -p $SLURM_TMPDIR/data/FashionMNIST/'
-            echo 'cp -r $SLURM_SUBMIT_DIR/data/FashionMNIST/* $SLURM_TMPDIR/data/FashionMNIST/ 2>/dev/null || true'
-            ;;
-        imagenet)
-            echo '# ImageNet: reading directly from /datashare/imagenet/ILSVRC2012/ (NFS)'
-            ;;
-    esac
-}
-
-# ==============================================================
-# Generate and submit pipeline for each experiment
-# ==============================================================
-
-# Get dataset for each experiment
-get_experiment_dataset() {
-    python3 -c "
-from constants.constants import DEFAULT_EXPERIMENTS
-print(DEFAULT_EXPERIMENTS.get('$1', {}).get('dataset', 'cifar10'))
-"
-}
-
-get_experiment_epochs() {
-    python3 -c "
-from constants.constants import DEFAULT_EXPERIMENTS
-print(DEFAULT_EXPERIMENTS.get('$1', {}).get('epochs', 0))
-"
-}
-
-get_experiment_num_classes() {
-    python3 -c "
-from constants.constants import DEFAULT_EXPERIMENTS
-d = DEFAULT_EXPERIMENTS.get('$1', {}).get('dataset', 'cifar10')
-print({'cifar10':10,'cifar100':100,'mnist':10,'fashion':10,'imagenet':1000}.get(d, 10))
-"
-}
-
-read_checkpoint_status() {
-    # $1 = checkpoint file path
-    # Returns: complete, partial, or missing
-    if [ -f "$1" ]; then
-        python3 -c "import json; print(json.load(open('$1')).get('status','partial'))"
-    else
-        echo "missing"
-    fi
-}
 
 submit_full_pipeline() {
     # Submits the full A->F pipeline for a single experiment.
@@ -1206,74 +1028,11 @@ for EXP in "${EXPERIMENTS[@]}"; do
     echo ""
     echo "--- $EXP ---"
 
-    # --- Generate calibration job if needed ---
-    CALIB_DEP=""
-    if [ "$NO_CALIBRATE" = "false" ]; then
-        DATASET_FOR_CALIB=$(get_experiment_dataset "$EXP")
-        CALIB_COPY_DATA=$(get_dataset_copy_commands "$DATASET_FOR_CALIB")
-
-        cat > "$JOB_DIR/calibrate.sh" << CALIB_EOF
-#!/bin/bash
-#SBATCH --account=$GPU_ACCOUNT
-#SBATCH $CALIB_GPU
-#SBATCH --cpus-per-task=$CALIB_CPUS
-#SBATCH --time=$CALIB_TIME
-#SBATCH --mem=$CALIB_MEM
-#SBATCH --output=$SLURM_OUT_DIR/PIPE_CALIB_${EXP}_%A.out
-#SBATCH --error=$SLURM_ERR_DIR/PIPE_CALIB_${EXP}_%A.err
-
-mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
-module load $MODULES
-source $ENV_NAME/bin/activate
-
-$CALIB_COPY_DATA
-
-# GPU monitoring during calibration
-mkdir -p \$SLURM_SUBMIT_DIR/gpu-monitor/
-GPU_LOGFILE="\$SLURM_SUBMIT_DIR/gpu-monitor/$EXP.calibration.log"
-monitor_gpu() {
-  echo "Timestamp, GPU Util (%), Mem Used (MiB), Mem Total (MiB)" > "\$GPU_LOGFILE"
-  while true; do
-    ts=\$(date +%Y-%m-%dT%H:%M:%S)
-    nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits \
-      | awk -v t="\$ts" '{print t", "\$1", "\$2", "\$3}' >> "\$GPU_LOGFILE"
-    sleep 30
-  done
-}
-monitor_gpu &
-MONITOR_PID=\$!
-
-# Always use full params for calibration (even in test mode) so results are reusable
-python calibrate.py \\
-    --experiment_name $EXP \\
-    --temp_dir \$SLURM_TMPDIR \\
-    --target_utilization 0.93 \\
-    --timing_samples 50 \\
-    --total_chunks 8 \\
-    --num_samples_per_class 100 \\
-    --samples_per_attack 500
-
-kill \$MONITOR_PID 2>/dev/null || true
-echo "Calibration complete for $EXP."
-CALIB_EOF
-
-        if [ "$DRY_RUN" = "false" ]; then
-            # Check if calibration.json already exists on login node
-            if [ -f "experiments/$EXP/calibration.json" ]; then
-                echo "  [0] Calibration:         SKIPPED (calibration.json exists)"
-            else
-                CALIB_JOB=$(submit_job "$JOB_DIR/calibrate.sh" "")
-                CALIB_DEP="$CALIB_JOB"
-                echo "  [0] Calibration:         $CALIB_JOB"
-            fi
-        else
-            echo "  [DRY RUN] Calibration script generated: $JOB_DIR/calibrate.sh"
-        fi
-    fi
+    CALIB_DEP=""  # Calibration runs separately via calibration.sh
 
     # --- Load calibrated resource profiles if available ---
     CALIB_FILE="experiments/$EXP/calibration.json"
-    if [ -f "$CALIB_FILE" ] && [ "$NO_CALIBRATE" = "false" ]; then
+    if [ -f "$CALIB_FILE" ]; then
         echo "  Loading calibrated resources from $CALIB_FILE"
         A_TIME=$(python3 -c "import json; print(json.load(open('$CALIB_FILE'))['slurm_resources']['A']['time'])")
         A_MEM=$(python3 -c "import json; print(json.load(open('$CALIB_FILE'))['slurm_resources']['A']['mem'])")
@@ -1294,6 +1053,9 @@ CALIB_EOF
         B_TIME=$(enforce_min_time "$B_TIME" "02:00:00")   # 2h floor for matrices
         C_TIME=$(enforce_min_time "$C_TIME" "08:00:00")   # 8h floor for adv examples
         D_TIME=$(enforce_min_time "$D_TIME" "04:00:00")   # 4h floor for adv matrices
+    else
+        echo "  WARNING: No calibration.json found. Run 'bash calibration.sh' first."
+        echo "           Proceeding with default resource profiles."
     fi
 
     if [ "$SKIP_AUDIT" = "true" ]; then
@@ -2017,7 +1779,6 @@ echo "  Experiments: ${EXPERIMENTS[*]}"
 echo "  GPU account: $GPU_ACCOUNT"
 echo "  CPU account: $CPU_ACCOUNT"
 echo "  Mode: $([ "$SKIP_AUDIT" = "true" ] && echo "skip-audit" || echo "audit+dispatch")"
-echo "  Calibration: $([ "$NO_CALIBRATE" = "true" ] && echo "disabled" || echo "enabled")"
 echo "  Test mode: $TEST_MODE"
 echo "  Dry run: $DRY_RUN"
 echo ""
