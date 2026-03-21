@@ -6,9 +6,9 @@
 # Supports checkpointing (audit), skip-audit, test mode, and
 # multiple experiments.
 #
-# Pipeline: Calibration -> A(Train) -> B(Matrices),C(AdvExamples)
+# Pipeline: Calibration -> A(Train) -> B(Matrices),C(AdvExamples),G(Theorem4.5)
 #           -> D(AdvMatrices) -> E(RepComparison)
-#           -> G(Theorem4.5) -> F(LaTeXTables)
+#           -> E,G -> F(LaTeXTables)
 #
 # Usage:
 #   bash run_experiment.sh
@@ -123,6 +123,9 @@ if [ "$TEST_MODE" = "true" ]; then
     E_CPUS=4
     E_TIME="01:00:00"
     E_MEM="16G"
+    G_GPU="--gpus=h100:1"
+    G_TIME="00:30:00"
+    G_MEM="16G"
     F_CPUS=2
     F_TIME="00:10:00"
     F_MEM="2G"
@@ -412,7 +415,7 @@ submit_full_pipeline() {
     COPY_DATA=$(get_dataset_copy_commands "$DATASET")
 
     # Track job IDs
-    local JOB_A="" JOB_B_IDS="" JOB_C="" JOB_D_IDS="" JOB_E="" JOB_F=""
+    local JOB_A="" JOB_B_IDS="" JOB_C="" JOB_D_IDS="" JOB_E="" JOB_F="" JOB_G=""
 
     # Checkpoint support: compute experiment metadata
     local EPOCH NUM_CLASSES B_CHUNK_TOTAL NUM_ATTACKS
@@ -953,7 +956,7 @@ STEPE_EOF
     cat > "$JOB_DIR/step_G.sh" << STEPG_EOF
 #!/bin/bash
 #SBATCH --account=$GPU_ACCOUNT
-$G_GPU
+#SBATCH $G_GPU
 #SBATCH --cpus-per-task=$G_CPUS
 #SBATCH --time=$G_TIME
 #SBATCH --mem=$G_MEM
@@ -963,6 +966,7 @@ $G_GPU
 mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
 module load $MODULES
 source $ENV_NAME/bin/activate
+$COPY_DATA
 
 EXPERIMENT="$EXP"
 export EXPERIMENT
@@ -1117,13 +1121,15 @@ FINALAUDIT_EOF
     [ -n "${JOB_C:-}" ] && ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}${JOB_C}"
     [ -n "${JOB_D_IDS:-}" ] && ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}${JOB_D_IDS}"
     [ -n "${JOB_E:-}" ] && ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}${JOB_E}"
+    [ -n "${JOB_G:-}" ] && ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}${JOB_G}"
     [ -n "${JOB_F:-}" ] && ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}${JOB_F}"
 
     if [ -z "$ALL_JOBS" ]; then
         echo "  [*] Pipeline complete — no jobs submitted."
     else
-        # Final audit depends on E and F
+        # Final audit depends on E, G, and F
         local FINAL_DEPS="${JOB_E:-}"
+        [ -n "${JOB_G:-}" ] && FINAL_DEPS="${FINAL_DEPS:+$FINAL_DEPS:}${JOB_G}"
         [ -n "${JOB_F:-}" ] && FINAL_DEPS="${FINAL_DEPS:+$FINAL_DEPS:}${JOB_F}"
         local FINAL_AUDIT_JOB
         FINAL_AUDIT_JOB=$(submit_job "$JOB_DIR/final_audit.sh" "$FINAL_DEPS")
@@ -1415,13 +1421,23 @@ if (recover_a or recover_b or recover_c or recover_d) and not recover_e:
     if recover_d: deps.append("D")
     reason_e.append(f"Propagated: depends on {'+'.join(deps)}")
 
-# F depends on E
-recover_f = recover_e
-reason_f = []
-if recover_f:
-    reason_f.append("Propagated: depends on E")
+# G (Theorem 4.5) — recover if theorem45_results.json missing
+theorem45_path = os.path.join(experiment_dir, "theorem45", "theorem45_results.json")
+recover_g = not os.path.exists(theorem45_path)
+reason_g = ["theorem45/theorem45_results.json missing"] if recover_g else []
+# G depends on A
+if recover_a and not recover_g:
+    recover_g = True; reason_g.append("Propagated: depends on A")
 
-recovery_needed = any([recover_a, recover_b, recover_c, recover_d, recover_e, recover_f])
+# F depends on E + G
+recover_f = recover_e or recover_g
+reason_f = []
+if recover_e:
+    reason_f.append("Propagated: depends on E")
+if recover_g:
+    reason_f.append("Propagated: depends on G")
+
+recovery_needed = any([recover_a, recover_b, recover_c, recover_d, recover_e, recover_g, recover_f])
 
 # --- Write recovery_plan.sh ---
 plan_path = os.path.join(submit_dir, "experiments", experiment, "recovery_plan.sh")
@@ -1447,6 +1463,7 @@ with open(plan_path, "w") as f:
     write_step(f, "C", "Adversarial examples", recover_c, reason_c)
     write_step(f, "D", "Adversarial matrices", recover_d, reason_d, recover_d_chunks)
     write_step(f, "E", "Rep. Comparison", recover_e, reason_e)
+    write_step(f, "G", "Theorem 4.5", recover_g, reason_g)
     write_step(f, "F", "LaTeX Tables", recover_f, reason_f)
     f.write(f"RECOVERY_NEEDED={'true' if recovery_needed else 'false'}\n")
 
@@ -1509,6 +1526,10 @@ E_GPU="__E_GPU__"
 E_CPUS=__E_CPUS__
 E_TIME="__E_TIME__"
 E_MEM="__E_MEM__"
+G_GPU="__G_GPU__"
+G_CPUS=__G_CPUS__
+G_TIME="__G_TIME__"
+G_MEM="__G_MEM__"
 F_CPUS=__F_CPUS__
 F_TIME="__F_TIME__"
 F_MEM="__F_MEM__"
@@ -1574,7 +1595,7 @@ if [ "$TEST_SIZE" != "-1" ]; then
     C_TEST_SIZE_ARG="--test_size $TEST_SIZE"
 fi
 
-JOB_A="" JOB_B_IDS="" JOB_C="" JOB_D_IDS="" JOB_E="" JOB_F=""
+JOB_A="" JOB_B_IDS="" JOB_C="" JOB_D_IDS="" JOB_E="" JOB_F="" JOB_G=""
 ALL_JOBS=""
 
 # --- Step A ---
@@ -1823,6 +1844,7 @@ if [ "${RECOVER_STEP_G:-false}" = "true" ]; then
 mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
 module load $MODULES
 source $ENV_NAME/bin/activate
+$COPY_DATA
 mkdir -p \$SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
 cp \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/weights/* \$SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
 cd \$SLURM_SUBMIT_DIR
@@ -1942,6 +1964,10 @@ DISPATCH_BODY
         sed -i "s|__E_CPUS__|$E_CPUS|g" "$JOB_DIR/dispatch.sh"
         sed -i "s|__E_TIME__|$E_TIME|g" "$JOB_DIR/dispatch.sh"
         sed -i "s|__E_MEM__|$E_MEM|g" "$JOB_DIR/dispatch.sh"
+        sed -i "s|__G_GPU__|$G_GPU|g" "$JOB_DIR/dispatch.sh"
+        sed -i "s|__G_CPUS__|$G_CPUS|g" "$JOB_DIR/dispatch.sh"
+        sed -i "s|__G_TIME__|$G_TIME|g" "$JOB_DIR/dispatch.sh"
+        sed -i "s|__G_MEM__|$G_MEM|g" "$JOB_DIR/dispatch.sh"
         sed -i "s|__F_CPUS__|$F_CPUS|g" "$JOB_DIR/dispatch.sh"
         sed -i "s|__F_TIME__|$F_TIME|g" "$JOB_DIR/dispatch.sh"
         sed -i "s|__F_MEM__|$F_MEM|g" "$JOB_DIR/dispatch.sh"

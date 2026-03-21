@@ -10,7 +10,7 @@ import re
 # ── Step metadata ─────────────────────────────────────────────────────────
 
 STEP_ORDER = [
-    "CALIB", "PREAUDIT", "A", "B", "C", "D", "E", "F",
+    "CALIB", "PREAUDIT", "A", "B", "C", "D", "E", "G", "F",
     "AUDIT", "DISPATCH", "ERRSCAN",
 ]
 
@@ -22,6 +22,7 @@ STEP_LABELS = {
     "C": "Adv Examples",
     "D": "Adv Matrices",
     "E": "Rep. Comparison",
+    "G": "Theorem 4.5",
     "F": "LaTeX Tables",
     "AUDIT": "Final Audit",
     "DISPATCH": "Dispatcher",
@@ -39,6 +40,7 @@ STEP_LABELS_PREFIXED["B"] = "B (Matrices)"
 STEP_LABELS_PREFIXED["C"] = "C (Adv Examples)"
 STEP_LABELS_PREFIXED["D"] = "D (Adv Matrices)"
 STEP_LABELS_PREFIXED["E"] = "E (Rep. Comparison)"
+STEP_LABELS_PREFIXED["G"] = "G (Theorem 4.5)"
 STEP_LABELS_PREFIXED["F"] = "F (LaTeX Tables)"
 
 
