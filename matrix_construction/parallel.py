@@ -81,15 +81,33 @@ class ParallelMatrixConstruction:
         self._model = model  # stored for OOM recovery in compute_chunk_of_matrices
         matrix_computer = KnowledgeMatrixComputer(model, batch_size=self.batch_size, device=self.device)
 
+        # Resolve targets, handling Subset objects (e.g., from ImageNet random_split)
+        if hasattr(self.data, 'targets'):
+            all_targets = self.data.targets
+        elif hasattr(self.data, 'dataset'):
+            underlying = self.data.dataset
+            if hasattr(underlying, 'targets'):
+                all_targets = [underlying.targets[i] for i in self.data.indices]
+            elif hasattr(underlying, 'labels'):
+                all_targets = [underlying.labels[i] for i in self.data.indices]
+            else:
+                all_targets = [self.data[i][1] for i in range(len(self.data))]
+        else:
+            all_targets = [self.data[i][1] for i in range(len(self.data))]
+
         for i in range(self.num_classes):
             if self.dataname == 'mnist1d':
                 x_train = [self.data[idx][0] for idx, (_, target) in enumerate(self.data) if target in [i]]
             else:
-                train_indices = [idx for idx, target in enumerate(self.data.targets) if target in [i]]
+                train_indices = [idx for idx, target in enumerate(all_targets) if target == i]
+                if len(train_indices) == 0:
+                    if self.verbose:
+                        print(f"Class {i}: no samples in this split, skipping.", flush=True)
+                    continue
                 sub_train_dataloader = DataLoader(
                     Subset(self.data, train_indices),
                     batch_size=int(self.num_samples),
-                    drop_last=True
+                    drop_last=False
                 )
 
                 x_train = next(iter(sub_train_dataloader))[0]  # 0 for input and 1 for label

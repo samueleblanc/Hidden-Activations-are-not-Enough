@@ -121,14 +121,24 @@ def get_imagenet_val_dataset(
             transforms.Normalize(mean=mean, std=std)
         ])
 
-    val_root = os.path.join(data_path, 'val')
+    val_root = os.path.join(data_path, 'validation')
+    if not os.path.isdir(val_root):
+        val_root = os.path.join(data_path, 'val')
     gt_path = os.path.join(data_path, 'ILSVRC2012_devkit_t12/data/ILSVRC2012_validation_ground_truth.txt')
 
-    val_set = ImageNetVal(
-        root=val_root,
-        gt_path=gt_path,
-        transform=transform
-    )
+    # Auto-detect ImageFolder (class subdirs) vs flat format
+    subdirs = [d for d in os.listdir(val_root) if os.path.isdir(os.path.join(val_root, d))]
+    if len(subdirs) > 10:
+        # ImageFolder format (class subdirectories)
+        val_set = torchvision.datasets.ImageFolder(val_root, transform=transform)
+        val_set.labels = [s[1] for s in val_set.samples]
+    else:
+        # Flat format with ground truth file
+        val_set = ImageNetVal(
+            root=val_root,
+            gt_path=gt_path,
+            transform=transform
+        )
 
     val_loader = DataLoader(
         val_set,
@@ -179,7 +189,9 @@ def get_imagenet1k_loaders(
     ])
 
     train_dir = os.path.join(root_dir, "train")
-    val_dir = os.path.join(root_dir, "val")
+    val_dir = os.path.join(root_dir, "validation")
+    if not os.path.isdir(val_dir):
+        val_dir = os.path.join(root_dir, "val")
 
     # Load datasets
     train_dataset = datasets.ImageFolder(train_dir, transform=train_transform)
@@ -540,7 +552,8 @@ def get_dataset(
         test_set = CIFAR100(root=data_path or './data', train=False, download=True, transform=test_transform)
 
     elif data_set == 'imagenet':
-        _, val_set = get_imagenet_val_dataset(data_path or '/datashare/imagenet/ILSVRC2012', batch_size=batch_size)
+        imagenet_root = '/datashare/imagenet/ILSVRC2012'
+        _, val_set = get_imagenet_val_dataset(imagenet_root, batch_size=batch_size)
         # Split the 50k validation set into 25k train / 25k test with a fixed seed
         generator = torch.Generator().manual_seed(42)
         train_set, test_set = random_split(val_set, [25000, 25000], generator=generator)
@@ -786,6 +799,15 @@ def get_parameters_baseline(dataset):
             'mahalanobis': [0.9, 0.95, 0.99]
         },
         'cifar100': {
+            'knn': [10, 15, 20],
+            'kde': [1.5, 2.5, 3.5],
+            'gmm': [50, 100, 150],
+            'ocsvm': [0.05, 0.1, 0.2],
+            'iforest': [150, 200, 250],
+            'softmax': [0.3, 0.5, 0.7],
+            'mahalanobis': [0.9, 0.95, 0.99]
+        },
+        'imagenet': {
             'knn': [10, 15, 20],
             'kde': [1.5, 2.5, 3.5],
             'gmm': [50, 100, 150],

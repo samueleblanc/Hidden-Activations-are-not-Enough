@@ -360,8 +360,7 @@ get_dataset_copy_commands() {
             echo 'cp -r $SLURM_SUBMIT_DIR/data/FashionMNIST/* $SLURM_TMPDIR/data/FashionMNIST/ 2>/dev/null || true'
             ;;
         imagenet)
-            echo 'mkdir -p $SLURM_TMPDIR/data/ILSVRC2012/'
-            echo 'cp -r /datashare/imagenet/ILSVRC2012/* $SLURM_TMPDIR/data/ILSVRC2012/ 2>/dev/null || true'
+            echo '# ImageNet: reading directly from /datashare/imagenet/ILSVRC2012/ (NFS)'
             ;;
     esac
 }
@@ -422,9 +421,25 @@ submit_full_pipeline() {
     EPOCH=$(get_experiment_epochs "$EXP")
     NUM_CLASSES=$(get_experiment_num_classes "$EXP")
     B_CHUNK_TOTAL=$((NUM_CLASSES * (NUM_SAMPLES_PER_CLASS / TOTAL_CHUNKS)))
-    NUM_ATTACKS=$(python3 -c "from constants.constants import ATTACKS; print(len(ATTACKS) + 1)")
+    NUM_ATTACKS=$(python3 -c "
+from constants.constants import ATTACKS, IMAGENET_ATTACKS, DEFAULT_EXPERIMENTS
+ds = DEFAULT_EXPERIMENTS.get('$EXP', {}).get('dataset', 'cifar10')
+attacks = IMAGENET_ATTACKS if ds == 'imagenet' else ATTACKS
+print(len(attacks) + 1)
+")
     local CKPT_BASE="experiments/$EXP/checkpoints"
     mkdir -p "$CKPT_BASE"
+
+    # ImageNet-specific overrides
+    local ATTACKS_ARG=""
+    if [ "$DATASET" = "imagenet" ]; then
+        A_TIME="00:15:00"
+        A_MEM="8G"
+        ATTACKS_ARG="--attacks FGSM PGD CW DeepFool APGD Square"
+        if [ "$TEST_SIZE" = "-1" ]; then
+            TEST_SIZE=5000
+        fi
+    fi
 
     # ==========================================================
     # Step A: Training
@@ -670,7 +685,7 @@ monitor_gpu &
 MONITOR_PID=\$!
 
 STEP_START=\$(date +%s)
-python generate_adversarial_examples.py --experiment_name \$EXPERIMENT --temp_dir=\$SLURM_TMPDIR $C_TEST_SIZE_ARG
+python generate_adversarial_examples.py --experiment_name \$EXPERIMENT --temp_dir=\$SLURM_TMPDIR $C_TEST_SIZE_ARG $ATTACKS_ARG
 STEP_END=\$(date +%s)
 STEP_ELAPSED=\$(( STEP_END - STEP_START ))
 echo "Step C wall-clock: \${STEP_ELAPSED}s"

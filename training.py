@@ -126,6 +126,24 @@ def main() -> None:
     else:
         raise ValueError("Experiment not specified in constants/constants.py")
 
+    # Pretrained-only fast path: for experiments with epochs=0 and pretrained=True,
+    # just symlink/copy pretrained weights as epoch_0.pth and skip training entirely.
+    is_pretrained_only = DEFAULT_EXPERIMENTS[experiment].get('pretrained', False) and epochs == 0
+    if is_pretrained_only:
+        weights_dir = Path(f'experiments/{experiment}/weights')
+        final_weights = weights_dir / 'epoch_0.pth'
+        if not final_weights.exists():
+            pretrained_src = weights_dir / 'pretrained-weights.pth'
+            if pretrained_src.exists():
+                weights_dir.mkdir(parents=True, exist_ok=True)
+                import shutil
+                shutil.copy2(str(pretrained_src), str(final_weights))
+                print(f"[pretrained-only] Saved {pretrained_src} -> {final_weights}", flush=True)
+            else:
+                raise FileNotFoundError(f"No pretrained weights at {pretrained_src}")
+        print(f"[pretrained-only] Skipping training for {experiment}.", flush=True)
+        return
+
     # Check if training is already complete — skip if final weights exist
     weights_dir = Path(f'experiments/{experiment}/weights')
     if args.temp_dir:
