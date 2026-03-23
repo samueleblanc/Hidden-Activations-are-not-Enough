@@ -449,9 +449,13 @@ STEPB_EOF
 
         CKPT_B="$CKPT_BASE/step_B_chunk_${CHUNK}.json"
         B_STATUS=$(read_checkpoint_status "$CKPT_B")
-        if [ "$B_STATUS" = "complete" ]; then
+        if [ "$B_STATUS" = "complete" ] && [ -f "experiments/$EXP/matrices_task_${CHUNK}.zip" ]; then
             echo "  [B] Matrices chunk $CHUNK: SKIPPED (complete)"
             continue
+        elif [ "$B_STATUS" = "complete" ]; then
+            echo "  [B] WARNING: Checkpoint complete but matrices_task_${CHUNK}.zip missing. Invalidating."
+            rm -f "$CKPT_B"
+            B_STATUS="missing"
         fi
         if [ "$B_STATUS" = "partial" ]; then
             REMAINING=$(python3 -c "import json; c=json.load(open('$CKPT_B')); print(c['total']-c['completed'])")
@@ -681,9 +685,13 @@ STEPD_EOF
 
         CKPT_D="$CKPT_BASE/step_D_chunk_${CHUNK}.json"
         D_STATUS=$(read_checkpoint_status "$CKPT_D")
-        if [ "$D_STATUS" = "complete" ]; then
+        if [ "$D_STATUS" = "complete" ] && [ -f "experiments/$EXP/adv_matrices_task_${CHUNK}.zip" ]; then
             echo "  [D] Adv matrices chunk $CHUNK: SKIPPED (complete)"
             continue
+        elif [ "$D_STATUS" = "complete" ]; then
+            echo "  [D] WARNING: Checkpoint complete but adv_matrices_task_${CHUNK}.zip missing. Invalidating."
+            rm -f "$CKPT_D"
+            D_STATUS="missing"
         fi
         if [ "$D_STATUS" = "partial" ]; then
             REMAINING=$(python3 -c "import json; c=json.load(open('$CKPT_D')); print(c['total']-c['completed'])")
@@ -784,10 +792,14 @@ STEPE_EOF
 
     # --- Submit E ---
     CKPT_E="$CKPT_BASE/step_E.json"
-    if [ "$(read_checkpoint_status "$CKPT_E")" = "complete" ]; then
+    if [ "$(read_checkpoint_status "$CKPT_E")" = "complete" ] && [ -f "experiments/$EXP/comparison/representation_comparison.json" ]; then
         echo "  [E] Rep. comparison:     SKIPPED (complete)"
         JOB_E=""
     else
+        if [ "$(read_checkpoint_status "$CKPT_E")" = "complete" ]; then
+            echo "  [E] WARNING: Checkpoint complete but representation_comparison.json missing. Invalidating."
+            rm -f "$CKPT_E"
+        fi
         # E depends on A + all B + C + all D
         local E_DEPS="${JOB_A:-}"
         [ -n "${JOB_B_IDS:-}" ] && E_DEPS="${E_DEPS:+$E_DEPS:}$JOB_B_IDS"
@@ -852,10 +864,14 @@ STEPG_EOF
 
     # --- Submit G ---
     CKPT_G="$CKPT_BASE/step_G.json"
-    if [ "$(read_checkpoint_status "$CKPT_G")" = "complete" ]; then
+    if [ "$(read_checkpoint_status "$CKPT_G")" = "complete" ] && [ -f "experiments/$EXP/theorem45/theorem45_results.json" ]; then
         echo "  [G] Theorem 4.5:         SKIPPED (complete)"
         JOB_G=""
     else
+        if [ "$(read_checkpoint_status "$CKPT_G")" = "complete" ]; then
+            echo "  [G] WARNING: Checkpoint complete but theorem45_results.json missing. Invalidating."
+            rm -f "$CKPT_G"
+        fi
         # G depends on A only (generates adversarial examples on-the-fly)
         local G_DEPS="${JOB_A:-}"
         JOB_G=$(submit_job "$JOB_DIR/step_G.sh" "$G_DEPS")
@@ -897,10 +913,15 @@ STEPF_EOF
 
     # --- Submit F ---
     CKPT_F="$CKPT_BASE/step_F.json"
-    if [ "$(read_checkpoint_status "$CKPT_F")" = "complete" ]; then
+    F_TEX_COUNT=$(find "tables/" -name "*.tex" 2>/dev/null | wc -l)
+    if [ "$(read_checkpoint_status "$CKPT_F")" = "complete" ] && [ "$F_TEX_COUNT" -gt 0 ]; then
         echo "  [F] LaTeX tables:        SKIPPED (complete)"
         JOB_F=""
     else
+        if [ "$(read_checkpoint_status "$CKPT_F")" = "complete" ]; then
+            echo "  [F] WARNING: Checkpoint complete but no .tex files found. Invalidating."
+            rm -f "$CKPT_F"
+        fi
         # F depends on E + G
         local F_DEPS="${JOB_E:-}"
         [ -n "${JOB_G:-}" ] && F_DEPS="${F_DEPS:+$F_DEPS:}$JOB_G"
