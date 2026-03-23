@@ -532,10 +532,15 @@ fi
 STEPC_EOF
 
     CKPT_C="$CKPT_BASE/step_C.json"
-    if [ "$(read_checkpoint_status "$CKPT_C")" = "complete" ]; then
-        echo "  [C] Adv examples:        SKIPPED (complete)"
+    C_ADV_COUNT=$(find "experiments/$EXP/adversarial_examples/" -name "*.pth" 2>/dev/null | wc -l)
+    if [ "$(read_checkpoint_status "$CKPT_C")" = "complete" ] && [ "$C_ADV_COUNT" -gt 0 ]; then
+        echo "  [C] Adv examples:        SKIPPED (complete, $C_ADV_COUNT files)"
         JOB_C=""
     else
+        if [ "$(read_checkpoint_status "$CKPT_C")" = "complete" ] && [ "$C_ADV_COUNT" -eq 0 ]; then
+            echo "  [C] WARNING: Checkpoint says complete but no adversarial examples found. Invalidating."
+            rm -f "$CKPT_C"
+        fi
         JOB_C=$(submit_job "$JOB_DIR/step_C.sh" "${JOB_A:-}")
         echo "  [C] Adv examples:        $JOB_C"
     fi
