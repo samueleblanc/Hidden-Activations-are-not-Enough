@@ -1,3 +1,4 @@
+import sys
 import torch
 import torchattacks
 from torch.utils.data import TensorDataset, DataLoader
@@ -206,6 +207,7 @@ def generate_adversarial_examples(
     exp_labels_test = exp_labels_test.detach().clone()
 
     attack_list = attacks if attacks is not None else ATTACKS
+    failed_attacks = 0
     for attack_name in ["test"] + attack_list:
         try:
             apply_attack(attack_name,
@@ -218,9 +220,17 @@ def generate_adversarial_examples(
                          num_classes)
         except Exception as e:
             print(f'ERROR: Attack {attack_name} failed entirely: {type(e).__name__}: {e}', flush=True)
+            failed_attacks += 1
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
             continue
+
+    total_attacks = 1 + len(attack_list)  # "test" + real attacks
+    if failed_attacks == total_attacks:
+        print(f"FATAL: All {total_attacks} attacks failed.", flush=True)
+        sys.exit(1)
+    elif failed_attacks > 0:
+        print(f"WARNING: {failed_attacks}/{total_attacks} attacks failed.", flush=True)
 
 
 def main() -> None:

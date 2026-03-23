@@ -418,7 +418,7 @@ emergency_save() {
     printf '{"status":"partial","completed":%d,"total":%d,"timestamp":"%s"}\n' \
         "\$COMPLETED" "$B_CHUNK_TOTAL" "\$(date -Iseconds)" > "\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints/step_B_chunk_${CHUNK}.json"
     echo "[EMERGENCY] Saved \$COMPLETED matrices."
-    kill 0 2>/dev/null; exit 0
+    kill 0 2>/dev/null; exit 1
 }
 trap emergency_save USR1
 
@@ -519,10 +519,16 @@ mkdir -p \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adversarial_examples/
 cp -r \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adversarial_examples/* \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adversarial_examples/ 2>/dev/null || true
 echo "Step C (adversarial examples) complete for $EXP."
 
-# Write checkpoint
-CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints"
-mkdir -p "\$CKPT_DIR"
-printf '{"status":"complete","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_C.json"
+# Write checkpoint only if adversarial examples were actually produced
+ADV_COUNT=\$(find \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adversarial_examples/ -name "*.pth" 2>/dev/null | wc -l)
+if [ "\$ADV_COUNT" -gt 0 ]; then
+    CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints"
+    mkdir -p "\$CKPT_DIR"
+    printf '{"status":"complete","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_C.json"
+else
+    echo "ERROR: Step C produced no adversarial examples"
+    exit 1
+fi
 STEPC_EOF
 
     CKPT_C="$CKPT_BASE/step_C.json"
@@ -633,7 +639,7 @@ emergency_save() {
     printf '{"status":"partial","completed":%d,"total":%d,"timestamp":"%s"}\n' \
         "\$COMPLETED" "$D_CHUNK_TOTAL" "\$(date -Iseconds)" > "\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints/step_D_chunk_${CHUNK}.json"
     echo "[EMERGENCY] Saved \$COMPLETED matrices."
-    kill 0 2>/dev/null; exit 0
+    kill 0 2>/dev/null; exit 1
 }
 trap emergency_save USR1
 
@@ -872,10 +878,16 @@ mkdir -p tables
 python generate_latex_tables.py --output tables/
 echo "Step F (LaTeX tables) complete for $EXP."
 
-# Write checkpoint
-CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints"
-mkdir -p "\$CKPT_DIR"
-printf '{"status":"complete","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_F.json"
+# Write checkpoint only if .tex files were actually produced
+TEX_COUNT=\$(find \$SLURM_SUBMIT_DIR/tables/ -name "*.tex" 2>/dev/null | wc -l)
+if [ "\$TEX_COUNT" -gt 0 ]; then
+    CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints"
+    mkdir -p "\$CKPT_DIR"
+    printf '{"status":"complete","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_F.json"
+else
+    echo "ERROR: Step F produced no .tex files"
+    exit 1
+fi
 STEPF_EOF
 
     # --- Submit F ---
@@ -1479,6 +1491,17 @@ python generate_adversarial_examples.py --experiment_name $EXPERIMENT --temp_dir
 mkdir -p \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adversarial_examples/
 cp -r \$SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_examples/* \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adversarial_examples/ 2>/dev/null || true
 echo "Step C complete."
+
+# Write checkpoint only if adversarial examples were actually produced
+ADV_COUNT=\$(find \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adversarial_examples/ -name "*.pth" 2>/dev/null | wc -l)
+if [ "\$ADV_COUNT" -gt 0 ]; then
+    CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/checkpoints"
+    mkdir -p "\$CKPT_DIR"
+    printf '{"status":"complete","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_C.json"
+else
+    echo "ERROR: Step C produced no adversarial examples"
+    exit 1
+fi
 EOF_C
     DEP="${JOB_A:-}"
     JOB_C=$(submit_job "$JOB_DIR/step_C.sh" "$DEP")
@@ -1661,9 +1684,15 @@ mkdir -p tables
 python generate_latex_tables.py --output tables/
 echo "Step F (LaTeX tables) complete."
 
-CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/checkpoints"
-mkdir -p "\$CKPT_DIR"
-printf '{"status":"complete","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_F.json"
+TEX_COUNT=\$(find \$SLURM_SUBMIT_DIR/tables/ -name "*.tex" 2>/dev/null | wc -l)
+if [ "\$TEX_COUNT" -gt 0 ]; then
+    CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/checkpoints"
+    mkdir -p "\$CKPT_DIR"
+    printf '{"status":"complete","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_F.json"
+else
+    echo "ERROR: Step F produced no .tex files"
+    exit 1
+fi
 EOF_F_LATEX
     F_DEPS="${JOB_E:-}"
     [ -n "${JOB_G:-}" ] && F_DEPS="${F_DEPS:+$F_DEPS:}$JOB_G"

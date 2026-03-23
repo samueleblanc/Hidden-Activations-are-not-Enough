@@ -22,3 +22,5 @@ report.pdf
 report.tex
 nibi -imagenet.pdf
 CLAUDE.md
+scratch/
+overall_errors.json

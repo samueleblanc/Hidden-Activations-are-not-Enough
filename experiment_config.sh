@@ -54,7 +54,7 @@ E_MEM="64G"
 # Step G (Theorem 4.5 Validation - GPU)
 G_GPU="--gpus=h100:1"
 G_CPUS=4
-G_TIME="03:00:00"
+G_TIME="06:00:00"
 G_MEM="64G"
 # Step F (LaTeX Tables - CPU-only, lightweight)
 F_CPUS=2

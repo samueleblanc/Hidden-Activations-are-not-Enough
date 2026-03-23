@@ -87,6 +87,17 @@ def discover_jobs(experiment, slurm_out_dir, slurm_err_dir):
     return list(jobs.values())
 
 
+def deduplicate_jobs(jobs):
+    """Keep only the most recent job per (step, chunk) group."""
+    groups = {}
+    for job in jobs:
+        key = (job["step"], job["chunk"])
+        existing = groups.get(key)
+        if existing is None or int(job["job_id"]) > int(existing["job_id"]):
+            groups[key] = job
+    return list(groups.values())
+
+
 def query_sacct(job_ids):
     """Query sacct for job status. Returns dict keyed by job_id.
 
@@ -207,6 +218,7 @@ def main():
 
     # Discover jobs
     jobs = discover_jobs(experiment, slurm_out_dir, slurm_err_dir)
+    jobs = deduplicate_jobs(jobs)
 
     # Query sacct
     job_ids = {j["job_id"] for j in jobs}

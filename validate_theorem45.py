@@ -164,6 +164,38 @@ def _stats(arr):
 
 
 # ---------------------------------------------------------------------------
+# Checkpointing helpers
+# ---------------------------------------------------------------------------
+
+def _save_checkpoint(path, data):
+    """Atomic JSON write: write to .tmp then rename."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix('.tmp')
+    with open(tmp, 'w') as f:
+        json.dump(data, f, indent=2)
+    tmp.rename(path)
+
+
+def _load_checkpoint(path):
+    """Load checkpoint if valid, else return {}."""
+    path = Path(path)
+    if not path.exists():
+        return {}
+    try:
+        with open(path) as f:
+            data = json.load(f)
+        if not isinstance(data, dict) or 'per_attack' not in data:
+            print(f"  WARNING: Checkpoint has unexpected structure, starting fresh.",
+                  flush=True)
+            return {}
+        return data
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"  WARNING: Corrupt checkpoint ({e}), starting fresh.", flush=True)
+        return {}
+
+
+# ---------------------------------------------------------------------------
 # Main validation
 # ---------------------------------------------------------------------------
 
@@ -214,14 +246,46 @@ def validate_theorem45(experiment_name, num_samples=200, attacks=None,
 
     attack_list = attacks if attacks is not None else ATTACKS
 
+    # --- Checkpoint: resume from previous partial run ---
+    ckpt_path = Path(f'experiments/{experiment_name}/theorem45/theorem45_checkpoint.json')
+    ckpt = _load_checkpoint(ckpt_path)
+
     per_attack = {}
     all_gammas = []
     all_amp_M = []
     all_amp_h = []
 
-    for attack_name in attack_list:
+    if (ckpt
+            and ckpt.get('experiment') == experiment_name
+            and ckpt.get('num_samples') == num_samples):
+        completed = set(ckpt['per_attack'].keys())
+        remaining = [a for a in attack_list if a not in completed]
+        # Reconstruct aggregated lists from checkpoint
+        for atk_name, atk_result in ckpt['per_attack'].items():
+            per_attack[atk_name] = atk_result
+            all_gammas.append(atk_result['gamma_empirical'])
+            all_amp_M.append(atk_result['amplification_M_median'])
+            all_amp_h.append(atk_result['amplification_h_median'])
+        if completed:
+            print(f"  Resuming from checkpoint: {len(completed)} attacks done "
+                  f"({', '.join(sorted(completed))}), "
+                  f"{len(remaining)} remaining.", flush=True)
+    else:
+        remaining = list(attack_list)
+        if ckpt:
+            print(f"  Checkpoint discarded (experiment/num_samples mismatch).",
+                  flush=True)
+
+    attack_times = []
+    for idx, attack_name in enumerate(remaining):
+        eta_str = ""
+        if attack_times:
+            avg_t = np.mean(attack_times)
+            eta_sec = avg_t * (len(remaining) - idx)
+            eta_str = f"  |  ETA: {eta_sec / 60:.0f}min"
         print(f"\n{'='*60}", flush=True)
-        print(f"  Attack: {attack_name}", flush=True)
+        print(f"  Attack: {attack_name}  [{idx + 1}/{len(remaining)}]{eta_str}",
+              flush=True)
         print(f"{'='*60}", flush=True)
         t0 = time.perf_counter()
 
@@ -293,6 +357,15 @@ def validate_theorem45(experiment_name, num_samples=200, attacks=None,
               f"bound OK = {bound_satisfaction:.4f}  |  "
               f"{elapsed:.1f}s", flush=True)
 
+        attack_times.append(elapsed)
+
+        # Save checkpoint after each attack
+        _save_checkpoint(ckpt_path, {
+            'experiment': experiment_name,
+            'num_samples': num_samples,
+            'per_attack': per_attack,
+        })
+
         # Cleanup
         del clean, adv, d_f, d_h, d_M
         if torch.cuda.is_available():
@@ -340,6 +413,11 @@ def validate_theorem45(experiment_name, num_samples=200, attacks=None,
     with open(out_file, 'w') as f:
         json.dump(save_data, f, indent=2)
     print(f"\n  Results saved to {out_file}", flush=True)
+
+    # Clean up checkpoint (no longer needed)
+    if ckpt_path.exists():
+        ckpt_path.unlink()
+        print(f"  Checkpoint cleaned up.", flush=True)
 
     return save_data
 
