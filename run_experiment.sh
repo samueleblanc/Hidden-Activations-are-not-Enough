@@ -236,7 +236,7 @@ submit_full_pipeline() {
     COPY_DATA=$(get_dataset_copy_commands "$DATASET")
 
     # Track job IDs
-    local JOB_A="" JOB_B_IDS="" JOB_C="" JOB_D_IDS="" JOB_E="" JOB_F="" JOB_G=""
+    local JOB_A="" JOB_B_IDS="" JOB_C_IDS="" JOB_D_IDS="" JOB_E="" JOB_F="" JOB_G=""
 
     # Checkpoint support: compute experiment metadata
     local EPOCH NUM_CLASSES B_CHUNK_TOTAL NUM_ATTACKS
@@ -467,28 +467,86 @@ STEPB_EOF
     done
 
     # ==========================================================
-    # Step C: Adversarial examples
+    # Step C: Adversarial examples (one Slurm job per attack)
     # ==========================================================
     local C_TEST_SIZE_ARG=""
     if [ "$TEST_SIZE" != "-1" ]; then
         C_TEST_SIZE_ARG="--test_size $TEST_SIZE"
     fi
 
-    cat > "$JOB_DIR/step_C.sh" << STEPC_EOF
+    # Build attack list (includes "test" as first entry)
+    local C_ATTACK_LIST
+    C_ATTACK_LIST=$(python3 -c "
+from constants.constants import ATTACKS, IMAGENET_ATTACKS, DEFAULT_EXPERIMENTS
+ds = DEFAULT_EXPERIMENTS.get('$EXP', {}).get('dataset', 'cifar10')
+attacks = IMAGENET_ATTACKS if ds == 'imagenet' else ATTACKS
+print('test ' + ' '.join(attacks))
+")
+
+    # Legacy compat: if old monolithic step_C.json exists and is complete, skip all C attacks
+    local CKPT_C_LEGACY="$CKPT_BASE/step_C.json"
+    local C_ADV_COUNT
+    C_ADV_COUNT=$(find "experiments/$EXP/adversarial_examples/" -name "*.pth" 2>/dev/null | wc -l)
+    if [ "$(read_checkpoint_status "$CKPT_C_LEGACY")" = "complete" ] && [ "$C_ADV_COUNT" -gt 0 ]; then
+        echo "  [C] Adv examples:        SKIPPED (legacy step_C.json complete, $C_ADV_COUNT files)"
+    else
+        for ATTACK_NAME in $C_ATTACK_LIST; do
+            # Per-attack checkpoint
+            local CKPT_C_ATK="$CKPT_BASE/step_C_attack_${ATTACK_NAME}.json"
+            local ATK_STATUS
+            ATK_STATUS=$(read_checkpoint_status "$CKPT_C_ATK")
+
+            # Check if this attack already has output files
+            local ATK_FILE_COUNT
+            ATK_FILE_COUNT=$(find "experiments/$EXP/adversarial_examples/${ATTACK_NAME}/" -name "*.pth" 2>/dev/null | wc -l)
+
+            if [ "$ATK_STATUS" = "complete" ] && [ "$ATK_FILE_COUNT" -gt 0 ]; then
+                echo "  [C] Attack $ATTACK_NAME:   SKIPPED (complete)"
+                continue
+            elif [ "$ATK_STATUS" = "complete" ] && [ "$ATK_FILE_COUNT" -eq 0 ]; then
+                # Check if marked as no_misclassifications (still valid)
+                local ATK_NOTE
+                ATK_NOTE=$(python3 -c "import json; print(json.load(open('$CKPT_C_ATK')).get('note',''))" 2>/dev/null || echo "")
+                if [ "$ATK_NOTE" = "no_misclassifications" ]; then
+                    echo "  [C] Attack $ATTACK_NAME:   SKIPPED (0 misclassifications)"
+                    continue
+                fi
+                echo "  [C] WARNING: Checkpoint complete but no files for $ATTACK_NAME. Invalidating."
+                rm -f "$CKPT_C_ATK"
+            fi
+
+            # Per-attack resource allocation from calibration
+            local C_ATK_TIME="$C_TIME"
+            local C_ATK_MEM="$C_MEM"
+            local CALIB_FILE="experiments/$EXP/calibration.json"
+            if [ -f "$CALIB_FILE" ]; then
+                local CALIB_ATK_TIME
+                CALIB_ATK_TIME=$(python3 -c "
+import json
+c = json.load(open('$CALIB_FILE'))
+pa = c.get('slurm_resources',{}).get('C',{}).get('per_attack_slurm',{}).get('$ATTACK_NAME',{})
+print(pa.get('time', ''))" 2>/dev/null || echo "")
+                if [ -n "$CALIB_ATK_TIME" ]; then
+                    C_ATK_TIME=$(enforce_min_time "$CALIB_ATK_TIME" "01:00:00")
+                fi
+            fi
+
+            cat > "$JOB_DIR/step_C_attack_${ATTACK_NAME}.sh" << STEPC_EOF
 #!/bin/bash
 #SBATCH --account=$GPU_ACCOUNT
 #SBATCH $C_GPU
 #SBATCH --cpus-per-task=$C_CPUS
-#SBATCH --time=$C_TIME
-#SBATCH --mem=$C_MEM
-#SBATCH --output=$SLURM_OUT_DIR/PIPE_C_${EXP}_%A.out
-#SBATCH --error=$SLURM_ERR_DIR/PIPE_C_${EXP}_%A.err
+#SBATCH --time=$C_ATK_TIME
+#SBATCH --mem=$C_ATK_MEM
+#SBATCH --output=$SLURM_OUT_DIR/PIPE_C_${EXP}_${ATTACK_NAME}_%A.out
+#SBATCH --error=$SLURM_ERR_DIR/PIPE_C_${EXP}_${ATTACK_NAME}_%A.err
 
 mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
 module load $MODULES
 source $ENV_NAME/bin/activate
 
 EXPERIMENT="$EXP"
+ATTACK_NAME="$ATTACK_NAME"
 
 $COPY_DATA
 
@@ -497,7 +555,7 @@ cp \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/weights/* \$SLURM_TMPDIR/experime
 
 # GPU monitoring
 mkdir -p \$SLURM_SUBMIT_DIR/gpu-monitor/
-GPU_LOGFILE="\$SLURM_SUBMIT_DIR/gpu-monitor/\$EXPERIMENT.C.0.log"
+GPU_LOGFILE="\$SLURM_SUBMIT_DIR/gpu-monitor/\$EXPERIMENT.C.\$ATTACK_NAME.log"
 monitor_gpu() {
   echo "Timestamp, GPU Util (%), Mem Used (MiB), Mem Total (MiB)" > "\$GPU_LOGFILE"
   while true; do
@@ -511,42 +569,36 @@ monitor_gpu &
 MONITOR_PID=\$!
 
 STEP_START=\$(date +%s)
-python generate_adversarial_examples.py --experiment_name \$EXPERIMENT --temp_dir=\$SLURM_TMPDIR $C_TEST_SIZE_ARG $ATTACKS_ARG
+python generate_adversarial_examples.py --experiment_name \$EXPERIMENT --temp_dir=\$SLURM_TMPDIR --attacks \$ATTACK_NAME --no_auto_test $C_TEST_SIZE_ARG
 STEP_END=\$(date +%s)
 STEP_ELAPSED=\$(( STEP_END - STEP_START ))
-echo "Step C wall-clock: \${STEP_ELAPSED}s"
+echo "Step C attack \$ATTACK_NAME wall-clock: \${STEP_ELAPSED}s"
 
 kill \$MONITOR_PID 2>/dev/null || true
 
-# Copy results back
-mkdir -p \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adversarial_examples/
-cp -r \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adversarial_examples/* \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adversarial_examples/ 2>/dev/null || true
-echo "Step C (adversarial examples) complete for $EXP."
+# Copy results back (only this attack's subdirectory)
+mkdir -p \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adversarial_examples/\$ATTACK_NAME/
+cp -r \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adversarial_examples/\$ATTACK_NAME/* \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adversarial_examples/\$ATTACK_NAME/ 2>/dev/null || true
+echo "Step C attack \$ATTACK_NAME complete for $EXP."
 
-# Write checkpoint only if adversarial examples were actually produced
-ADV_COUNT=\$(find \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adversarial_examples/ -name "*.pth" 2>/dev/null | wc -l)
+# Write per-attack checkpoint
+CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints"
+mkdir -p "\$CKPT_DIR"
+ADV_COUNT=\$(find \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adversarial_examples/\$ATTACK_NAME/ -name "*.pth" 2>/dev/null | wc -l)
 if [ "\$ADV_COUNT" -gt 0 ]; then
-    CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints"
-    mkdir -p "\$CKPT_DIR"
-    printf '{"status":"complete","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_C.json"
+    printf '{"status":"complete","attack":"%s","timestamp":"%s"}\n' "\$ATTACK_NAME" "\$(date -Iseconds)" > "\$CKPT_DIR/step_C_attack_\${ATTACK_NAME}.json"
 else
-    echo "ERROR: Step C produced no adversarial examples"
-    exit 1
+    # 0-output attacks are still "complete" (e.g., no misclassifications)
+    printf '{"status":"complete","attack":"%s","note":"no_misclassifications","timestamp":"%s"}\n' "\$ATTACK_NAME" "\$(date -Iseconds)" > "\$CKPT_DIR/step_C_attack_\${ATTACK_NAME}.json"
+    echo "NOTE: Attack \$ATTACK_NAME produced 0 adversarial examples (checkpoint marked complete)"
 fi
 STEPC_EOF
 
-    CKPT_C="$CKPT_BASE/step_C.json"
-    C_ADV_COUNT=$(find "experiments/$EXP/adversarial_examples/" -name "*.pth" 2>/dev/null | wc -l)
-    if [ "$(read_checkpoint_status "$CKPT_C")" = "complete" ] && [ "$C_ADV_COUNT" -gt 0 ]; then
-        echo "  [C] Adv examples:        SKIPPED (complete, $C_ADV_COUNT files)"
-        JOB_C=""
-    else
-        if [ "$(read_checkpoint_status "$CKPT_C")" = "complete" ] && [ "$C_ADV_COUNT" -eq 0 ]; then
-            echo "  [C] WARNING: Checkpoint says complete but no adversarial examples found. Invalidating."
-            rm -f "$CKPT_C"
-        fi
-        JOB_C=$(submit_job "$JOB_DIR/step_C.sh" "${JOB_A:-}")
-        echo "  [C] Adv examples:        $JOB_C"
+            local JOB_ID
+            JOB_ID=$(submit_job "$JOB_DIR/step_C_attack_${ATTACK_NAME}.sh" "${JOB_A:-}")
+            JOB_C_IDS="${JOB_C_IDS:+$JOB_C_IDS:}$JOB_ID"
+            echo "  [C] Attack $ATTACK_NAME:   $JOB_ID"
+        done
     fi
 
     # ==========================================================
@@ -697,7 +749,7 @@ STEPD_EOF
             REMAINING=$(python3 -c "import json; c=json.load(open('$CKPT_D')); print(c['total']-c['completed'])")
             echo "  [D] Adv matrices chunk $CHUNK: RESUMING ($REMAINING remaining)"
         fi
-        JOB_ID=$(submit_job "$JOB_DIR/step_D_chunk_${CHUNK}.sh" "${JOB_C:-}")
+        JOB_ID=$(submit_job "$JOB_DIR/step_D_chunk_${CHUNK}.sh" "${JOB_C_IDS:-}")
         JOB_D_IDS="${JOB_D_IDS:+$JOB_D_IDS:}$JOB_ID"
         echo "  [D] Adv matrices chunk $CHUNK: $JOB_ID"
     done
@@ -800,10 +852,10 @@ STEPE_EOF
             echo "  [E] WARNING: Checkpoint complete but representation_comparison.json missing. Invalidating."
             rm -f "$CKPT_E"
         fi
-        # E depends on A + all B + C + all D
+        # E depends on A + all B + all C attacks + all D
         local E_DEPS="${JOB_A:-}"
         [ -n "${JOB_B_IDS:-}" ] && E_DEPS="${E_DEPS:+$E_DEPS:}$JOB_B_IDS"
-        [ -n "${JOB_C:-}" ] && E_DEPS="${E_DEPS:+$E_DEPS:}$JOB_C"
+        [ -n "${JOB_C_IDS:-}" ] && E_DEPS="${E_DEPS:+$E_DEPS:}$JOB_C_IDS"
         [ -n "${JOB_D_IDS:-}" ] && E_DEPS="${E_DEPS:+$E_DEPS:}$JOB_D_IDS"
 
         JOB_E=$(submit_job "$JOB_DIR/step_E.sh" "$E_DEPS")
@@ -993,7 +1045,7 @@ FINALAUDIT_EOF
     local ALL_JOBS=""
     [ -n "${JOB_A:-}" ] && ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}${JOB_A}"
     [ -n "${JOB_B_IDS:-}" ] && ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}${JOB_B_IDS}"
-    [ -n "${JOB_C:-}" ] && ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}${JOB_C}"
+    [ -n "${JOB_C_IDS:-}" ] && ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}${JOB_C_IDS}"
     [ -n "${JOB_D_IDS:-}" ] && ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}${JOB_D_IDS}"
     [ -n "${JOB_E:-}" ] && ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}${JOB_E}"
     [ -n "${JOB_G:-}" ] && ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}${JOB_G}"
@@ -1076,20 +1128,20 @@ for EXP in "${EXPERIMENTS[@]}"; do
         A_MEM=$(python3 -c "import json; print(json.load(open('$CALIB_FILE'))['slurm_resources']['A']['mem'])")
         B_TIME=$(python3 -c "import json; print(json.load(open('$CALIB_FILE'))['slurm_resources']['B']['time'])")
         B_MEM=$(python3 -c "import json; print(json.load(open('$CALIB_FILE'))['slurm_resources']['B']['mem'])")
-        C_TIME=$(python3 -c "import json; print(json.load(open('$CALIB_FILE'))['slurm_resources']['C']['time'])")
+        # C resources are now per-attack; load defaults for fallback only
         C_MEM=$(python3 -c "import json; print(json.load(open('$CALIB_FILE'))['slurm_resources']['C']['mem'])")
         D_TIME=$(python3 -c "import json; d=json.load(open('$CALIB_FILE'))['slurm_resources']; print(d.get('D', d.get('F', {})).get('time', '$D_TIME'))")
         D_MEM=$(python3 -c "import json; d=json.load(open('$CALIB_FILE'))['slurm_resources']; print(d.get('D', d.get('F', {})).get('mem', '$D_MEM'))")
         BATCH_SIZE=$(python3 -c "import json; print(json.load(open('$CALIB_FILE'))['batch_size'])")
         echo "    A: time=$A_TIME mem=$A_MEM"
         echo "    B: time=$B_TIME mem=$B_MEM  batch_size=$BATCH_SIZE"
-        echo "    C: time=$C_TIME mem=$C_MEM"
+        echo "    C: per-attack (calibrated), mem=$C_MEM (fallback)"
         echo "    D: time=$D_TIME mem=$D_MEM"
 
         # Enforce per-step minimum floors on calibrated times
         A_TIME=$(enforce_min_time "$A_TIME" "01:00:00")   # 1h floor for training
         B_TIME=$(enforce_min_time "$B_TIME" "02:00:00")   # 2h floor for matrices
-        C_TIME=$(enforce_min_time "$C_TIME" "08:00:00")   # 8h floor for adv examples
+        # C_TIME is now per-attack (floor applied per-attack in submit_full_pipeline)
         D_TIME=$(enforce_min_time "$D_TIME" "04:00:00")   # 4h floor for adv matrices
     else
         echo "  WARNING: No calibration.json found. Run 'bash calibration.sh' first."
@@ -1199,11 +1251,12 @@ for i, entry in enumerate(report["steps"]["matrices_zips"]):
         recover_b_chunks.append(str(i))
         reason_b.append(f"matrices_task_{i}.zip: {entry['status']}")
 
-recover_c = False; reason_c = []
+recover_c = False; recover_c_attacks = []; reason_c = []
 for entry in report["steps"]["adversarial_examples"]:
     if entry["status"] != "OK":
         recover_c = True
         fname = os.path.basename(os.path.dirname(entry["path"]))
+        recover_c_attacks.append(fname)
         reason_c.append(f"adversarial_examples/{fname}: {entry['status']}")
 
 recover_d = False; recover_d_chunks = []; reason_d = []
@@ -1219,7 +1272,13 @@ if recover_a:
         recover_b = True; recover_b_chunks = [str(i) for i in range(total_chunks)]
         reason_b.append("Propagated: depends on Step A")
     if not recover_c:
-        recover_c = True; reason_c.append("Propagated: depends on Step A")
+        recover_c = True
+        # When propagating from A, all attacks need re-running
+        from constants.constants import ATTACKS as _ATTACKS, IMAGENET_ATTACKS as _IA, DEFAULT_EXPERIMENTS as _DE
+        _ds = _DE.get(experiment, {}).get('dataset', 'cifar10')
+        _atk_list = _IA if _ds == 'imagenet' else _ATTACKS
+        recover_c_attacks = ['test'] + list(_atk_list)
+        reason_c.append("Propagated: depends on Step A")
 if recover_c and not recover_d:
     recover_d = True; recover_d_chunks = [str(i) for i in range(total_chunks)]
     reason_d.append("Propagated: depends on Step C")
@@ -1275,7 +1334,7 @@ with open(plan_path, "w") as f:
 
     write_step(f, "A", "Training", recover_a, reason_a)
     write_step(f, "B", "Generate matrices", recover_b, reason_b, recover_b_chunks)
-    write_step(f, "C", "Adversarial examples", recover_c, reason_c)
+    write_step(f, "C", "Adversarial examples", recover_c, reason_c, recover_c_attacks)
     write_step(f, "D", "Adversarial matrices", recover_d, reason_d, recover_d_chunks)
     write_step(f, "E", "Rep. Comparison", recover_e, reason_e)
     write_step(f, "G", "Theorem 4.5", recover_g, reason_g)
@@ -1410,7 +1469,7 @@ if [ "$TEST_SIZE" != "-1" ]; then
     C_TEST_SIZE_ARG="--test_size $TEST_SIZE"
 fi
 
-JOB_A="" JOB_B_IDS="" JOB_C="" JOB_D_IDS="" JOB_E="" JOB_F="" JOB_G=""
+JOB_A="" JOB_B_IDS="" JOB_C_IDS="" JOB_D_IDS="" JOB_E="" JOB_F="" JOB_G=""
 ALL_JOBS=""
 
 # --- Step A ---
@@ -1496,43 +1555,46 @@ EOF_B
     done
 fi
 
-# --- Step C ---
+# --- Step C (per-attack parallel jobs) ---
 if [ "$RECOVER_STEP_C" = "true" ]; then
-    cat > "$JOB_DIR/step_C.sh" << EOF_C
+    for ATTACK_NAME in $RECOVER_STEP_C_CHUNKS; do
+        cat > "$JOB_DIR/step_C_attack_${ATTACK_NAME}.sh" << EOF_C
 #!/bin/bash
 #SBATCH --account=$GPU_ACCOUNT
 #SBATCH $C_GPU
 #SBATCH --cpus-per-task=$C_CPUS
 #SBATCH --time=$C_TIME
 #SBATCH --mem=$C_MEM
-#SBATCH --output=$SLURM_OUT_DIR/REC_C_${EXPERIMENT}_%A.out
-#SBATCH --error=$SLURM_ERR_DIR/REC_C_${EXPERIMENT}_%A.err
+#SBATCH --output=$SLURM_OUT_DIR/REC_C_${EXPERIMENT}_${ATTACK_NAME}_%A.out
+#SBATCH --error=$SLURM_ERR_DIR/REC_C_${EXPERIMENT}_${ATTACK_NAME}_%A.err
 mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
 module load $MODULES
 source $ENV_NAME/bin/activate
 $COPY_DATA
 mkdir -p \$SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
 cp \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/weights/* \$SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
-python generate_adversarial_examples.py --experiment_name $EXPERIMENT --temp_dir=\$SLURM_TMPDIR $C_TEST_SIZE_ARG
-mkdir -p \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adversarial_examples/
-cp -r \$SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_examples/* \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adversarial_examples/ 2>/dev/null || true
-echo "Step C complete."
+python generate_adversarial_examples.py --experiment_name $EXPERIMENT --temp_dir=\$SLURM_TMPDIR --attacks $ATTACK_NAME --no_auto_test $C_TEST_SIZE_ARG
+mkdir -p \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adversarial_examples/$ATTACK_NAME/
+cp -r \$SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_examples/$ATTACK_NAME/* \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adversarial_examples/$ATTACK_NAME/ 2>/dev/null || true
+echo "Step C attack $ATTACK_NAME complete."
 
-# Write checkpoint only if adversarial examples were actually produced
-ADV_COUNT=\$(find \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adversarial_examples/ -name "*.pth" 2>/dev/null | wc -l)
+# Write per-attack checkpoint
+CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/checkpoints"
+mkdir -p "\$CKPT_DIR"
+ADV_COUNT=\$(find \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adversarial_examples/$ATTACK_NAME/ -name "*.pth" 2>/dev/null | wc -l)
 if [ "\$ADV_COUNT" -gt 0 ]; then
-    CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/checkpoints"
-    mkdir -p "\$CKPT_DIR"
-    printf '{"status":"complete","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_C.json"
+    printf '{"status":"complete","attack":"$ATTACK_NAME","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_C_attack_${ATTACK_NAME}.json"
 else
-    echo "ERROR: Step C produced no adversarial examples"
-    exit 1
+    printf '{"status":"complete","attack":"$ATTACK_NAME","note":"no_misclassifications","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_C_attack_${ATTACK_NAME}.json"
+    echo "NOTE: Attack $ATTACK_NAME produced 0 adversarial examples (checkpoint marked complete)"
 fi
 EOF_C
-    DEP="${JOB_A:-}"
-    JOB_C=$(submit_job "$JOB_DIR/step_C.sh" "$DEP")
-    ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}$JOB_C"
-    echo "[C] Adv examples: $JOB_C"
+        DEP="${JOB_A:-}"
+        JOB_ID=$(submit_job "$JOB_DIR/step_C_attack_${ATTACK_NAME}.sh" "$DEP")
+        JOB_C_IDS="${JOB_C_IDS:+$JOB_C_IDS:}$JOB_ID"
+        ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}$JOB_ID"
+        echo "[C] Attack $ATTACK_NAME: $JOB_ID"
+    done
 fi
 
 # --- Step D (per chunk, depends on C) ---
@@ -1589,7 +1651,7 @@ python -m utils.data_integrity --verify-zip \$SLURM_TMPDIR/experiments/$EXPERIME
 cp \$SLURM_TMPDIR/experiments/$EXPERIMENT/adv_matrices_task_${CHUNK}.zip \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/
 echo "Step D chunk $CHUNK complete."
 EOF_D
-        DEP="${JOB_C:-}"
+        DEP="${JOB_C_IDS:-}"
         JOB_ID=$(submit_job "$JOB_DIR/step_D_c${CHUNK}.sh" "$DEP")
         JOB_D_IDS="${JOB_D_IDS:+$JOB_D_IDS:}$JOB_ID"
         ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}$JOB_ID"
@@ -1649,7 +1711,7 @@ EOF_E
     E_DEPS=""
     [ -n "$JOB_A" ] && E_DEPS="$JOB_A"
     [ -n "$JOB_B_IDS" ] && E_DEPS="${E_DEPS:+$E_DEPS:}$JOB_B_IDS"
-    [ -n "$JOB_C" ] && E_DEPS="${E_DEPS:+$E_DEPS:}$JOB_C"
+    [ -n "$JOB_C_IDS" ] && E_DEPS="${E_DEPS:+$E_DEPS:}$JOB_C_IDS"
     [ -n "$JOB_D_IDS" ] && E_DEPS="${E_DEPS:+$E_DEPS:}$JOB_D_IDS"
     JOB_E=$(submit_job "$JOB_DIR/step_E.sh" "$E_DEPS")
     ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}$JOB_E"

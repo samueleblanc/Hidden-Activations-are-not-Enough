@@ -36,11 +36,11 @@ B_GPU="--gpus=h100:1"
 B_CPUS=12
 B_TIME="00:20:00"
 B_MEM="280G"
-# Step C
+# Step C (per-attack defaults — each attack runs as a separate Slurm job)
 C_GPU="--gres=gpu:1"
-C_CPUS=16
-C_TIME="12:00:00"
-C_MEM="124G"
+C_CPUS=4
+C_TIME="03:00:00"
+C_MEM="32G"
 # Step D (Adv Matrices)
 D_GPU="--gpus=h100:1"
 D_CPUS=12

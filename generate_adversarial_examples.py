@@ -46,6 +46,13 @@ def parse_args(
         help = "Subset of attacks to run (e.g. --attacks FGSM PGD CW). "
                "If not specified, all attacks from ATTACKS are run."
     )
+    parser.add_argument(
+        "--no_auto_test",
+        action = "store_true",
+        default = False,
+        help = "Skip automatic prepending of 'test' (VANILA) attack. "
+               "Use when running individual attacks in parallel Slurm jobs."
+    )
     return parser.parse_args()
 
 
@@ -185,6 +192,7 @@ def generate_adversarial_examples(
         input_shape,
         num_classes: int,
         attacks: list = None,
+        no_auto_test: bool = False,
     ) -> None:
     """
         Args:
@@ -196,6 +204,7 @@ def generate_adversarial_examples(
             input_shape: the shape of the input.
             num_classes: the number of classes.
             attacks: optional list of attack names to run. If None, all ATTACKS are used.
+            no_auto_test: if True, skip automatic prepending of 'test' attack.
     """
 
     experiment_dir = Path(f'experiments/{experiment_name}/adversarial_examples')
@@ -207,8 +216,9 @@ def generate_adversarial_examples(
     exp_labels_test = exp_labels_test.detach().clone()
 
     attack_list = attacks if attacks is not None else ATTACKS
+    run_list = attack_list if no_auto_test else ["test"] + attack_list
     failed_attacks = 0
-    for attack_name in ["test"] + attack_list:
+    for attack_name in run_list:
         try:
             apply_attack(attack_name,
                          exp_dataset_test,
@@ -225,7 +235,7 @@ def generate_adversarial_examples(
                 torch.cuda.empty_cache()
             continue
 
-    total_attacks = 1 + len(attack_list)  # "test" + real attacks
+    total_attacks = len(run_list)
     if failed_attacks == total_attacks:
         print(f"FATAL: All {total_attacks} attacks failed.", flush=True)
         sys.exit(1)
@@ -271,6 +281,7 @@ def main() -> None:
         input_shape = input_shape,
         num_classes = num_classes,
         attacks = args.attacks,
+        no_auto_test = args.no_auto_test,
     )
 
 

@@ -263,6 +263,7 @@ def calibrate_adversarial_attacks(model, test_data, test_labels, weights_path,
         for f in os.listdir(weights_path)
     ) if os.path.isdir(weights_path) else False
 
+    random_penalty = 1.0
     if not trained_weights_exist:
         random_penalty = 10.0
         print(f"  WARNING: Using random weights — applying {random_penalty}x penalty to C estimate", flush=True)
@@ -271,7 +272,7 @@ def calibrate_adversarial_attacks(model, test_data, test_labels, weights_path,
     print(f"  Total estimated adversarial time: {total_time:.0f}s "
           f"({total_time/3600:.1f}h)", flush=True)
 
-    return total_time, per_attack_seconds
+    return total_time, per_attack_seconds, trained_weights_exist, random_penalty
 
 
 def main():
@@ -384,7 +385,7 @@ def main():
     # Find weights path (random weights are fine — timing depends on architecture)
     weights_path = os.path.join(calib_dir, "weights")
 
-    adv_total_time, per_attack_seconds = calibrate_adversarial_attacks(
+    adv_total_time, per_attack_seconds, trained_weights_exist, random_penalty = calibrate_adversarial_attacks(
         model=model,
         test_data=test_data_subset,
         test_labels=test_labels_subset,
@@ -415,7 +416,19 @@ def main():
 
     # Step C: adversarial examples (calibrated from attack timing)
     est_C_time = adv_total_time * time_padding + adv_grace_seconds
-    est_C_mem = int(train_peak_mem * mem_padding)  # model + dataset, same GPU task type
+    MIN_C_MEM = 64 * (1024 ** 3)  # 64 GB minimum — adversarial generation loads all attacks + stores examples
+    est_C_mem = max(int(train_peak_mem * mem_padding), MIN_C_MEM)
+
+    # Per-attack Slurm estimates (for parallelized Step C)
+    per_attack_slurm = {}
+    MIN_PER_ATTACK_SECONDS = 3600  # 1h floor per attack
+    for atk_name, atk_secs in per_attack_seconds.items():
+        padded = atk_secs * random_penalty * time_padding + adv_grace_seconds
+        padded = max(padded, MIN_PER_ATTACK_SECONDS)
+        per_attack_slurm[atk_name] = {
+            "time": seconds_to_slurm_time(padded),
+            "time_seconds": round(padded, 2),
+        }
 
     # Step D: adversarial matrices per chunk
     est_D_per_chunk = avg_time * num_attacks * args.samples_per_attack / args.total_chunks * time_padding_adv
@@ -440,6 +453,8 @@ def main():
             "time_seconds": est_C_time,
             "mem_bytes": est_C_mem,
             "per_attack_seconds": per_attack_seconds,
+            "per_attack_slurm": per_attack_slurm,
+            "trained_weights_exist": trained_weights_exist,
         },
         "D": {
             "time": seconds_to_slurm_time(est_D_per_chunk),

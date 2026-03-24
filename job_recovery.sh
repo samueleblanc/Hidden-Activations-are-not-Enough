@@ -64,7 +64,7 @@ submit_job() {
 # Track job IDs for dependency chain
 JOB_A=""
 JOB_B_IDS=""
-JOB_C=""
+JOB_C_IDS=""
 JOB_D_IDS=""
 JOB_E=""
 JOB_F=""
@@ -174,18 +174,19 @@ STEPB_EOF
 fi
 
 # ==============================================================
-# Step C: Adversarial examples
+# Step C: Adversarial examples (per-attack parallel jobs)
 # ==============================================================
 if [ "$RECOVER_STEP_C" = "true" ]; then
-    cat > "$RECOVERY_DIR/step_C.sh" << STEPC_EOF
+    for ATTACK_NAME in $RECOVER_STEP_C_CHUNKS; do
+        cat > "$RECOVERY_DIR/step_C_attack_${ATTACK_NAME}.sh" << STEPC_EOF
 #!/bin/bash
 #SBATCH --account=$ACCOUNT
 #SBATCH --gres=gpu:1
-#SBATCH --cpus-per-task=16
-#SBATCH --time=04:00:00
-#SBATCH --mem=124G
-#SBATCH --output=slurm_out/REC_C_adv_ex_%A.out
-#SBATCH --error=slurm_err/REC_C_adv_ex_%A.err
+#SBATCH --cpus-per-task=4
+#SBATCH --time=03:00:00
+#SBATCH --mem=32G
+#SBATCH --output=slurm_out/REC_C_${ATTACK_NAME}_%A.out
+#SBATCH --error=slurm_err/REC_C_${ATTACK_NAME}_%A.err
 
 mkdir -p \$SLURM_SUBMIT_DIR/slurm_out
 mkdir -p \$SLURM_SUBMIT_DIR/slurm_err
@@ -194,6 +195,7 @@ module load StdEnv/2023 python/3.11.5 scipy-stack/2025a
 source env_rorqual/bin/activate
 
 EXPERIMENT="$EXPERIMENT"
+ATTACK_NAME="$ATTACK_NAME"
 
 mkdir -p \$SLURM_TMPDIR/experiments/\$EXPERIMENT/weights/
 cp experiments/\$EXPERIMENT/weights/* \$SLURM_TMPDIR/experiments/\$EXPERIMENT/weights/
@@ -203,17 +205,21 @@ cp -r data/cifar-10-batches-py/* \$SLURM_TMPDIR/data/cifar-10-batches-py/ 2>/dev
 mkdir -p \$SLURM_TMPDIR/data/cifar-100-python/
 cp -r data/cifar-100-python/* \$SLURM_TMPDIR/data/cifar-100-python/ 2>/dev/null || true
 
-python generate_adversarial_examples.py --experiment_name \$EXPERIMENT --temp_dir=\$SLURM_TMPDIR
-echo "Step C (adversarial examples) complete."
+python generate_adversarial_examples.py --experiment_name \$EXPERIMENT --temp_dir=\$SLURM_TMPDIR --attacks \$ATTACK_NAME --no_auto_test
+mkdir -p \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adversarial_examples/\$ATTACK_NAME/
+cp -r \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adversarial_examples/\$ATTACK_NAME/* \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adversarial_examples/\$ATTACK_NAME/ 2>/dev/null || true
+echo "Step C attack $ATTACK_NAME complete."
 STEPC_EOF
 
-    DEP=""
-    if [ -n "$JOB_A" ]; then
-        DEP="$JOB_A"
-    fi
-    JOB_C=$(submit_job "$RECOVERY_DIR/step_C.sh" "$DEP")
-    ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}$JOB_C"
-    echo "[Step C] Adversarial examples submitted: Job $JOB_C (depends on: ${DEP:-none})"
+        DEP=""
+        if [ -n "$JOB_A" ]; then
+            DEP="$JOB_A"
+        fi
+        JOB_ID=$(submit_job "$RECOVERY_DIR/step_C_attack_${ATTACK_NAME}.sh" "$DEP")
+        JOB_C_IDS="${JOB_C_IDS:+$JOB_C_IDS:}$JOB_ID"
+        ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}$JOB_ID"
+        echo "[Step C] Attack $ATTACK_NAME submitted: Job $JOB_ID (depends on: ${DEP:-none})"
+    done
 fi
 
 # ==============================================================
@@ -265,8 +271,8 @@ echo "Step D chunk $CHUNK complete."
 STEPD_EOF
 
         DEP=""
-        if [ -n "$JOB_C" ]; then
-            DEP="$JOB_C"
+        if [ -n "$JOB_C_IDS" ]; then
+            DEP="$JOB_C_IDS"
         fi
         JOB_ID=$(submit_job "$RECOVERY_DIR/step_D_chunk_${CHUNK}.sh" "$DEP")
         JOB_D_IDS="${JOB_D_IDS:+$JOB_D_IDS:}$JOB_ID"
@@ -340,8 +346,8 @@ STEPE_EOF
     if [ -n "$JOB_B_IDS" ]; then
         E_DEPS="${E_DEPS:+$E_DEPS:}$JOB_B_IDS"
     fi
-    if [ -n "$JOB_C" ]; then
-        E_DEPS="${E_DEPS:+$E_DEPS:}$JOB_C"
+    if [ -n "$JOB_C_IDS" ]; then
+        E_DEPS="${E_DEPS:+$E_DEPS:}$JOB_C_IDS"
     fi
     if [ -n "$JOB_D_IDS" ]; then
         E_DEPS="${E_DEPS:+$E_DEPS:}$JOB_D_IDS"
@@ -461,7 +467,7 @@ echo "  Dependency chain:"
 if [ -n "$JOB_B_IDS" ]; then
     echo "    Step B (Matrices):            ${JOB_B_IDS//:/, }"
 fi
-[ -n "$JOB_C" ]     && echo "    Step C (Adv examples):        $JOB_C"
+[ -n "$JOB_C_IDS" ] && echo "    Step C (Adv examples):        ${JOB_C_IDS//:/, }"
 if [ -n "$JOB_D_IDS" ]; then
     echo "    Step D (Adv matrices):        ${JOB_D_IDS//:/, }"
 fi
