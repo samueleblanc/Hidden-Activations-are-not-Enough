@@ -1,15 +1,15 @@
 """
-Automatic OOM retry: detect OOM failures and resubmit affected pipeline chain
-with doubled memory.
+Automatic resource-failure retry: detect OOM and timeout failures and resubmit
+affected pipeline chain with doubled memory and time.
 
-Reads overall_errors.json (produced by collect_errors.py), identifies OOM
-failures, doubles --mem in the affected Slurm scripts, and resubmits the
-downstream dependency chain.
+Reads overall_errors.json (produced by collect_errors.py), identifies retryable
+failures (OOM, timeout), doubles --mem and --time in the affected Slurm scripts,
+and resubmits the downstream dependency chain.
 
 Usage:
-    python oom_resubmit.py --experiment alexnet_cifar10
-    python oom_resubmit.py --experiment alexnet_cifar10 --test
-    python oom_resubmit.py --experiment alexnet_cifar10 --dry-run
+    python auto_resubmit.py --experiment alexnet_cifar10
+    python auto_resubmit.py --experiment alexnet_cifar10 --test
+    python auto_resubmit.py --experiment alexnet_cifar10 --dry-run
 """
 
 import os
@@ -20,6 +20,9 @@ import argparse
 import subprocess
 from collections import defaultdict
 
+
+# Error types that trigger automatic retry with resource doubling
+RETRYABLE_ERROR_TYPES = {"oom", "timeout"}
 
 # Pipeline dependency graph: step -> set of upstream steps it depends on
 DEPENDS_ON = {
@@ -39,22 +42,41 @@ TOPO_ORDER = ["A", "B", "C", "G", "D", "E", "F", "AUDIT"]
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Automatic OOM retry with doubled memory"
+        description="Automatic resource-failure retry with doubled memory and time"
     )
     parser.add_argument("--experiment", type=str, required=True)
     parser.add_argument("--test", action="store_true", default=False,
                         help="Use test-mode directories")
     parser.add_argument("--max-retries", type=int, default=2,
-                        help="Maximum OOM retries (default: 2)")
+                        help="Maximum auto retries (default: 2)")
     parser.add_argument("--mem-cap", type=int, default=480,
                         help="Memory cap in GB (default: 480)")
+    parser.add_argument("--time-cap", type=str, default="48:00:00",
+                        help="Time cap in HH:MM:SS (default: 48:00:00)")
     parser.add_argument("--dry-run", action="store_true", default=False,
                         help="Print sbatch commands without executing")
     return parser.parse_args()
 
 
+def parse_time_to_seconds(time_str):
+    """Parse 'HH:MM:SS' to total seconds."""
+    parts = time_str.split(":")
+    if len(parts) != 3:
+        raise ValueError(f"Expected HH:MM:SS format, got: {time_str}")
+    h, m, s = int(parts[0]), int(parts[1]), int(parts[2])
+    return h * 3600 + m * 60 + s
+
+
+def seconds_to_time(total_seconds):
+    """Format total seconds as 'HH:MM:SS'."""
+    h = total_seconds // 3600
+    m = (total_seconds % 3600) // 60
+    s = total_seconds % 60
+    return f"{h:02d}:{m:02d}:{s:02d}"
+
+
 def load_errors(experiment):
-    """Read overall_errors.json and return (oom_entries, all_entries)."""
+    """Read overall_errors.json and return (retryable_entries, all_entries)."""
     path = os.path.join("experiments", experiment, "overall_errors.json")
     if not os.path.isfile(path):
         print(f"No error report found at {path}")
@@ -64,37 +86,46 @@ def load_errors(experiment):
         report = json.load(f)
 
     all_entries = report.get("steps", [])
-    oom_entries = [
+    retryable_entries = [
         e for e in all_entries
-        if e.get("error_detected") and e.get("error_type") == "oom"
+        if e.get("error_detected") and e.get("error_type") in RETRYABLE_ERROR_TYPES
     ]
-    return oom_entries, all_entries
+    return retryable_entries, all_entries
 
 
 def check_retry_count(experiment, max_retries):
     """Read/increment retry counter. Returns current count (before increment).
 
     Aborts (sys.exit) if max retries already reached.
+    Reads from auto_retry_count, with backward-compat fallback to oom_retry_count.
     """
-    counter_path = os.path.join("experiments", experiment, "oom_retry_count")
+    counter_path = os.path.join("experiments", experiment, "auto_retry_count")
+    legacy_path = os.path.join("experiments", experiment, "oom_retry_count")
 
     current = 0
+    # Try new counter first, then legacy
     if os.path.isfile(counter_path):
         try:
             with open(counter_path) as f:
                 current = int(f.read().strip())
         except (ValueError, OSError):
             current = 0
+    elif os.path.isfile(legacy_path):
+        try:
+            with open(legacy_path) as f:
+                current = int(f.read().strip())
+        except (ValueError, OSError):
+            current = 0
 
     if current >= max_retries:
-        print(f"OOM retry limit reached ({current}/{max_retries}). No further retries.")
+        print(f"Auto retry limit reached ({current}/{max_retries}). No further retries.")
         sys.exit(0)
 
-    # Increment
+    # Increment (always write to new counter)
     with open(counter_path, "w") as f:
         f.write(str(current + 1))
 
-    print(f"OOM retry {current + 1}/{max_retries}")
+    print(f"Auto retry {current + 1}/{max_retries}")
     return current
 
 
@@ -152,21 +183,48 @@ def double_memory(script_path, mem_cap_gb):
     return (old_val, new_val)
 
 
-def get_retry_set(oom_entries, all_entries):
+def double_time(script_path, time_cap_seconds):
+    """Double the --time value in a Slurm script, capped at time_cap_seconds."""
+    with open(script_path) as f:
+        content = f.read()
+
+    match = re.search(r"#SBATCH --time=(\d{2}):(\d{2}):(\d{2})", content)
+    if not match:
+        print(f"  WARNING: No --time=HH:MM:SS found in {script_path}")
+        return None
+
+    old_h, old_m, old_s = int(match.group(1)), int(match.group(2)), int(match.group(3))
+    old_seconds = old_h * 3600 + old_m * 60 + old_s
+    new_seconds = min(old_seconds * 2, time_cap_seconds)
+    old_str = f"{old_h:02d}:{old_m:02d}:{old_s:02d}"
+    new_str = seconds_to_time(new_seconds)
+
+    new_content = content.replace(
+        f"#SBATCH --time={match.group(1)}:{match.group(2)}:{match.group(3)}",
+        f"#SBATCH --time={new_str}",
+    )
+
+    with open(script_path, "w") as f:
+        f.write(new_content)
+
+    return (old_str, new_str)
+
+
+def get_retry_set(failed_entries, all_entries):
     """Compute the set of (step, chunk) pairs that need resubmission.
 
-    Includes the OOM'd jobs plus all transitive downstream steps.
-    Returns: (oom_pairs, downstream_pairs, affected_steps)
-      - oom_pairs: set of (step, chunk) that OOM'd (need memory doubling)
+    Includes the failed jobs plus all transitive downstream steps.
+    Returns: (failed_pairs, downstream_pairs, affected_steps)
+      - failed_pairs: set of (step, chunk) that failed (need resource doubling)
       - downstream_pairs: set of (step, chunk) downstream (resubmit as-is)
       - affected_steps: set of step letters in the retry
     """
-    # Step-level set of OOM'd steps
-    oom_steps = {e["step"] for e in oom_entries}
-    oom_pairs = {(e["step"], e.get("chunk")) for e in oom_entries}
+    # Step-level set of failed steps
+    failed_steps = {e["step"] for e in failed_entries}
+    failed_pairs = {(e["step"], e.get("chunk")) for e in failed_entries}
 
     # Propagate downstream: any step whose upstream intersects affected set
-    affected_steps = set(oom_steps)
+    affected_steps = set(failed_steps)
     for step in TOPO_ORDER:
         if step in affected_steps:
             continue
@@ -183,8 +241,8 @@ def get_retry_set(oom_entries, all_entries):
             completed_steps.add((e["step"], e.get("chunk")))
 
     for step in affected_steps:
-        if step in oom_steps:
-            continue  # OOM'd steps are handled via oom_pairs
+        if step in failed_steps:
+            continue  # Failed steps are handled via failed_pairs
         # For downstream steps, find their entries
         step_entries = [e for e in all_entries if e["step"] == step]
         if step_entries:
@@ -193,10 +251,10 @@ def get_retry_set(oom_entries, all_entries):
                 if pair not in completed_steps:
                     downstream_pairs.add(pair)
         else:
-            # Step never ran (e.g., was cancelled) — submit with no chunk
+            # Step never ran (e.g., was cancelled) -- submit with no chunk
             downstream_pairs.add((step, None))
 
-    return oom_pairs, downstream_pairs, affected_steps
+    return failed_pairs, downstream_pairs, affected_steps
 
 
 def submit_job(script_path, dep_ids, dry_run):
@@ -219,12 +277,12 @@ def submit_job(script_path, dep_ids, dry_run):
     return job_id
 
 
-def submit_retry_chain(experiment, oom_pairs, downstream_pairs, affected_steps,
-                       mem_cap_gb, test_mode, dry_run):
+def submit_retry_chain(experiment, failed_pairs, downstream_pairs, affected_steps,
+                       mem_cap_gb, time_cap_seconds, test_mode, dry_run):
     """Submit the retry chain in topological order with correct dependencies."""
     # Merge all pairs for lookup
-    all_retry = {}  # step -> list of (step, chunk, is_oom)
-    for step, chunk in oom_pairs:
+    all_retry = {}  # step -> list of (step, chunk, is_failed)
+    for step, chunk in failed_pairs:
         all_retry.setdefault(step, []).append((step, chunk, True))
     for step, chunk in downstream_pairs:
         all_retry.setdefault(step, []).append((step, chunk, False))
@@ -243,22 +301,25 @@ def submit_retry_chain(experiment, oom_pairs, downstream_pairs, affected_steps,
             if upstream in new_job_ids:
                 dep_ids.extend(new_job_ids[upstream])
 
-        for _, chunk, is_oom in entries:
+        for _, chunk, is_failed in entries:
             script = step_to_script(experiment, step, chunk, test_mode)
             if script is None or not os.path.isfile(script):
                 print(f"  WARNING: Script not found for step {step} chunk {chunk}: {script}")
                 continue
 
-            if is_oom:
+            if is_failed:
                 mem_info = double_memory(script, mem_cap_gb)
                 if mem_info:
                     print(f"  [{step}] Doubled memory: {mem_info[0]}G -> {mem_info[1]}G ({os.path.basename(script)})")
+                time_info = double_time(script, time_cap_seconds)
+                if time_info:
+                    print(f"  [{step}] Doubled time: {time_info[0]} -> {time_info[1]} ({os.path.basename(script)})")
 
             job_id = submit_job(script, dep_ids, dry_run)
             if job_id:
                 new_job_ids[step].append(job_id)
                 all_submitted.append(job_id)
-                action = "OOM-retry" if is_oom else "downstream"
+                action = "resource-retry" if is_failed else "downstream"
                 chunk_str = f" chunk={chunk}" if chunk is not None else ""
                 print(f"  [{step}] Submitted {action}{chunk_str}: {job_id}")
 
@@ -295,33 +356,34 @@ def submit_retry_chain(experiment, oom_pairs, downstream_pairs, affected_steps,
 def main():
     args = parse_args()
     experiment = args.experiment
+    time_cap_seconds = parse_time_to_seconds(args.time_cap)
 
-    print(f"OOM retry check for experiment: {experiment}")
+    print(f"Auto retry check for experiment: {experiment}")
 
     # Load errors
-    oom_entries, all_entries = load_errors(experiment)
-    if not oom_entries:
-        print("No OOM failures detected. Nothing to retry.")
+    retryable_entries, all_entries = load_errors(experiment)
+    if not retryable_entries:
+        print("No retryable failures (OOM/timeout) detected. Nothing to retry.")
         return
 
-    print(f"Found {len(oom_entries)} OOM failure(s):")
-    for e in oom_entries:
+    print(f"Found {len(retryable_entries)} retryable failure(s):")
+    for e in retryable_entries:
         chunk_str = f" chunk={e.get('chunk')}" if e.get("chunk") is not None else ""
-        print(f"  Step {e['step']}{chunk_str} (job {e['job_id']})")
+        print(f"  Step {e['step']}{chunk_str} (job {e['job_id']}, type={e['error_type']})")
 
     # Check retry count
     check_retry_count(experiment, args.max_retries)
 
     # Compute retry set
-    oom_pairs, downstream_pairs, affected_steps = get_retry_set(oom_entries, all_entries)
+    failed_pairs, downstream_pairs, affected_steps = get_retry_set(retryable_entries, all_entries)
     print(f"Affected steps: {sorted(affected_steps)}")
     if downstream_pairs:
         print(f"Downstream resubmissions: {sorted(downstream_pairs)}")
 
     # Submit retry chain
     submitted = submit_retry_chain(
-        experiment, oom_pairs, downstream_pairs, affected_steps,
-        args.mem_cap, args.test, args.dry_run,
+        experiment, failed_pairs, downstream_pairs, affected_steps,
+        args.mem_cap, time_cap_seconds, args.test, args.dry_run,
     )
 
     if submitted:

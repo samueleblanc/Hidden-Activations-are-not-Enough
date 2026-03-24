@@ -1102,9 +1102,9 @@ python collect_errors.py --experiment $EXP $ERRSCAN_TEST_FLAG --include-audit-re
 FALLBACK_JSON
 }
 
-# Automatic OOM retry: resubmit failed jobs with doubled memory
-python oom_resubmit.py --experiment $EXP $ERRSCAN_TEST_FLAG || {
-    echo "WARNING: oom_resubmit.py exited with code \$? (non-fatal)"
+# Automatic resource-failure retry: resubmit failed jobs with doubled memory and time
+python auto_resubmit.py --experiment $EXP $ERRSCAN_TEST_FLAG || {
+    echo "WARNING: auto_resubmit.py exited with code \$? (non-fatal)"
 }
 ERRSCAN_EOF
 
@@ -1835,9 +1835,9 @@ python collect_errors.py --experiment $EXPERIMENT $ERRSCAN_TEST_FLAG --include-a
 FALLBACK_JSON
 }
 
-# Automatic OOM retry: resubmit failed jobs with doubled memory
-python oom_resubmit.py --experiment $EXPERIMENT $ERRSCAN_TEST_FLAG || {
-    echo "WARNING: oom_resubmit.py exited with code \$? (non-fatal)"
+# Automatic resource-failure retry: resubmit failed jobs with doubled memory and time
+python auto_resubmit.py --experiment $EXPERIMENT $ERRSCAN_TEST_FLAG || {
+    echo "WARNING: auto_resubmit.py exited with code \$? (non-fatal)"
 }
 EOF_ERRSCAN
     # Submit with afterany so it runs even when upstream jobs fail

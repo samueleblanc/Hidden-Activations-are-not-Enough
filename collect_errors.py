@@ -173,6 +173,9 @@ def detect_error(job, sacct_info):
         # Slurm OUT_OF_MEMORY kills may leave .err empty; force oom classification
         if slurm_state == "OUT_OF_MEMORY":
             error_type = "oom"
+        # Slurm TIMEOUT may leave .err empty; force timeout classification
+        if slurm_state == "TIMEOUT":
+            error_type = "timeout"
         traceback = extract_traceback(tail_text)
         if error_type is None:
             error_type = "code" if traceback else "unknown"

@@ -1,4 +1,4 @@
-"""Tests for collect_errors.py bug fixes and oom_resubmit.py."""
+"""Tests for collect_errors.py bug fixes and auto_resubmit.py."""
 
 import os
 import sys
@@ -10,13 +10,14 @@ import shutil
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from collect_errors import discover_jobs, detect_error
-from oom_resubmit import (
-    double_memory, get_retry_set, step_to_script, load_errors,
-    check_retry_count, DEPENDS_ON, TOPO_ORDER,
+from auto_resubmit import (
+    double_memory, double_time, parse_time_to_seconds, seconds_to_time,
+    get_retry_set, step_to_script, load_errors,
+    check_retry_count, DEPENDS_ON, TOPO_ORDER, RETRYABLE_ERROR_TYPES,
 )
 
 
-# ── Bug 1: Step C attack log discovery ───────────────────────────────────
+# -- Bug 1: Step C attack log discovery -----------------------------------
 
 class TestStepCDiscovery:
     """discover_jobs() should find Step C attack logs where the filename
@@ -79,7 +80,7 @@ class TestStepCDiscovery:
         assert steps == {"A", "B"}
 
 
-# ── Bug 2: OUT_OF_MEMORY Slurm state forces oom classification ──────────
+# -- Bug 2: OUT_OF_MEMORY Slurm state forces oom classification -----------
 
 class TestOOMClassification:
     """When slurm_state is OUT_OF_MEMORY, error_type should be 'oom'
@@ -132,7 +133,45 @@ class TestOOMClassification:
         assert error_type == "code"  # not forced to oom
 
 
-# ── oom_resubmit.py functions ────────────────────────────────────────────
+# -- Timeout classification ------------------------------------------------
+
+class TestTimeoutClassification:
+    """When slurm_state is TIMEOUT, error_type should be 'timeout'
+    even if the .err file is empty.
+    """
+
+    def setup_method(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def teardown_method(self):
+        shutil.rmtree(self.tmpdir)
+
+    def test_timeout_empty_err(self):
+        err_file = os.path.join(self.tmpdir, "test.err")
+        with open(err_file, "w") as f:
+            f.write("")
+
+        job = {"err_file": err_file, "out_file": None}
+        sacct_info = {"state": "TIMEOUT", "exit_code": "0:0"}
+
+        has_error, error_type, category, *_ = detect_error(job, sacct_info)
+        assert has_error is True
+        assert error_type == "timeout"
+
+    def test_timeout_with_err_content(self):
+        err_file = os.path.join(self.tmpdir, "test.err")
+        with open(err_file, "w") as f:
+            f.write("slurmstepd: error: *** JOB 12345 ON node CANCELLED AT ... DUE TO TIME LIMIT ***\n")
+
+        job = {"err_file": err_file, "out_file": None}
+        sacct_info = {"state": "TIMEOUT", "exit_code": "0:0"}
+
+        has_error, error_type, category, *_ = detect_error(job, sacct_info)
+        assert has_error is True
+        assert error_type == "timeout"
+
+
+# -- auto_resubmit.py functions --------------------------------------------
 
 class TestDoubleMemory:
     def setup_method(self):
@@ -174,6 +213,117 @@ class TestDoubleMemory:
         assert result is None
 
 
+class TestDoubleTime:
+    def setup_method(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def teardown_method(self):
+        shutil.rmtree(self.tmpdir)
+
+    def test_doubles_time(self):
+        script = os.path.join(self.tmpdir, "test.sh")
+        with open(script, "w") as f:
+            f.write("#!/bin/bash\n#SBATCH --mem=128G\n#SBATCH --time=01:00:00\n")
+
+        result = double_time(script, 172800)  # 48h cap
+        assert result == ("01:00:00", "02:00:00")
+
+        with open(script) as f:
+            content = f.read()
+        assert "#SBATCH --time=02:00:00" in content
+
+    def test_respects_cap(self):
+        script = os.path.join(self.tmpdir, "test.sh")
+        with open(script, "w") as f:
+            f.write("#!/bin/bash\n#SBATCH --time=30:00:00\n")
+
+        result = double_time(script, 172800)  # 48h = 172800s
+        assert result == ("30:00:00", "48:00:00")
+
+        with open(script) as f:
+            content = f.read()
+        assert "#SBATCH --time=48:00:00" in content
+
+    def test_no_time_directive(self):
+        script = os.path.join(self.tmpdir, "test.sh")
+        with open(script, "w") as f:
+            f.write("#!/bin/bash\n#SBATCH --mem=128G\n")
+
+        result = double_time(script, 172800)
+        assert result is None
+
+    def test_non_round_time(self):
+        script = os.path.join(self.tmpdir, "test.sh")
+        with open(script, "w") as f:
+            f.write("#!/bin/bash\n#SBATCH --time=01:30:45\n")
+
+        result = double_time(script, 172800)
+        # 1h30m45s = 5445s, doubled = 10890s = 3h1m30s
+        assert result == ("01:30:45", "03:01:30")
+
+        with open(script) as f:
+            content = f.read()
+        assert "#SBATCH --time=03:01:30" in content
+
+
+class TestTimeHelpers:
+    def test_parse_time_to_seconds(self):
+        assert parse_time_to_seconds("01:00:00") == 3600
+        assert parse_time_to_seconds("48:00:00") == 172800
+        assert parse_time_to_seconds("00:30:00") == 1800
+        assert parse_time_to_seconds("01:30:45") == 5445
+
+    def test_seconds_to_time(self):
+        assert seconds_to_time(3600) == "01:00:00"
+        assert seconds_to_time(172800) == "48:00:00"
+        assert seconds_to_time(1800) == "00:30:00"
+        assert seconds_to_time(5445) == "01:30:45"
+
+    def test_parse_time_invalid(self):
+        with pytest.raises(ValueError):
+            parse_time_to_seconds("1:00")
+
+
+class TestRetryableErrorTypes:
+    def test_both_types_present(self):
+        assert "oom" in RETRYABLE_ERROR_TYPES
+        assert "timeout" in RETRYABLE_ERROR_TYPES
+
+    def test_load_errors_filters_retryable(self):
+        """load_errors should return both oom and timeout entries."""
+        tmpdir = tempfile.mkdtemp()
+        try:
+            exp_dir = os.path.join(tmpdir, "experiments", "test_exp")
+            os.makedirs(exp_dir)
+            errors = {
+                "steps": [
+                    {"step": "B", "chunk": 3, "job_id": "111",
+                     "error_detected": True, "error_type": "oom"},
+                    {"step": "C", "chunk": "FGSM", "job_id": "222",
+                     "error_detected": True, "error_type": "timeout"},
+                    {"step": "A", "chunk": None, "job_id": "100",
+                     "error_detected": True, "error_type": "code"},
+                    {"step": "D", "chunk": 0, "job_id": "333",
+                     "error_detected": False},
+                ]
+            }
+            with open(os.path.join(exp_dir, "overall_errors.json"), "w") as f:
+                json.dump(errors, f)
+
+            orig_dir = os.getcwd()
+            os.chdir(tmpdir)
+            try:
+                retryable, all_entries = load_errors("test_exp")
+                assert len(retryable) == 2
+                types = {e["error_type"] for e in retryable}
+                assert types == {"oom", "timeout"}
+                assert len(all_entries) == 4
+            finally:
+                os.chdir(orig_dir)
+        finally:
+            shutil.rmtree(tmpdir)
+
+
 class TestGetRetrySet:
     def test_single_oom_propagates_downstream(self):
         oom_entries = [{"step": "B", "chunk": 3, "job_id": "111",
@@ -189,18 +339,35 @@ class TestGetRetrySet:
              "slurm_state": "CANCELLED", "error_detected": True, "error_type": "unknown"},
         ]
 
-        oom_pairs, downstream_pairs, affected_steps = get_retry_set(oom_entries, all_entries)
-        assert ("B", 3) in oom_pairs
+        failed_pairs, downstream_pairs, affected_steps = get_retry_set(oom_entries, all_entries)
+        assert ("B", 3) in failed_pairs
         assert "E" in affected_steps
         assert "F" in affected_steps
         # A should not be affected (it completed)
         assert "A" not in affected_steps
 
-    def test_no_oom(self):
-        oom_pairs, downstream_pairs, affected_steps = get_retry_set([], [])
-        assert len(oom_pairs) == 0
+    def test_no_failures(self):
+        failed_pairs, downstream_pairs, affected_steps = get_retry_set([], [])
+        assert len(failed_pairs) == 0
         assert len(downstream_pairs) == 0
         assert len(affected_steps) == 0
+
+    def test_timeout_propagates_downstream(self):
+        timeout_entries = [{"step": "C", "chunk": "FGSM", "job_id": "222",
+                            "error_detected": True, "error_type": "timeout"}]
+        all_entries = [
+            {"step": "A", "chunk": None, "job_id": "100",
+             "slurm_state": "COMPLETED", "error_detected": False},
+            {"step": "C", "chunk": "FGSM", "job_id": "222",
+             "slurm_state": "TIMEOUT", "error_detected": True, "error_type": "timeout"},
+            {"step": "D", "chunk": 0, "job_id": "300",
+             "slurm_state": "CANCELLED", "error_detected": True, "error_type": "unknown"},
+        ]
+
+        failed_pairs, downstream_pairs, affected_steps = get_retry_set(timeout_entries, all_entries)
+        assert ("C", "FGSM") in failed_pairs
+        assert "D" in affected_steps
+        assert "E" in affected_steps
 
 
 class TestStepToScript:
@@ -263,21 +430,30 @@ class TestRetryCount:
     def test_first_retry(self):
         count = check_retry_count("test_exp", max_retries=2)
         assert count == 0
-        # File should now contain 1
-        with open(os.path.join(self.exp_dir, "oom_retry_count")) as f:
+        # File should now contain 1 (using new counter name)
+        with open(os.path.join(self.exp_dir, "auto_retry_count")) as f:
             assert f.read().strip() == "1"
 
     def test_second_retry(self):
-        with open(os.path.join(self.exp_dir, "oom_retry_count"), "w") as f:
+        with open(os.path.join(self.exp_dir, "auto_retry_count"), "w") as f:
             f.write("1")
         count = check_retry_count("test_exp", max_retries=2)
         assert count == 1
 
     def test_max_retries_reached(self):
-        with open(os.path.join(self.exp_dir, "oom_retry_count"), "w") as f:
+        with open(os.path.join(self.exp_dir, "auto_retry_count"), "w") as f:
             f.write("2")
         with pytest.raises(SystemExit):
             check_retry_count("test_exp", max_retries=2)
+
+    def test_legacy_oom_retry_count_compat(self):
+        """Should read from oom_retry_count if auto_retry_count doesn't exist."""
+        with open(os.path.join(self.exp_dir, "oom_retry_count"), "w") as f:
+            f.write("1")
+        count = check_retry_count("test_exp", max_retries=2)
+        assert count == 1
+        # Should write to new counter name
+        assert os.path.isfile(os.path.join(self.exp_dir, "auto_retry_count"))
 
 
 class TestDependencyGraph:
