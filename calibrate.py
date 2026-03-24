@@ -422,12 +422,16 @@ def main():
     # Per-attack Slurm estimates (for parallelized Step C)
     per_attack_slurm = {}
     MIN_PER_ATTACK_SECONDS = 3600  # 1h floor per attack
+    MIN_PER_ATTACK_MEM = 16 * (1024 ** 3)  # 16 GB floor per attack
+    per_attack_mem = max(int(train_peak_mem * mem_padding), MIN_PER_ATTACK_MEM)
     for atk_name, atk_secs in per_attack_seconds.items():
         padded = atk_secs * random_penalty * time_padding + adv_grace_seconds
         padded = max(padded, MIN_PER_ATTACK_SECONDS)
         per_attack_slurm[atk_name] = {
             "time": seconds_to_slurm_time(padded),
             "time_seconds": round(padded, 2),
+            "mem": bytes_to_slurm_mem(per_attack_mem),
+            "mem_bytes": per_attack_mem,
         }
 
     # Step D: adversarial matrices per chunk

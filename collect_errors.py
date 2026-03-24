@@ -63,7 +63,16 @@ def discover_jobs(experiment, slurm_out_dir, slurm_err_dir):
             if not parsed:
                 continue
             if parsed["exp"] != experiment:
-                continue
+                # Step C logs include the attack name in the filename:
+                #   PIPE_C_alexnet_cifar10_FGSM_12345.out
+                # The regex parses exp="alexnet_cifar10_FGSM" instead of "alexnet_cifar10".
+                # Detect this case and store the attack suffix as the chunk.
+                if parsed["step"] == "C" and parsed["exp"].startswith(experiment + "_"):
+                    attack_suffix = parsed["exp"][len(experiment) + 1:]
+                    parsed["exp"] = experiment
+                    parsed["chunk"] = attack_suffix
+                else:
+                    continue
             if parsed["step"] == "ERRSCAN":
                 continue  # skip our own logs
 
@@ -73,7 +82,7 @@ def discover_jobs(experiment, slurm_out_dir, slurm_err_dir):
                     "job_id": job_id,
                     "prefix": parsed["prefix"],
                     "step": parsed["step"],
-                    "chunk": int(parsed["chunk"]) if parsed["chunk"] else None,
+                    "chunk": int(parsed["chunk"]) if parsed["chunk"] and parsed["chunk"].isdigit() else parsed["chunk"],
                     "err_file": None,
                     "out_file": None,
                 }
@@ -161,6 +170,9 @@ def detect_error(job, sacct_info):
             tail_text = read_tail(job["err_file"])
             source_file = job["err_file"]
         error_type = classify_error(tail_text)
+        # Slurm OUT_OF_MEMORY kills may leave .err empty; force oom classification
+        if slurm_state == "OUT_OF_MEMORY":
+            error_type = "oom"
         traceback = extract_traceback(tail_text)
         if error_type is None:
             error_type = "code" if traceback else "unknown"

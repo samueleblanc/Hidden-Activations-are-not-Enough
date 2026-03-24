@@ -129,6 +129,21 @@ enforce_min_time() {
     fi
 }
 
+enforce_min_mem() {
+    # Ensures SLURM memory is at least a minimum floor (default 16G)
+    # Usage: enforce_min_mem "XG" ["XG_floor"]
+    # All values assumed to be in "XG" format (integer followed by G)
+    local mem_str="$1"
+    local min_mem="${2:-16G}"
+    local mem_val="${mem_str%G}"
+    local min_val="${min_mem%G}"
+    if [ "$mem_val" -lt "$min_val" ] 2>/dev/null; then
+        echo "$min_mem"
+    else
+        echo "$mem_str"
+    fi
+}
+
 # Determine dataset dirs to copy based on experiment
 get_dataset_copy_commands() {
     local dataset="$1"

@@ -529,6 +529,16 @@ print(pa.get('time', ''))" 2>/dev/null || echo "")
                 if [ -n "$CALIB_ATK_TIME" ]; then
                     C_ATK_TIME=$(enforce_min_time "$CALIB_ATK_TIME" "01:00:00")
                 fi
+                # Extract per-attack memory
+                local CALIB_ATK_MEM
+                CALIB_ATK_MEM=$(python3 -c "
+import json
+c = json.load(open('$CALIB_FILE'))
+pa = c.get('slurm_resources',{}).get('C',{}).get('per_attack_slurm',{}).get('$ATTACK_NAME',{})
+print(pa.get('mem', ''))" 2>/dev/null || echo "")
+                if [ -n "$CALIB_ATK_MEM" ]; then
+                    C_ATK_MEM="$CALIB_ATK_MEM"
+                fi
             fi
 
             cat > "$JOB_DIR/step_C_attack_${ATTACK_NAME}.sh" << STEPC_EOF
@@ -1091,6 +1101,11 @@ python collect_errors.py --experiment $EXP $ERRSCAN_TEST_FLAG --include-audit-re
 {"schema_version":"2.0","experiment":"$EXP","pipeline_success":false,"error_scan_failed":true,"error":"collect_errors.py crashed"}
 FALLBACK_JSON
 }
+
+# Automatic OOM retry: resubmit failed jobs with doubled memory
+python oom_resubmit.py --experiment $EXP $ERRSCAN_TEST_FLAG || {
+    echo "WARNING: oom_resubmit.py exited with code \$? (non-fatal)"
+}
 ERRSCAN_EOF
 
         local ERRSCAN_DEPS="${ALL_JOBS}"
@@ -1143,6 +1158,9 @@ for EXP in "${EXPERIMENTS[@]}"; do
         B_TIME=$(enforce_min_time "$B_TIME" "02:00:00")   # 2h floor for matrices
         # C_TIME is now per-attack (floor applied per-attack in submit_full_pipeline)
         D_TIME=$(enforce_min_time "$D_TIME" "04:00:00")   # 4h floor for adv matrices
+
+        # Enforce per-step minimum memory floors on calibrated values
+        C_MEM=$(enforce_min_mem "$C_MEM" "16G")
     else
         echo "  WARNING: No calibration.json found. Run 'bash calibration.sh' first."
         echo "           Proceeding with default resource profiles."
@@ -1815,6 +1833,11 @@ python collect_errors.py --experiment $EXPERIMENT $ERRSCAN_TEST_FLAG --include-a
     cat > \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/overall_errors.json << 'FALLBACK_JSON'
 {"schema_version":"2.0","experiment":"$EXPERIMENT","pipeline_success":false,"error_scan_failed":true,"error":"collect_errors.py crashed"}
 FALLBACK_JSON
+}
+
+# Automatic OOM retry: resubmit failed jobs with doubled memory
+python oom_resubmit.py --experiment $EXPERIMENT $ERRSCAN_TEST_FLAG || {
+    echo "WARNING: oom_resubmit.py exited with code \$? (non-fatal)"
 }
 EOF_ERRSCAN
     # Submit with afterany so it runs even when upstream jobs fail
