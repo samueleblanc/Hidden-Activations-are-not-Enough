@@ -486,7 +486,7 @@ print('test ' + ' '.join(attacks))
     # Legacy compat: if old monolithic step_C.json exists and is complete, skip all C attacks
     local CKPT_C_LEGACY="$CKPT_BASE/step_C.json"
     local C_ADV_COUNT
-    C_ADV_COUNT=$(find "experiments/$EXP/adversarial_examples/" -name "*.pth" 2>/dev/null | wc -l)
+    C_ADV_COUNT=$(find "experiments/$EXP/adversarial_examples/" -name "*.pth" 2>/dev/null | wc -l) || C_ADV_COUNT=0
     if [ "$(read_checkpoint_status "$CKPT_C_LEGACY")" = "complete" ] && [ "$C_ADV_COUNT" -gt 0 ]; then
         echo "  [C] Adv examples:        SKIPPED (legacy step_C.json complete, $C_ADV_COUNT files)"
     else
@@ -498,7 +498,7 @@ print('test ' + ' '.join(attacks))
 
             # Check if this attack already has output files
             local ATK_FILE_COUNT
-            ATK_FILE_COUNT=$(find "experiments/$EXP/adversarial_examples/${ATTACK_NAME}/" -name "*.pth" 2>/dev/null | wc -l)
+            ATK_FILE_COUNT=$(find "experiments/$EXP/adversarial_examples/${ATTACK_NAME}/" -name "*.pth" 2>/dev/null | wc -l) || ATK_FILE_COUNT=0
 
             if [ "$ATK_STATUS" = "complete" ] && [ "$ATK_FILE_COUNT" -gt 0 ]; then
                 echo "  [C] Attack $ATTACK_NAME:   SKIPPED (complete)"
@@ -965,7 +965,7 @@ STEPF_EOF
 
     # --- Submit F ---
     CKPT_F="$CKPT_BASE/step_F.json"
-    F_TEX_COUNT=$(find "tables/" -name "*.tex" 2>/dev/null | wc -l)
+    F_TEX_COUNT=$(find "tables/" -name "*.tex" 2>/dev/null | wc -l) || F_TEX_COUNT=0
     if [ "$(read_checkpoint_status "$CKPT_F")" = "complete" ] && [ "$F_TEX_COUNT" -gt 0 ]; then
         echo "  [F] LaTeX tables:        SKIPPED (complete)"
         JOB_F=""
