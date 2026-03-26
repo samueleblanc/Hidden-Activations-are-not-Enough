@@ -299,6 +299,7 @@ MONITOR_PID=\$!
 
 STEP_START=\$(date +%s)
 python training.py --experiment_name $EXP --temp_dir \$SLURM_TMPDIR
+PY_EXIT=\$?
 STEP_END=\$(date +%s)
 STEP_ELAPSED=\$(( STEP_END - STEP_START ))
 echo "Step A (training) complete for $EXP. Wall-clock: \${STEP_ELAPSED}s"
@@ -308,9 +309,12 @@ kill \$MONITOR_PID 2>/dev/null || true
 # Write checkpoint
 CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints"
 mkdir -p "\$CKPT_DIR"
-if [ -f "\$SLURM_TMPDIR/experiments/$EXP/weights/epoch_${EPOCH}.pth" ] || \
+if [ \$PY_EXIT -ne 0 ]; then
+    printf '{"status":"failed","exit_code":%d,"mem":"$A_MEM","timestamp":"%s"}\n' "\$PY_EXIT" "\$(date -Iseconds)" > "\$CKPT_DIR/step_A.json"
+    exit 1
+elif [ -f "\$SLURM_TMPDIR/experiments/$EXP/weights/epoch_${EPOCH}.pth" ] || \
    [ -f "\$SLURM_SUBMIT_DIR/experiments/$EXP/weights/epoch_${EPOCH}.pth" ]; then
-    printf '{"status":"complete","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_A.json"
+    printf '{"status":"complete","exit_code":0,"timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_A.json"
 fi
 STEPA_EOF
 
@@ -423,6 +427,17 @@ emergency_save() {
 trap emergency_save USR1
 
 python generate_matrices.py --temp_dir \$TEMP_DIR --experiment \$EXPERIMENT --chunk_id \$TASK_ID --total_chunks $TOTAL_CHUNKS --batch_size \$BATCH_SIZE --num_samples_per_class $NUM_SAMPLES_PER_CLASS
+PY_EXIT=\$?
+
+if [ \$PY_EXIT -ne 0 ]; then
+    kill \$SAVE_PID 2>/dev/null; wait \$SAVE_PID 2>/dev/null || true
+    kill \$MONITOR_PID 2>/dev/null || true
+    trap - USR1
+    CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints"
+    mkdir -p "\$CKPT_DIR"
+    printf '{"status":"failed","exit_code":%d,"mem":"$B_MEM","timestamp":"%s"}\n' "\$PY_EXIT" "\$(date -Iseconds)" > "\$CKPT_DIR/step_B_chunk_${CHUNK}.json"
+    exit 1
+fi
 
 kill \$SAVE_PID 2>/dev/null; wait \$SAVE_PID 2>/dev/null || true
 kill \$MONITOR_PID 2>/dev/null || true
@@ -444,7 +459,7 @@ COMPLETED=\$(find "\$SLURM_TMPDIR/experiments/$EXP/matrices" -name "matrix.pt" 2
 TOTAL=$B_CHUNK_TOTAL
 STATUS="complete"
 [ "\$COMPLETED" -lt "\$TOTAL" ] && STATUS="partial"
-printf '{"status":"%s","completed":%d,"total":%d,"timestamp":"%s"}\n' "\$STATUS" "\$COMPLETED" "\$TOTAL" "\$(date -Iseconds)" > "\$CKPT_DIR/step_B_chunk_${CHUNK}.json"
+printf '{"status":"%s","completed":%d,"total":%d,"exit_code":0,"timestamp":"%s"}\n' "\$STATUS" "\$COMPLETED" "\$TOTAL" "\$(date -Iseconds)" > "\$CKPT_DIR/step_B_chunk_${CHUNK}.json"
 STEPB_EOF
 
         CKPT_B="$CKPT_BASE/step_B_chunk_${CHUNK}.json"
@@ -537,7 +552,7 @@ c = json.load(open('$CALIB_FILE'))
 pa = c.get('slurm_resources',{}).get('C',{}).get('per_attack_slurm',{}).get('$ATTACK_NAME',{})
 print(pa.get('mem', ''))" 2>/dev/null || echo "")
                 if [ -n "$CALIB_ATK_MEM" ]; then
-                    C_ATK_MEM="$CALIB_ATK_MEM"
+                    C_ATK_MEM=$(enforce_min_mem "$CALIB_ATK_MEM" "16G")
                 fi
             fi
 
@@ -580,26 +595,32 @@ MONITOR_PID=\$!
 
 STEP_START=\$(date +%s)
 python generate_adversarial_examples.py --experiment_name \$EXPERIMENT --temp_dir=\$SLURM_TMPDIR --attacks \$ATTACK_NAME --no_auto_test $C_TEST_SIZE_ARG
+PY_EXIT=\$?
 STEP_END=\$(date +%s)
 STEP_ELAPSED=\$(( STEP_END - STEP_START ))
 echo "Step C attack \$ATTACK_NAME wall-clock: \${STEP_ELAPSED}s"
 
 kill \$MONITOR_PID 2>/dev/null || true
 
+# Write per-attack checkpoint
+CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints"
+mkdir -p "\$CKPT_DIR"
+if [ \$PY_EXIT -ne 0 ]; then
+    printf '{"status":"failed","exit_code":%d,"mem":"$C_ATK_MEM","timestamp":"%s"}\n' "\$PY_EXIT" "\$(date -Iseconds)" > "\$CKPT_DIR/step_C_attack_\${ATTACK_NAME}.json"
+    exit 1
+fi
+
 # Copy results back (only this attack's subdirectory)
 mkdir -p \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adversarial_examples/\$ATTACK_NAME/
 cp -r \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adversarial_examples/\$ATTACK_NAME/* \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adversarial_examples/\$ATTACK_NAME/ 2>/dev/null || true
 echo "Step C attack \$ATTACK_NAME complete for $EXP."
 
-# Write per-attack checkpoint
-CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints"
-mkdir -p "\$CKPT_DIR"
 ADV_COUNT=\$(find \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adversarial_examples/\$ATTACK_NAME/ -name "*.pth" 2>/dev/null | wc -l)
 if [ "\$ADV_COUNT" -gt 0 ]; then
-    printf '{"status":"complete","attack":"%s","timestamp":"%s"}\n' "\$ATTACK_NAME" "\$(date -Iseconds)" > "\$CKPT_DIR/step_C_attack_\${ATTACK_NAME}.json"
+    printf '{"status":"complete","exit_code":0,"attack":"%s","timestamp":"%s"}\n' "\$ATTACK_NAME" "\$(date -Iseconds)" > "\$CKPT_DIR/step_C_attack_\${ATTACK_NAME}.json"
 else
     # 0-output attacks are still "complete" (e.g., no misclassifications)
-    printf '{"status":"complete","attack":"%s","note":"no_misclassifications","timestamp":"%s"}\n' "\$ATTACK_NAME" "\$(date -Iseconds)" > "\$CKPT_DIR/step_C_attack_\${ATTACK_NAME}.json"
+    printf '{"status":"complete","exit_code":0,"attack":"%s","note":"no_misclassifications","timestamp":"%s"}\n' "\$ATTACK_NAME" "\$(date -Iseconds)" > "\$CKPT_DIR/step_C_attack_\${ATTACK_NAME}.json"
     echo "NOTE: Attack \$ATTACK_NAME produced 0 adversarial examples (checkpoint marked complete)"
 fi
 STEPC_EOF
@@ -721,6 +742,17 @@ python generate_adversarial_matrices.py \
     --total_chunks $TOTAL_CHUNKS \
     --batch_size \$BATCH_SIZE \
     --samples_per_attack $SAMPLES_PER_ATTACK
+PY_EXIT=\$?
+
+if [ \$PY_EXIT -ne 0 ]; then
+    kill \$SAVE_PID 2>/dev/null; wait \$SAVE_PID 2>/dev/null || true
+    kill \$MONITOR_PID 2>/dev/null || true
+    trap - USR1
+    CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints"
+    mkdir -p "\$CKPT_DIR"
+    printf '{"status":"failed","exit_code":%d,"mem":"$D_MEM","timestamp":"%s"}\n' "\$PY_EXIT" "\$(date -Iseconds)" > "\$CKPT_DIR/step_D_chunk_${CHUNK}.json"
+    exit 1
+fi
 
 kill \$SAVE_PID 2>/dev/null; wait \$SAVE_PID 2>/dev/null || true
 kill \$MONITOR_PID 2>/dev/null || true
@@ -742,7 +774,7 @@ COMPLETED=\$(find "\$SLURM_TMPDIR/experiments/$EXP/adversarial_matrices" -name "
 TOTAL=$D_CHUNK_TOTAL
 STATUS="complete"
 [ "\$COMPLETED" -lt "\$TOTAL" ] && STATUS="partial"
-printf '{"status":"%s","completed":%d,"total":%d,"timestamp":"%s"}\n' "\$STATUS" "\$COMPLETED" "\$TOTAL" "\$(date -Iseconds)" > "\$CKPT_DIR/step_D_chunk_${CHUNK}.json"
+printf '{"status":"%s","completed":%d,"total":%d,"exit_code":0,"timestamp":"%s"}\n' "\$STATUS" "\$COMPLETED" "\$TOTAL" "\$(date -Iseconds)" > "\$CKPT_DIR/step_D_chunk_${CHUNK}.json"
 STEPD_EOF
 
         CKPT_D="$CKPT_BASE/step_D_chunk_${CHUNK}.json"
@@ -830,23 +862,30 @@ MONITOR_PID=\$!
 
 STEP_START=\$(date +%s)
 python compare_representations.py --experiment \$EXPERIMENT --temp_dir \$SLURM_TMPDIR --svd_ablation
+PY_EXIT=\$?
 STEP_END=\$(date +%s)
 STEP_ELAPSED=\$(( STEP_END - STEP_START ))
 echo "Step E wall-clock: \${STEP_ELAPSED}s"
 
 kill \$MONITOR_PID 2>/dev/null || true
 
+# Write checkpoint
+CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints"
+mkdir -p "\$CKPT_DIR"
+if [ \$PY_EXIT -ne 0 ]; then
+    printf '{"status":"failed","exit_code":%d,"mem":"$E_MEM","timestamp":"%s"}\n' "\$PY_EXIT" "\$(date -Iseconds)" > "\$CKPT_DIR/step_E.json"
+    exit 1
+fi
+
 # Copy results back
 mkdir -p \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/comparison/
 cp -r \$SLURM_TMPDIR/experiments/\$EXPERIMENT/comparison/* \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/comparison/ 2>/dev/null || true
 echo "Step E (representation comparison) complete for $EXP."
 
-# Write checkpoint only if output was actually produced
 if [ -f "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/comparison/representation_comparison.json" ]; then
-    CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints"
-    mkdir -p "\$CKPT_DIR"
-    printf '{"status":"complete","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_E.json"
+    printf '{"status":"complete","exit_code":0,"timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_E.json"
 else
+    printf '{"status":"failed","exit_code":0,"mem":"$E_MEM","note":"no_output","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_E.json"
     echo "ERROR: Step E did not produce representation_comparison.json"
     exit 1
 fi
@@ -905,20 +944,27 @@ cd \$SLURM_SUBMIT_DIR
 
 STEP_START=\$(date +%s)
 python validate_theorem45.py --experiment \$EXPERIMENT --temp_dir \$SLURM_TMPDIR --num_samples 200
+PY_EXIT=\$?
 STEP_END=\$(date +%s)
 STEP_ELAPSED=\$(( STEP_END - STEP_START ))
 echo "Step G wall-clock: \${STEP_ELAPSED}s"
 
 kill \$MONITOR_PID 2>/dev/null || true
 
+# Write checkpoint
+CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/checkpoints"
+mkdir -p "\$CKPT_DIR"
+if [ \$PY_EXIT -ne 0 ]; then
+    printf '{"status":"failed","exit_code":%d,"mem":"$G_MEM","timestamp":"%s"}\n' "\$PY_EXIT" "\$(date -Iseconds)" > "\$CKPT_DIR/step_G.json"
+    exit 1
+fi
+
 echo "Step G (Theorem 4.5 validation) complete for $EXP."
 
-# Write checkpoint only if output was actually produced
 if [ -f "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/theorem45/theorem45_results.json" ]; then
-    CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/checkpoints"
-    mkdir -p "\$CKPT_DIR"
-    printf '{"status":"complete","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_G.json"
+    printf '{"status":"complete","exit_code":0,"timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_G.json"
 else
+    printf '{"status":"failed","exit_code":0,"mem":"$G_MEM","note":"no_output","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_G.json"
     echo "ERROR: Step G did not produce theorem45_results.json"
     exit 1
 fi
@@ -959,15 +1005,22 @@ source $ENV_NAME/bin/activate
 cd \$SLURM_SUBMIT_DIR
 mkdir -p tables
 python generate_latex_tables.py --output tables/
+PY_EXIT=\$?
 echo "Step F (LaTeX tables) complete for $EXP."
 
-# Write checkpoint only if .tex files were actually produced
+# Write checkpoint
+CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints"
+mkdir -p "\$CKPT_DIR"
+if [ \$PY_EXIT -ne 0 ]; then
+    printf '{"status":"failed","exit_code":%d,"mem":"$F_MEM","timestamp":"%s"}\n' "\$PY_EXIT" "\$(date -Iseconds)" > "\$CKPT_DIR/step_F.json"
+    exit 1
+fi
+
 TEX_COUNT=\$(find \$SLURM_SUBMIT_DIR/tables/ -name "*.tex" 2>/dev/null | wc -l)
 if [ "\$TEX_COUNT" -gt 0 ]; then
-    CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints"
-    mkdir -p "\$CKPT_DIR"
-    printf '{"status":"complete","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_F.json"
+    printf '{"status":"complete","exit_code":0,"timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_F.json"
 else
+    printf '{"status":"failed","exit_code":0,"mem":"$F_MEM","note":"no_output","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_F.json"
     echo "ERROR: Step F produced no .tex files"
     exit 1
 fi
@@ -1506,6 +1559,13 @@ module load $MODULES
 source $ENV_NAME/bin/activate
 $COPY_DATA
 python training.py --experiment_name $EXPERIMENT --temp_dir \$SLURM_TMPDIR
+PY_EXIT=\$?
+CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/checkpoints"
+mkdir -p "\$CKPT_DIR"
+if [ \$PY_EXIT -ne 0 ]; then
+    printf '{"status":"failed","exit_code":%d,"mem":"$A_MEM","timestamp":"%s"}\n' "\$PY_EXIT" "\$(date -Iseconds)" > "\$CKPT_DIR/step_A.json"
+    exit 1
+fi
 echo "Step A complete."
 EOF_A
     JOB_A=$(submit_job "$JOB_DIR/step_A.sh" "")
@@ -1557,7 +1617,14 @@ monitor_gpu() {
 monitor_gpu &
 MONITOR_PID=\$!
 python generate_matrices.py --temp_dir \$SLURM_TMPDIR --experiment $EXPERIMENT --chunk_id $CHUNK --total_chunks $TOTAL_CHUNKS --batch_size \$BATCH_SIZE --num_samples_per_class $NUM_SAMPLES_PER_CLASS
+PY_EXIT=\$?
 kill \$MONITOR_PID 2>/dev/null || true
+if [ \$PY_EXIT -ne 0 ]; then
+    CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/checkpoints"
+    mkdir -p "\$CKPT_DIR"
+    printf '{"status":"failed","exit_code":%d,"mem":"$B_MEM","timestamp":"%s"}\n' "\$PY_EXIT" "\$(date -Iseconds)" > "\$CKPT_DIR/step_B_chunk_${CHUNK}.json"
+    exit 1
+fi
 cd \$SLURM_TMPDIR/experiments/$EXPERIMENT
 zip -r matrices_task_${CHUNK}.zip matrices || { echo "Zip failed"; exit 1; }
 cd \$SLURM_SUBMIT_DIR
@@ -1592,18 +1659,25 @@ $COPY_DATA
 mkdir -p \$SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
 cp \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/weights/* \$SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
 python generate_adversarial_examples.py --experiment_name $EXPERIMENT --temp_dir=\$SLURM_TMPDIR --attacks $ATTACK_NAME --no_auto_test $C_TEST_SIZE_ARG
-mkdir -p \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adversarial_examples/$ATTACK_NAME/
-cp -r \$SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_examples/$ATTACK_NAME/* \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adversarial_examples/$ATTACK_NAME/ 2>/dev/null || true
-echo "Step C attack $ATTACK_NAME complete."
+PY_EXIT=\$?
 
 # Write per-attack checkpoint
 CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/checkpoints"
 mkdir -p "\$CKPT_DIR"
+if [ \$PY_EXIT -ne 0 ]; then
+    printf '{"status":"failed","exit_code":%d,"mem":"$C_MEM","timestamp":"%s"}\n' "\$PY_EXIT" "\$(date -Iseconds)" > "\$CKPT_DIR/step_C_attack_${ATTACK_NAME}.json"
+    exit 1
+fi
+
+mkdir -p \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adversarial_examples/$ATTACK_NAME/
+cp -r \$SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_examples/$ATTACK_NAME/* \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adversarial_examples/$ATTACK_NAME/ 2>/dev/null || true
+echo "Step C attack $ATTACK_NAME complete."
+
 ADV_COUNT=\$(find \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adversarial_examples/$ATTACK_NAME/ -name "*.pth" 2>/dev/null | wc -l)
 if [ "\$ADV_COUNT" -gt 0 ]; then
-    printf '{"status":"complete","attack":"$ATTACK_NAME","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_C_attack_${ATTACK_NAME}.json"
+    printf '{"status":"complete","exit_code":0,"attack":"$ATTACK_NAME","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_C_attack_${ATTACK_NAME}.json"
 else
-    printf '{"status":"complete","attack":"$ATTACK_NAME","note":"no_misclassifications","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_C_attack_${ATTACK_NAME}.json"
+    printf '{"status":"complete","exit_code":0,"attack":"$ATTACK_NAME","note":"no_misclassifications","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_C_attack_${ATTACK_NAME}.json"
     echo "NOTE: Attack $ATTACK_NAME produced 0 adversarial examples (checkpoint marked complete)"
 fi
 EOF_C
@@ -1661,7 +1735,14 @@ monitor_gpu() {
 monitor_gpu &
 MONITOR_PID=\$!
 python generate_adversarial_matrices.py --experiment_name $EXPERIMENT --temp_dir \$SLURM_TMPDIR --chunk_id $CHUNK --total_chunks $TOTAL_CHUNKS --batch_size \$BATCH_SIZE --samples_per_attack $SAMPLES_PER_ATTACK
+PY_EXIT=\$?
 kill \$MONITOR_PID 2>/dev/null || true
+if [ \$PY_EXIT -ne 0 ]; then
+    CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/checkpoints"
+    mkdir -p "\$CKPT_DIR"
+    printf '{"status":"failed","exit_code":%d,"mem":"$D_MEM","timestamp":"%s"}\n' "\$PY_EXIT" "\$(date -Iseconds)" > "\$CKPT_DIR/step_D_chunk_${CHUNK}.json"
+    exit 1
+fi
 cd \$SLURM_TMPDIR/experiments/$EXPERIMENT/
 zip -r adv_matrices_task_${CHUNK}.zip adversarial_matrices/ || { echo "Zip failed"; exit 1; }
 cd \$SLURM_SUBMIT_DIR
@@ -1712,16 +1793,24 @@ for i in \$(seq 0 $((TOTAL_CHUNKS - 1))); do
 done
 echo "All data ready. Starting representation comparison..."
 python compare_representations.py --experiment $EXPERIMENT --temp_dir \$SLURM_TMPDIR --svd_ablation
+PY_EXIT=\$?
+
+# Write checkpoint
+CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/checkpoints"
+mkdir -p "\$CKPT_DIR"
+if [ \$PY_EXIT -ne 0 ]; then
+    printf '{"status":"failed","exit_code":%d,"mem":"$E_MEM","timestamp":"%s"}\n' "\$PY_EXIT" "\$(date -Iseconds)" > "\$CKPT_DIR/step_E.json"
+    exit 1
+fi
+
 mkdir -p \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/comparison/
 cp -r \$SLURM_TMPDIR/experiments/$EXPERIMENT/comparison/* \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/comparison/ 2>/dev/null || true
 echo "Step E complete."
 
-# Write checkpoint only if output was actually produced
 if [ -f "\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/comparison/representation_comparison.json" ]; then
-    CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/checkpoints"
-    mkdir -p "\$CKPT_DIR"
-    printf '{"status":"complete","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_E.json"
+    printf '{"status":"complete","exit_code":0,"timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_E.json"
 else
+    printf '{"status":"failed","exit_code":0,"mem":"$E_MEM","note":"no_output","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_E.json"
     echo "ERROR: Step E did not produce representation_comparison.json"
     exit 1
 fi
@@ -1755,13 +1844,22 @@ mkdir -p \$SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
 cp \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/weights/* \$SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
 cd \$SLURM_SUBMIT_DIR
 python validate_theorem45.py --experiment $EXPERIMENT --temp_dir \$SLURM_TMPDIR --num_samples 200
+PY_EXIT=\$?
+
+# Write checkpoint
+CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/checkpoints"
+mkdir -p "\$CKPT_DIR"
+if [ \$PY_EXIT -ne 0 ]; then
+    printf '{"status":"failed","exit_code":%d,"mem":"$G_MEM","timestamp":"%s"}\n' "\$PY_EXIT" "\$(date -Iseconds)" > "\$CKPT_DIR/step_G.json"
+    exit 1
+fi
+
 echo "Step G (Theorem 4.5) complete."
 
 if [ -f "\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/theorem45/theorem45_results.json" ]; then
-    CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/checkpoints"
-    mkdir -p "\$CKPT_DIR"
-    printf '{"status":"complete","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_G.json"
+    printf '{"status":"complete","exit_code":0,"timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_G.json"
 else
+    printf '{"status":"failed","exit_code":0,"mem":"$G_MEM","note":"no_output","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_G.json"
     echo "ERROR: Step G did not produce theorem45_results.json"
     exit 1
 fi
@@ -1788,14 +1886,22 @@ source $ENV_NAME/bin/activate
 cd \$SLURM_SUBMIT_DIR
 mkdir -p tables
 python generate_latex_tables.py --output tables/
+PY_EXIT=\$?
 echo "Step F (LaTeX tables) complete."
+
+# Write checkpoint
+CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/checkpoints"
+mkdir -p "\$CKPT_DIR"
+if [ \$PY_EXIT -ne 0 ]; then
+    printf '{"status":"failed","exit_code":%d,"mem":"$F_MEM","timestamp":"%s"}\n' "\$PY_EXIT" "\$(date -Iseconds)" > "\$CKPT_DIR/step_F.json"
+    exit 1
+fi
 
 TEX_COUNT=\$(find \$SLURM_SUBMIT_DIR/tables/ -name "*.tex" 2>/dev/null | wc -l)
 if [ "\$TEX_COUNT" -gt 0 ]; then
-    CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/checkpoints"
-    mkdir -p "\$CKPT_DIR"
-    printf '{"status":"complete","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_F.json"
+    printf '{"status":"complete","exit_code":0,"timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_F.json"
 else
+    printf '{"status":"failed","exit_code":0,"mem":"$F_MEM","note":"no_output","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_F.json"
     echo "ERROR: Step F produced no .tex files"
     exit 1
 fi
