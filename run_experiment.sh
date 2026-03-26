@@ -554,10 +554,11 @@ print('test ' + ' '.join(attacks))
                 local FAILED_EXIT=$(read_checkpoint_field "$CKPT_C_ATK" "exit_code")
                 local FAILED_MEM=$(read_checkpoint_field "$CKPT_C_ATK" "mem")
                 if [ "$FAILED_EXIT" = "137" ] && [ -n "$FAILED_MEM" ]; then
-                    C_ATK_MEM=$(double_mem "$FAILED_MEM")
-                    echo "  [C] Attack $ATTACK_NAME:   RE-RUNNING (OOM killed, doubling memory: $FAILED_MEM -> $C_ATK_MEM)"
+                    local OOM_MEM_OVERRIDE=$(double_mem "$FAILED_MEM")
+                    echo "  [C] Attack $ATTACK_NAME:   RE-RUNNING (OOM killed, doubling memory: $FAILED_MEM -> $OOM_MEM_OVERRIDE)"
                 else
                     echo "  [C] Attack $ATTACK_NAME:   RE-RUNNING (previous run failed, exit_code=$FAILED_EXIT)"
+                    local OOM_MEM_OVERRIDE=""
                 fi
                 rm -f "$CKPT_C_ATK"
             fi
@@ -586,6 +587,12 @@ print(pa.get('mem', ''))" 2>/dev/null || echo "")
                 if [ -n "$CALIB_ATK_MEM" ]; then
                     C_ATK_MEM=$(enforce_min_mem "$CALIB_ATK_MEM" "16G")
                 fi
+            fi
+
+            # If previous run was OOM-killed, override with doubled memory
+            if [ -n "${OOM_MEM_OVERRIDE:-}" ]; then
+                C_ATK_MEM="$OOM_MEM_OVERRIDE"
+                unset OOM_MEM_OVERRIDE
             fi
 
             cat > "$JOB_DIR/step_C_attack_${ATTACK_NAME}.sh" << STEPC_EOF
