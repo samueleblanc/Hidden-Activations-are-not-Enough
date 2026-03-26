@@ -320,6 +320,17 @@ STEPA_EOF
 
     CKPT_A="$CKPT_BASE/step_A.json"
     A_STATUS=$(read_checkpoint_status "$CKPT_A")
+    if [ "$A_STATUS" = "failed" ]; then
+        local FAILED_EXIT=$(read_checkpoint_field "$CKPT_A" "exit_code")
+        local FAILED_MEM=$(read_checkpoint_field "$CKPT_A" "mem")
+        if [ "$FAILED_EXIT" = "137" ] && [ -n "$FAILED_MEM" ]; then
+            A_MEM=$(double_mem "$FAILED_MEM")
+            echo "  [A] Training:            RE-RUNNING (OOM killed, doubling memory: $FAILED_MEM -> $A_MEM)"
+        else
+            echo "  [A] Training:            RE-RUNNING (previous run failed, exit_code=$FAILED_EXIT)"
+        fi
+        rm -f "$CKPT_A"
+    fi
     if [ "$A_STATUS" = "complete" ] || [ -f "experiments/$EXP/weights/epoch_${EPOCH}.pth" ]; then
         echo "  [A] Training:            SKIPPED (already complete)"
         JOB_A=""
@@ -464,6 +475,17 @@ STEPB_EOF
 
         CKPT_B="$CKPT_BASE/step_B_chunk_${CHUNK}.json"
         B_STATUS=$(read_checkpoint_status "$CKPT_B")
+        if [ "$B_STATUS" = "failed" ]; then
+            local FAILED_EXIT=$(read_checkpoint_field "$CKPT_B" "exit_code")
+            local FAILED_MEM=$(read_checkpoint_field "$CKPT_B" "mem")
+            if [ "$FAILED_EXIT" = "137" ] && [ -n "$FAILED_MEM" ]; then
+                B_MEM=$(double_mem "$FAILED_MEM")
+                echo "  [B] Matrices chunk $CHUNK: RE-RUNNING (OOM killed, doubling memory: $FAILED_MEM -> $B_MEM)"
+            else
+                echo "  [B] Matrices chunk $CHUNK: RE-RUNNING (previous run failed, exit_code=$FAILED_EXIT)"
+            fi
+            rm -f "$CKPT_B"
+        fi
         if [ "$B_STATUS" = "complete" ] && [ -f "experiments/$EXP/matrices_task_${CHUNK}.zip" ]; then
             echo "  [B] Matrices chunk $CHUNK: SKIPPED (complete)"
             continue
@@ -527,6 +549,16 @@ print('test ' + ' '.join(attacks))
                     continue
                 fi
                 echo "  [C] WARNING: Checkpoint complete but no files for $ATTACK_NAME. Invalidating."
+                rm -f "$CKPT_C_ATK"
+            elif [ "$ATK_STATUS" = "failed" ]; then
+                local FAILED_EXIT=$(read_checkpoint_field "$CKPT_C_ATK" "exit_code")
+                local FAILED_MEM=$(read_checkpoint_field "$CKPT_C_ATK" "mem")
+                if [ "$FAILED_EXIT" = "137" ] && [ -n "$FAILED_MEM" ]; then
+                    C_ATK_MEM=$(double_mem "$FAILED_MEM")
+                    echo "  [C] Attack $ATTACK_NAME:   RE-RUNNING (OOM killed, doubling memory: $FAILED_MEM -> $C_ATK_MEM)"
+                else
+                    echo "  [C] Attack $ATTACK_NAME:   RE-RUNNING (previous run failed, exit_code=$FAILED_EXIT)"
+                fi
                 rm -f "$CKPT_C_ATK"
             fi
 
@@ -779,6 +811,17 @@ STEPD_EOF
 
         CKPT_D="$CKPT_BASE/step_D_chunk_${CHUNK}.json"
         D_STATUS=$(read_checkpoint_status "$CKPT_D")
+        if [ "$D_STATUS" = "failed" ]; then
+            local FAILED_EXIT=$(read_checkpoint_field "$CKPT_D" "exit_code")
+            local FAILED_MEM=$(read_checkpoint_field "$CKPT_D" "mem")
+            if [ "$FAILED_EXIT" = "137" ] && [ -n "$FAILED_MEM" ]; then
+                D_MEM=$(double_mem "$FAILED_MEM")
+                echo "  [D] Adv matrices chunk $CHUNK: RE-RUNNING (OOM killed, doubling memory: $FAILED_MEM -> $D_MEM)"
+            else
+                echo "  [D] Adv matrices chunk $CHUNK: RE-RUNNING (previous run failed, exit_code=$FAILED_EXIT)"
+            fi
+            rm -f "$CKPT_D"
+        fi
         if [ "$D_STATUS" = "complete" ] && [ -f "experiments/$EXP/adv_matrices_task_${CHUNK}.zip" ]; then
             echo "  [D] Adv matrices chunk $CHUNK: SKIPPED (complete)"
             continue
@@ -893,6 +936,17 @@ STEPE_EOF
 
     # --- Submit E ---
     CKPT_E="$CKPT_BASE/step_E.json"
+    if [ "$(read_checkpoint_status "$CKPT_E")" = "failed" ]; then
+        local FAILED_EXIT=$(read_checkpoint_field "$CKPT_E" "exit_code")
+        local FAILED_MEM=$(read_checkpoint_field "$CKPT_E" "mem")
+        if [ "$FAILED_EXIT" = "137" ] && [ -n "$FAILED_MEM" ]; then
+            E_MEM=$(double_mem "$FAILED_MEM")
+            echo "  [E] Rep. comparison:     RE-RUNNING (OOM killed, doubling memory: $FAILED_MEM -> $E_MEM)"
+        else
+            echo "  [E] Rep. comparison:     RE-RUNNING (previous run failed, exit_code=$FAILED_EXIT)"
+        fi
+        rm -f "$CKPT_E"
+    fi
     if [ "$(read_checkpoint_status "$CKPT_E")" = "complete" ] && [ -f "experiments/$EXP/comparison/representation_comparison.json" ]; then
         echo "  [E] Rep. comparison:     SKIPPED (complete)"
         JOB_E=""
@@ -972,6 +1026,17 @@ STEPG_EOF
 
     # --- Submit G ---
     CKPT_G="$CKPT_BASE/step_G.json"
+    if [ "$(read_checkpoint_status "$CKPT_G")" = "failed" ]; then
+        local FAILED_EXIT=$(read_checkpoint_field "$CKPT_G" "exit_code")
+        local FAILED_MEM=$(read_checkpoint_field "$CKPT_G" "mem")
+        if [ "$FAILED_EXIT" = "137" ] && [ -n "$FAILED_MEM" ]; then
+            G_MEM=$(double_mem "$FAILED_MEM")
+            echo "  [G] Theorem 4.5:         RE-RUNNING (OOM killed, doubling memory: $FAILED_MEM -> $G_MEM)"
+        else
+            echo "  [G] Theorem 4.5:         RE-RUNNING (previous run failed, exit_code=$FAILED_EXIT)"
+        fi
+        rm -f "$CKPT_G"
+    fi
     if [ "$(read_checkpoint_status "$CKPT_G")" = "complete" ] && [ -f "experiments/$EXP/theorem45/theorem45_results.json" ]; then
         echo "  [G] Theorem 4.5:         SKIPPED (complete)"
         JOB_G=""
@@ -1029,6 +1094,17 @@ STEPF_EOF
     # --- Submit F ---
     CKPT_F="$CKPT_BASE/step_F.json"
     F_TEX_COUNT=$(find "tables/" -name "*.tex" 2>/dev/null | wc -l) || F_TEX_COUNT=0
+    if [ "$(read_checkpoint_status "$CKPT_F")" = "failed" ]; then
+        local FAILED_EXIT=$(read_checkpoint_field "$CKPT_F" "exit_code")
+        local FAILED_MEM=$(read_checkpoint_field "$CKPT_F" "mem")
+        if [ "$FAILED_EXIT" = "137" ] && [ -n "$FAILED_MEM" ]; then
+            F_MEM=$(double_mem "$FAILED_MEM")
+            echo "  [F] LaTeX tables:        RE-RUNNING (OOM killed, doubling memory: $FAILED_MEM -> $F_MEM)"
+        else
+            echo "  [F] LaTeX tables:        RE-RUNNING (previous run failed, exit_code=$FAILED_EXIT)"
+        fi
+        rm -f "$CKPT_F"
+    fi
     if [ "$(read_checkpoint_status "$CKPT_F")" = "complete" ] && [ "$F_TEX_COUNT" -gt 0 ]; then
         echo "  [F] LaTeX tables:        SKIPPED (complete)"
         JOB_F=""

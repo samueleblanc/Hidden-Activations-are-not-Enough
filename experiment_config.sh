@@ -144,6 +144,24 @@ enforce_min_mem() {
     fi
 }
 
+double_mem() {
+    # Doubles a memory value in "XG" format
+    # Usage: double_mem "16G" → "32G"
+    local mem_str="$1"
+    local mem_val="${mem_str%G}"
+    echo "$((mem_val * 2))G"
+}
+
+read_checkpoint_field() {
+    # $1 = checkpoint file path, $2 = field name
+    # Returns: field value, or empty string if missing
+    if [ -f "$1" ]; then
+        python3 -c "import json; print(json.load(open('$1')).get('$2',''))" 2>/dev/null || echo ""
+    else
+        echo ""
+    fi
+}
+
 # Determine dataset dirs to copy based on experiment
 get_dataset_copy_commands() {
     local dataset="$1"
@@ -199,7 +217,7 @@ print({'cifar10':10,'cifar100':100,'mnist':10,'fashion':10,'imagenet':1000}.get(
 
 read_checkpoint_status() {
     # $1 = checkpoint file path
-    # Returns: complete, partial, or missing
+    # Returns: complete, partial, failed, or missing
     if [ -f "$1" ]; then
         python3 -c "import json; print(json.load(open('$1')).get('status','partial'))"
     else
