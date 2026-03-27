@@ -7,6 +7,7 @@ from pathlib import Path
 from argparse import ArgumentParser, Namespace
 from typing import Union
 from torch.optim.lr_scheduler import StepLR, CosineAnnealingLR, ExponentialLR, MultiStepLR, CyclicLR
+from utils.atomic_io import atomic_torch_save
 
 from knowledgematrix.models.alexnet import AlexNet
 from knowledgematrix.models.resnet18 import ResNet18
@@ -262,7 +263,7 @@ def main() -> None:
                 'scheduler_state_dict': scheduler.state_dict() if scheduler is not None else None,
                 'epoch': epoch,
             }
-            torch.save(checkpoint, f'experiments/{experiment}/weights/epoch_{epoch}.pth')
+            atomic_torch_save(checkpoint, f'experiments/{experiment}/weights/epoch_{epoch}.pth')
         os.makedirs(f'experiments/{experiment}/weights/', exist_ok=True)
         with open(f'experiments/{experiment}/weights/history.json', 'w') as json_file:
             json.dump(history, json_file, indent=4)

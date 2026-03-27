@@ -46,6 +46,7 @@ from utils.utils import (
 )
 from constants.constants import DEFAULT_EXPERIMENTS, ATTACKS, ATTACK_CATEGORIES
 from baselines.lee2018 import MultiLayerMahalanobisDetector
+from utils.atomic_io import atomic_json_dump
 
 
 # ---------------------------------------------------------------------------
@@ -984,8 +985,7 @@ def run_comparison(experiment_name, temp_dir=None, svd_ablation=False):
             str(k): v for k, v in svd_ablation_results.items()
         }
 
-    with open(out_file, 'w') as f:
-        json.dump(save_data, f, indent=2)
+    atomic_json_dump(save_data, out_file)
     print(f"\n  Results saved to {out_file}")
 
     return save_data

@@ -8,6 +8,7 @@ from typing import Union
 
 from utils.utils import get_model, get_dataset, subset, get_num_classes, get_input_shape, get_device
 from constants.constants import DEFAULT_EXPERIMENTS, ATTACKS
+from utils.atomic_io import atomic_torch_save
 
 
 def parse_args(
@@ -128,8 +129,8 @@ def apply_attack(
             del xb, yb, attacked
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
-        torch.save(torch.cat(adv_list), attack_save_path)
-        torch.save(torch.cat(labels_list), path_adv_examples / f'{attack_name}/labels.pth')
+        atomic_torch_save(torch.cat(adv_list), attack_save_path)
+        atomic_torch_save(torch.cat(labels_list), path_adv_examples / f'{attack_name}/labels.pth')
         del adv_list, labels_list
         return
 
@@ -173,8 +174,8 @@ def apply_attack(
     print(f"Attack: {attack_name}. Misclassified after attack: {misclassified} out of {total}.", flush=True)
 
     if len(adv_saved) > 0:
-        torch.save(torch.cat(adv_saved), attack_save_path)
-        torch.save(torch.cat(wrong_preds_saved), wrong_pred_save_path)
+        atomic_torch_save(torch.cat(adv_saved), attack_save_path)
+        atomic_torch_save(torch.cat(wrong_preds_saved), wrong_pred_save_path)
     else:
         print(f"  WARNING: {attack_name} produced 0 misclassified examples. Skipping save.", flush=True)
         # Write a zero-results marker so downstream can distinguish from crash
