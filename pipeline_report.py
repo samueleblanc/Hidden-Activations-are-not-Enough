@@ -43,15 +43,60 @@ def parse_args():
 # ── overall_errors.json consumer ─────────────────────────────────────────
 
 def load_overall_errors(experiment):
-    """Load overall_errors.json if available. Returns dict or None."""
+    """Load overall_errors.json if available.
+
+    Returns a 2-tuple (report_dict, steps_list) where:
+      - report_dict is a flat summary dict suitable for Section 0 display
+        (contains keys like pipeline_success, total_jobs, …)
+      - steps_list is a list of per-job step dicts for Section 4 error display
+
+    Handles both the new schema (top-level errors[], _steps_detail, _summary)
+    and any residual old-schema files (top-level steps[], pipeline_success, …).
+
+    Returns (None, []) when the file is absent or unreadable.
+    """
     path = os.path.join("experiments", experiment, "overall_errors.json")
     if not os.path.isfile(path):
-        return None
+        return None, []
     try:
         with open(path) as f:
-            return json.load(f)
+            raw = json.load(f)
     except (json.JSONDecodeError, OSError):
-        return None
+        return None, []
+
+    # ── New schema: has _summary and/or _steps_detail keys ────────────────
+    if "_summary" in raw or "_steps_detail" in raw:
+        summary = raw.get("_summary", {})
+        steps_list = raw.get("_steps_detail", [])
+
+        # If _steps_detail is absent, reconstruct a minimal list from errors[]
+        if not steps_list:
+            steps_list = []
+            for err in raw.get("errors", []):
+                steps_list.append({
+                    "job_id": err.get("job_id", "?"),
+                    "step_label": err.get("step_label", err.get("step", "?")),
+                    "chunk": err.get("chunk"),
+                    "slurm_state": err.get("slurm_state", err.get("state", "?")),
+                    "error_detected": True,
+                    "error_type": err.get("error_type", "?"),
+                    "error_category": err.get("error_category", "unknown"),
+                    "traceback": err.get("traceback"),
+                    "err_tail": err.get("err_tail", ""),
+                })
+
+        report_dict = dict(summary)  # shallow copy so callers can't mutate _summary
+        # Propagate top-level fields that Section 0 may still want
+        for key in ("schema_version", "error_scan_failed"):
+            if key in raw and key not in report_dict:
+                report_dict[key] = raw[key]
+        return report_dict, steps_list
+
+    # ── Old schema: pipeline_success / steps / … at top level ─────────────
+    steps_list = raw.get("steps", [])
+    # Build a summary dict that mirrors what the new schema puts in _summary
+    report_dict = {k: v for k, v in raw.items() if k != "steps"}
+    return report_dict, steps_list
 
 
 # ── Section 1: Job Status ────────────────────────────────────────────────
@@ -299,7 +344,8 @@ def generate_recommendations(step_a_ok, integrity_report):
 
 def write_report(experiment, test_mode, total_chunks, jobs, sacct_data,
                  calibration, step_a_ok, integrity_report, epochs,
-                 errors, gpu_data, recommendations, overall_errors):
+                 errors, gpu_data, recommendations, overall_errors,
+                 overall_errors_steps=None):
 
     now = datetime.now()
     timestamp = now.strftime("%Y%m%d_%H%M%S")
@@ -408,9 +454,10 @@ def write_report(experiment, test_mode, total_chunks, jobs, sacct_data,
 
     # --- Section 4: Error Analysis ---
     w("=== Section 4: Error Analysis ===")
+    _steps_for_errors = overall_errors_steps if overall_errors_steps is not None else []
     if overall_errors and not overall_errors.get("error_scan_failed"):
         # Use structured data from overall_errors.json
-        err_steps = [s for s in overall_errors.get("steps", []) if s.get("error_detected")]
+        err_steps = [s for s in _steps_for_errors if s.get("error_detected")]
         if err_steps:
             for s in err_steps:
                 chunk_str = f" chunk {s['chunk']}" if s.get("chunk") is not None else ""
@@ -494,7 +541,7 @@ def main():
         sys.exit(1)
 
     # Load overall_errors.json if available
-    overall_errors = load_overall_errors(experiment)
+    overall_errors, overall_errors_steps = load_overall_errors(experiment)
 
     # Gather data
     jobs = discover_jobs(experiment, slurm_out_dir)
@@ -514,6 +561,7 @@ def main():
         errors=errors, gpu_data=gpu_data,
         recommendations=recommendations,
         overall_errors=overall_errors,
+        overall_errors_steps=overall_errors_steps,
     )
 
 
