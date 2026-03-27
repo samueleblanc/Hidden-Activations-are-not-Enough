@@ -270,6 +270,34 @@ print(len(attacks) + 1)
     local CKPT_BASE="experiments/$EXP/checkpoints"
     mkdir -p "$CKPT_BASE"
 
+    # Read previous overall_errors.json if it exists (for informed retry decisions)
+    local ERRORS_JSON="experiments/$EXP/overall_errors.json"
+    local HAS_PREV_ERRORS=false
+    local PREV_OOM_STEPS=""
+    local PREV_TIMEOUT_STEPS=""
+    if [ -f "$ERRORS_JSON" ]; then
+        HAS_PREV_ERRORS=true
+        echo "  [*] Reading previous error report: $ERRORS_JSON"
+        PREV_OOM_STEPS=$(python3 -c "
+import json
+with open('$ERRORS_JSON') as f:
+    data = json.load(f)
+print(' '.join(e.get('phase','') + ':' + str(e.get('grid_index',''))
+    for e in data.get('errors',[])
+    if e.get('error_type')=='OOM' and not e.get('resolved',False)))
+" 2>/dev/null || echo "")
+        PREV_TIMEOUT_STEPS=$(python3 -c "
+import json
+with open('$ERRORS_JSON') as f:
+    data = json.load(f)
+print(' '.join(e.get('phase','') + ':' + str(e.get('grid_index',''))
+    for e in data.get('errors',[])
+    if e.get('error_type')=='TIMEOUT' and not e.get('resolved',False)))
+" 2>/dev/null || echo "")
+        [ -n "$PREV_OOM_STEPS" ] && echo "  [*] Previous OOM failures: $PREV_OOM_STEPS"
+        [ -n "$PREV_TIMEOUT_STEPS" ] && echo "  [*] Previous timeout failures: $PREV_TIMEOUT_STEPS"
+    fi
+
     # ImageNet-specific overrides
     local ATTACKS_ARG=""
     if [ "$DATASET" = "imagenet" ]; then
@@ -284,6 +312,17 @@ print(len(attacks) + 1)
     # ==========================================================
     # Step A: Training
     # ==========================================================
+    # Adjust resources based on previous error report
+    if [ "$HAS_PREV_ERRORS" = "true" ]; then
+        if echo "$PREV_OOM_STEPS" | grep -q "A:"; then
+            A_MEM=$(double_mem "$A_MEM")
+            echo "  [A] Raising memory to $A_MEM (previous OOM in error report)"
+        fi
+        if echo "$PREV_TIMEOUT_STEPS" | grep -q "A:"; then
+            A_TIME=$(double_time "$A_TIME")
+            echo "  [A] Doubling time to $A_TIME (previous timeout in error report)"
+        fi
+    fi
     cat > "$JOB_DIR/step_A.sh" << STEPA_EOF
 #!/bin/bash
 #SBATCH --account=$GPU_ACCOUNT
@@ -387,6 +426,17 @@ STEPA_EOF
     # Step B: Generate matrices (per chunk)
     # ==========================================================
     for CHUNK in $(seq 0 $((TOTAL_CHUNKS - 1))); do
+        # Adjust resources based on previous error report
+        if [ "$HAS_PREV_ERRORS" = "true" ]; then
+            if echo "$PREV_OOM_STEPS" | grep -q "B:$CHUNK"; then
+                B_MEM=$(double_mem "$B_MEM")
+                echo "  [B] Raising memory to $B_MEM for chunk $CHUNK (previous OOM in error report)"
+            fi
+            if echo "$PREV_TIMEOUT_STEPS" | grep -q "B:$CHUNK"; then
+                B_TIME=$(double_time "$B_TIME")
+                echo "  [B] Doubling time to $B_TIME for chunk $CHUNK (previous timeout in error report)"
+            fi
+        fi
         cat > "$JOB_DIR/step_B_chunk_${CHUNK}.sh" << STEPB_EOF
 #!/bin/bash
 #SBATCH --account=$GPU_ACCOUNT
@@ -691,6 +741,18 @@ print(pa.get('mem', ''))" 2>/dev/null || echo "")
                 elif [ "$SACCT_STATE" = "TIMEOUT" ]; then
                     C_ATK_TIME=$(double_time "$C_ATK_TIME")
                     echo "  [C] Attack $ATTACK_NAME:   RE-RUNNING (sacct: timeout, doubling time -> $C_ATK_TIME)"
+                fi
+            fi
+
+            # Adjust resources based on previous error report
+            if [ "$HAS_PREV_ERRORS" = "true" ]; then
+                if echo "$PREV_OOM_STEPS" | grep -q "C:$ATTACK_NAME"; then
+                    C_ATK_MEM=$(double_mem "$C_ATK_MEM")
+                    echo "  [C] Raising memory to $C_ATK_MEM for $ATTACK_NAME (previous OOM in error report)"
+                fi
+                if echo "$PREV_TIMEOUT_STEPS" | grep -q "C:$ATTACK_NAME"; then
+                    C_ATK_TIME=$(double_time "$C_ATK_TIME")
+                    echo "  [C] Doubling time to $C_ATK_TIME for $ATTACK_NAME (previous timeout in error report)"
                 fi
             fi
 
@@ -1452,8 +1514,8 @@ python collect_errors.py --experiment $EXP $ERRSCAN_TEST_FLAG --include-audit-re
     # Fallback: write minimal JSON if collect_errors.py itself fails
     echo "WARNING: collect_errors.py failed, writing minimal error report"
     mkdir -p \$SLURM_SUBMIT_DIR/experiments/$EXP
-    cat > \$SLURM_SUBMIT_DIR/experiments/$EXP/overall_errors.json << 'FALLBACK_JSON'
-{"schema_version":"2.0","experiment":"$EXP","pipeline_success":false,"error_scan_failed":true,"error":"collect_errors.py crashed"}
+    cat > \$SLURM_SUBMIT_DIR/experiments/$EXP/overall_errors.json << FALLBACK_JSON
+{"experiment_name":"$EXP","last_updated":"\$(date -Iseconds)","errors":[],"_error_scan_failed":true}
 FALLBACK_JSON
 }
 
@@ -2240,8 +2302,8 @@ cd \$SLURM_SUBMIT_DIR
 python collect_errors.py --experiment $EXPERIMENT $ERRSCAN_TEST_FLAG --include-audit-report || {
     echo "WARNING: collect_errors.py failed, writing minimal error report"
     mkdir -p \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT
-    cat > \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/overall_errors.json << 'FALLBACK_JSON'
-{"schema_version":"2.0","experiment":"$EXPERIMENT","pipeline_success":false,"error_scan_failed":true,"error":"collect_errors.py crashed"}
+    cat > \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/overall_errors.json << FALLBACK_JSON
+{"experiment_name":"$EXPERIMENT","last_updated":"\$(date -Iseconds)","errors":[],"_error_scan_failed":true}
 FALLBACK_JSON
 }
 

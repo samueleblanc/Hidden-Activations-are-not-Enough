@@ -477,6 +477,17 @@ def main():
     else:
         merged_errors = new_errors
 
+    # Mark errors as resolved if their step+chunk completed in current scan
+    completed_pairs = set()
+    for entry in steps_output:
+        if not entry.get("error_detected"):
+            completed_pairs.add((entry["step"], entry.get("chunk")))
+
+    for error in merged_errors:
+        pair = (error.get("phase"), error.get("grid_index"))
+        if pair in completed_pairs:
+            error["resolved"] = True
+
     # Build enforced-schema report
     report = {
         "experiment_name": experiment,
