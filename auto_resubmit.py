@@ -20,9 +20,11 @@ import argparse
 import subprocess
 from collections import defaultdict
 
+from utils.atomic_io import atomic_json_dump
+
 
 # Error types that trigger automatic retry with resource doubling
-RETRYABLE_ERROR_TYPES = {"oom", "timeout"}
+RETRYABLE_ERROR_TYPES = {"OOM", "TIMEOUT"}
 
 # Pipeline dependency graph: step -> set of upstream steps it depends on
 DEPENDS_ON = {
@@ -76,7 +78,19 @@ def seconds_to_time(total_seconds):
 
 
 def load_errors(experiment):
-    """Read overall_errors.json and return (retryable_entries, all_entries)."""
+    """Read overall_errors.json (new schema) and return (retryable_entries, all_entries).
+
+    New schema top-level keys: experiment_name, last_updated, errors[]
+    Each error entry has: job_id, error_type (OOM|TIMEOUT|RUNTIME|UNKNOWN),
+    phase (step letter), grid_index (chunk), timestamp, original_resources,
+    retry_resources, resolved, message.
+
+    Maps each entry to the internal format expected by the rest of auto_resubmit.py:
+      - step        <- phase
+      - chunk       <- grid_index
+      - error_detected  <- not resolved
+      - slurm_state     <- "COMPLETED" if resolved else "FAILED"
+    """
     path = os.path.join("experiments", experiment, "overall_errors.json")
     if not os.path.isfile(path):
         print(f"No error report found at {path}")
@@ -85,12 +99,57 @@ def load_errors(experiment):
     with open(path) as f:
         report = json.load(f)
 
-    all_entries = report.get("steps", [])
+    raw_entries = report.get("errors", [])
+    all_entries = []
+    for e in raw_entries:
+        resolved = e.get("resolved", False)
+        entry = dict(e)  # shallow copy so we don't mutate the original
+        entry["step"] = e.get("phase")
+        entry["chunk"] = e.get("grid_index")
+        entry["error_detected"] = not resolved
+        entry["slurm_state"] = "COMPLETED" if resolved else "FAILED"
+        all_entries.append(entry)
+
     retryable_entries = [
         e for e in all_entries
         if e.get("error_detected") and e.get("error_type") in RETRYABLE_ERROR_TYPES
     ]
     return retryable_entries, all_entries
+
+
+def update_retry_resources(experiment, job_id, new_mem_gb, new_time_hours):
+    """Write retry_resources back into overall_errors.json for a specific job_id.
+
+    Updates the entry in-place and atomically writes the file back.
+    new_mem_gb: int, new memory in GB
+    new_time_hours: float, new time in hours (converted to HH:MM:SS string)
+    """
+    path = os.path.join("experiments", experiment, "overall_errors.json")
+    if not os.path.isfile(path):
+        print(f"  WARNING: Cannot update retry_resources — {path} not found")
+        return
+
+    with open(path) as f:
+        report = json.load(f)
+
+    total_seconds = int(new_time_hours * 3600)
+    time_str = seconds_to_time(total_seconds)
+
+    updated = False
+    for entry in report.get("errors", []):
+        if str(entry.get("job_id")) == str(job_id):
+            entry["retry_resources"] = {
+                "mem_gb": new_mem_gb,
+                "time": time_str,
+            }
+            updated = True
+            break
+
+    if not updated:
+        print(f"  WARNING: job_id {job_id} not found in {path} — retry_resources not written")
+        return
+
+    atomic_json_dump(report, path)
 
 
 def check_retry_count(experiment, max_retries):
@@ -278,8 +337,21 @@ def submit_job(script_path, dep_ids, dry_run):
 
 
 def submit_retry_chain(experiment, failed_pairs, downstream_pairs, affected_steps,
-                       mem_cap_gb, time_cap_seconds, test_mode, dry_run):
-    """Submit the retry chain in topological order with correct dependencies."""
+                       mem_cap_gb, time_cap_seconds, test_mode, dry_run,
+                       failed_entries_ref=None):
+    """Submit the retry chain in topological order with correct dependencies.
+
+    failed_entries_ref: list of retryable error entries (from load_errors) used
+    to look up job_id for each (step, chunk) pair so retry_resources can be
+    written back to overall_errors.json via update_retry_resources().
+    """
+    # Build a lookup from (step, chunk) -> job_id for retryable entries
+    failed_job_lookup = {}
+    if failed_entries_ref:
+        for e in failed_entries_ref:
+            key = (e.get("step"), e.get("chunk"))
+            failed_job_lookup[key] = e.get("job_id")
+
     # Merge all pairs for lookup
     all_retry = {}  # step -> list of (step, chunk, is_failed)
     for step, chunk in failed_pairs:
@@ -307,13 +379,22 @@ def submit_retry_chain(experiment, failed_pairs, downstream_pairs, affected_step
                 print(f"  WARNING: Script not found for step {step} chunk {chunk}: {script}")
                 continue
 
+            new_mem_gb = None
+            new_time_hours = None
             if is_failed:
                 mem_info = double_memory(script, mem_cap_gb)
                 if mem_info:
                     print(f"  [{step}] Doubled memory: {mem_info[0]}G -> {mem_info[1]}G ({os.path.basename(script)})")
+                    new_mem_gb = int(mem_info[1])
                 time_info = double_time(script, time_cap_seconds)
                 if time_info:
                     print(f"  [{step}] Doubled time: {time_info[0]} -> {time_info[1]} ({os.path.basename(script)})")
+                    new_time_hours = parse_time_to_seconds(time_info[1]) / 3600.0
+
+                # Write retry_resources back to overall_errors.json
+                orig_job_id = failed_job_lookup.get((step, chunk))
+                if orig_job_id is not None and new_mem_gb is not None and new_time_hours is not None:
+                    update_retry_resources(experiment, orig_job_id, new_mem_gb, new_time_hours)
 
             job_id = submit_job(script, dep_ids, dry_run)
             if job_id:
@@ -384,6 +465,7 @@ def main():
     submitted = submit_retry_chain(
         experiment, failed_pairs, downstream_pairs, affected_steps,
         args.mem_cap, time_cap_seconds, args.test, args.dry_run,
+        failed_entries_ref=retryable_entries,
     )
 
     if submitted:

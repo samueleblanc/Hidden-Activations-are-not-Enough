@@ -286,25 +286,39 @@ class TestTimeHelpers:
 
 class TestRetryableErrorTypes:
     def test_both_types_present(self):
-        assert "oom" in RETRYABLE_ERROR_TYPES
-        assert "timeout" in RETRYABLE_ERROR_TYPES
+        assert "OOM" in RETRYABLE_ERROR_TYPES
+        assert "TIMEOUT" in RETRYABLE_ERROR_TYPES
 
     def test_load_errors_filters_retryable(self):
-        """load_errors should return both oom and timeout entries."""
+        """load_errors should return both OOM and TIMEOUT entries from new schema."""
         tmpdir = tempfile.mkdtemp()
         try:
             exp_dir = os.path.join(tmpdir, "experiments", "test_exp")
             os.makedirs(exp_dir)
             errors = {
-                "steps": [
-                    {"step": "B", "chunk": 3, "job_id": "111",
-                     "error_detected": True, "error_type": "oom"},
-                    {"step": "C", "chunk": "FGSM", "job_id": "222",
-                     "error_detected": True, "error_type": "timeout"},
-                    {"step": "A", "chunk": None, "job_id": "100",
-                     "error_detected": True, "error_type": "code"},
-                    {"step": "D", "chunk": 0, "job_id": "333",
-                     "error_detected": False},
+                "experiment_name": "test_exp",
+                "last_updated": "2026-01-01T00:00:00",
+                "errors": [
+                    {"job_id": "111", "error_type": "OOM",
+                     "phase": "B", "grid_index": 3,
+                     "timestamp": "2026-01-01T00:00:00",
+                     "original_resources": {}, "retry_resources": None,
+                     "resolved": False, "message": ""},
+                    {"job_id": "222", "error_type": "TIMEOUT",
+                     "phase": "C", "grid_index": "FGSM",
+                     "timestamp": "2026-01-01T00:00:00",
+                     "original_resources": {}, "retry_resources": None,
+                     "resolved": False, "message": ""},
+                    {"job_id": "100", "error_type": "RUNTIME",
+                     "phase": "A", "grid_index": None,
+                     "timestamp": "2026-01-01T00:00:00",
+                     "original_resources": {}, "retry_resources": None,
+                     "resolved": False, "message": ""},
+                    {"job_id": "333", "error_type": "OOM",
+                     "phase": "D", "grid_index": 0,
+                     "timestamp": "2026-01-01T00:00:00",
+                     "original_resources": {}, "retry_resources": None,
+                     "resolved": True, "message": ""},
                 ]
             }
             with open(os.path.join(exp_dir, "overall_errors.json"), "w") as f:
@@ -314,10 +328,21 @@ class TestRetryableErrorTypes:
             os.chdir(tmpdir)
             try:
                 retryable, all_entries = load_errors("test_exp")
+                # OOM (unresolved) and TIMEOUT (unresolved) are retryable
                 assert len(retryable) == 2
                 types = {e["error_type"] for e in retryable}
-                assert types == {"oom", "timeout"}
+                assert types == {"OOM", "TIMEOUT"}
                 assert len(all_entries) == 4
+                # Verify internal field mapping
+                oom_entry = next(e for e in all_entries if e["job_id"] == "111")
+                assert oom_entry["step"] == "B"
+                assert oom_entry["chunk"] == 3
+                assert oom_entry["error_detected"] is True
+                assert oom_entry["slurm_state"] == "FAILED"
+                # Resolved entry should have error_detected=False and slurm_state=COMPLETED
+                resolved_entry = next(e for e in all_entries if e["job_id"] == "333")
+                assert resolved_entry["error_detected"] is False
+                assert resolved_entry["slurm_state"] == "COMPLETED"
             finally:
                 os.chdir(orig_dir)
         finally:
