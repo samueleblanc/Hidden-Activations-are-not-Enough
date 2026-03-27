@@ -161,6 +161,63 @@ double_mem() {
     echo "${doubled}G"
 }
 
+double_time() {
+    # Doubles a time value in "HH:MM:SS" format, capped at 48:00:00
+    # Usage: double_time "03:00:00" → "06:00:00"
+    local time_str="$1"
+    local max_seconds=172800  # 48 hours
+    local h m s
+    IFS=: read -r h m s <<< "$time_str"
+    local total=$(( 10#$h * 3600 + 10#$m * 60 + 10#$s ))
+    local doubled=$(( total * 2 ))
+    if [ "$doubled" -gt "$max_seconds" ]; then
+        doubled=$max_seconds
+    fi
+    local new_h=$(( doubled / 3600 ))
+    local new_m=$(( (doubled % 3600) / 60 ))
+    local new_s=$(( doubled % 60 ))
+    printf "%02d:%02d:%02d" "$new_h" "$new_m" "$new_s"
+}
+
+detect_last_job_state() {
+    # Query sacct for the most recent job matching a log pattern.
+    # Returns: OOM_KILLED, TIMEOUT, FAILED, COMPLETED, CANCELLED, or UNKNOWN
+    # Usage: detect_last_job_state "PIPE_A_alexnet_cifar10" "slurm_out"
+    local log_prefix="$1"
+    local slurm_out_dir="${2:-slurm_out}"
+
+    # Find the most recent job ID from log files matching this prefix
+    local latest_job=""
+    for f in "$slurm_out_dir"/${log_prefix}_*.out; do
+        [ -f "$f" ] || continue
+        local fname=$(basename "$f")
+        local job_id=$(echo "$fname" | grep -oP '_(\d+)\.out$' | grep -oP '\d+')
+        if [ -n "$job_id" ]; then
+            if [ -z "$latest_job" ] || [ "$job_id" -gt "$latest_job" ]; then
+                latest_job="$job_id"
+            fi
+        fi
+    done
+
+    if [ -z "$latest_job" ]; then
+        echo "UNKNOWN"
+        return
+    fi
+
+    # Query sacct for the job state
+    local state
+    state=$(sacct --jobs="$latest_job" --parsable2 --noheader --format=State 2>/dev/null | head -1 | cut -d'|' -f1)
+
+    case "$state" in
+        OUT_OF_MEMORY)  echo "OOM_KILLED" ;;
+        TIMEOUT)        echo "TIMEOUT" ;;
+        FAILED)         echo "FAILED" ;;
+        COMPLETED)      echo "COMPLETED" ;;
+        CANCELLED*)     echo "CANCELLED" ;;
+        *)              echo "UNKNOWN" ;;
+    esac
+}
+
 read_checkpoint_field() {
     # $1 = checkpoint file path, $2 = field name
     # Returns: field value, or empty string if missing

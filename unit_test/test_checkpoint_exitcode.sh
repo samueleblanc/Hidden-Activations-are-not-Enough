@@ -75,6 +75,23 @@ echo "=== Test: read_checkpoint_field on missing file ==="
 RESULT=$(read_checkpoint_field "$TMPDIR/nonexistent.json" "mem")
 assert_eq "missing file returns empty" "" "$RESULT"
 
+# --- Testing double_time ---
+echo "--- Testing double_time ---"
+result=$(double_time "03:00:00")
+[ "$result" = "06:00:00" ] && echo "PASS: double_time 3h -> 6h" || echo "FAIL: expected 06:00:00, got $result"
+
+result=$(double_time "24:00:00")
+[ "$result" = "48:00:00" ] && echo "PASS: double_time 24h -> 48h (at cap)" || echo "FAIL: expected 48:00:00, got $result"
+
+result=$(double_time "30:00:00")
+[ "$result" = "48:00:00" ] && echo "PASS: double_time 30h -> 48h (capped)" || echo "FAIL: expected 48:00:00, got $result"
+
+result=$(double_time "00:15:00")
+[ "$result" = "00:30:00" ] && echo "PASS: double_time 15m -> 30m" || echo "FAIL: expected 00:30:00, got $result"
+
+result=$(double_time "01:30:45")
+[ "$result" = "03:01:30" ] && echo "PASS: double_time 1h30m45s -> 3h01m30s" || echo "FAIL: expected 03:01:30, got $result"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1
