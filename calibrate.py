@@ -434,24 +434,24 @@ def main():
             "mem_bytes": per_attack_mem,
         }
 
-    # Step D: adversarial matrices per chunk
+    # Step 3: adversarial matrices per chunk
     est_D_per_chunk = avg_time * num_attacks * args.samples_per_attack / args.total_chunks * time_padding_adv
     est_D_mem = int(peak_matrix_mem * mem_padding)
 
     slurm_resources = {
-        "A": {
+        "1": {
             "time": seconds_to_slurm_time(est_train_time),
             "mem": bytes_to_slurm_mem(est_train_mem),
             "time_seconds": est_train_time,
             "mem_bytes": est_train_mem,
         },
-        "B": {
+        "2a": {
             "time": seconds_to_slurm_time(est_B_per_chunk),
             "mem": bytes_to_slurm_mem(est_B_mem),
             "time_seconds": est_B_per_chunk,
             "mem_bytes": est_B_mem,
         },
-        "C": {
+        "2b": {
             "time": seconds_to_slurm_time(est_C_time),
             "mem": bytes_to_slurm_mem(est_C_mem),
             "time_seconds": est_C_time,
@@ -460,7 +460,7 @@ def main():
             "per_attack_slurm": per_attack_slurm,
             "trained_weights_exist": trained_weights_exist,
         },
-        "D": {
+        "3": {
             "time": seconds_to_slurm_time(est_D_per_chunk),
             "mem": bytes_to_slurm_mem(est_D_mem),
             "time_seconds": est_D_per_chunk,
@@ -468,10 +468,10 @@ def main():
         },
     }
 
-    print(f"\n  Step A (Training):       time={slurm_resources['A']['time']}, mem={slurm_resources['A']['mem']}", flush=True)
-    print(f"  Step B (Matrices/chunk): time={slurm_resources['B']['time']}, mem={slurm_resources['B']['mem']}", flush=True)
-    print(f"  Step C (AdvExamples):    time={slurm_resources['C']['time']}, mem={slurm_resources['C']['mem']}", flush=True)
-    print(f"  Step D (AdvMats/chunk):  time={slurm_resources['D']['time']}, mem={slurm_resources['D']['mem']}", flush=True)
+    print(f"\n  Step 1 (Training):       time={slurm_resources['1']['time']}, mem={slurm_resources['1']['mem']}", flush=True)
+    print(f"  Step 2a (Matrices/chunk): time={slurm_resources['2a']['time']}, mem={slurm_resources['2a']['mem']}", flush=True)
+    print(f"  Step 2b (AdvExamples):    time={slurm_resources['2b']['time']}, mem={slurm_resources['2b']['mem']}", flush=True)
+    print(f"  Step 3 (AdvMats/chunk):  time={slurm_resources['3']['time']}, mem={slurm_resources['3']['mem']}", flush=True)
 
     # --- Save calibration.json ---
     calibration = {

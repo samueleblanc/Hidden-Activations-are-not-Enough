@@ -43,12 +43,13 @@ class MultiLayerMahalanobisDetector:
     """
 
     def __init__(self, model, num_classes, device='cpu',
-                 max_components=256, batch_size=64):
+                 max_components=256, batch_size=64, epsilon=0.0):
         self.model = model
         self.num_classes = num_classes
         self.device = torch.device(device)
         self.max_components = max_components
         self.batch_size = batch_size
+        self.epsilon = epsilon
 
         # Per-layer statistics (populated by ``fit``)
         self.class_means = {}   # layer_name -> {class_idx -> mean_vector}
@@ -84,6 +85,13 @@ class MultiLayerMahalanobisDetector:
             self._features[name] = output.detach().cpu()
         return hook_fn
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.cleanup()
+        return False
+
     def cleanup(self):
         """Remove all forward hooks from the model."""
         for h in self._hooks:
@@ -94,19 +102,25 @@ class MultiLayerMahalanobisDetector:
     # Feature extraction
     # ------------------------------------------------------------------
 
-    def _extract_features(self, x):
+    def _extract_features(self, x, preprocess=False):
         """Run a forward pass and return per-layer flattened features.
 
         Parameters
         ----------
         x : torch.Tensor
             Input batch ``(N, C, H, W)``.
+        preprocess : bool
+            If True and epsilon > 0, apply input preprocessing (Lee et al. 2018):
+            perturb input in the direction that reduces Mahalanobis distance.
 
         Returns
         -------
         dict[str, np.ndarray]
             Mapping from layer name to array of shape ``(N, D_layer)``.
         """
+        if preprocess and self.epsilon > 0 and self.precision:
+            return self._extract_features_with_preprocessing(x)
+
         self._features = {}
         with torch.no_grad():
             _ = self.model(x.to(self.device).float())
@@ -116,13 +130,115 @@ class MultiLayerMahalanobisDetector:
             result[name] = feat.reshape(feat.shape[0], -1).numpy()
         return result
 
-    def _extract_features_batched(self, data):
+    def _extract_features_with_preprocessing(self, x):
+        """Extract features after input preprocessing (Lee et al. 2018).
+
+        1. Forward pass to get layer features (with gradients)
+        2. Compute Mahalanobis distance loss (sum over layers of min-over-classes)
+           entirely in PyTorch so gradients flow back to the input
+        3. Backprop to get input gradient
+        4. Perturb: x_preprocessed = x - epsilon * sign(grad)
+        5. Re-extract features from preprocessed input
+        """
+        x_input = x.to(self.device).float().requires_grad_(True)
+
+        # Forward pass with gradient-enabled hooks
+        self._features = {}
+        # Temporarily replace hooks with non-detaching versions
+        for h in self._hooks:
+            h.remove()
+        grad_hooks = []
+        try:
+            for name, module in self.model.named_modules():
+                if isinstance(module, (nn.ReLU, nn.ELU, nn.Tanh,
+                                       nn.LeakyReLU, nn.Sigmoid, nn.GELU)):
+                    def make_grad_hook(n):
+                        def hook_fn(module, inp, output):
+                            self._features[n] = output
+                        return hook_fn
+                    grad_hooks.append(module.register_forward_hook(make_grad_hook(name)))
+
+            _ = self.model(x_input)
+
+            # Compute Mahalanobis loss entirely in PyTorch to preserve gradients.
+            # Pre-convert numpy statistics to torch tensors.
+            loss = torch.tensor(0.0, device=self.device, requires_grad=True)
+            for layer_name in self.layer_names:
+                if layer_name not in self._features or layer_name not in self.precision:
+                    continue
+                feat = self._features[layer_name].reshape(x_input.shape[0], -1)
+
+                # SVD projection: apply in numpy (linear transform) then wrap back
+                svd = self.svd.get(layer_name)
+                if svd is not None:
+                    # SVD components are a linear projection: proj = (feat - mean) @ V^T
+                    # But TruncatedSVD.transform = X @ components_.T, so replicate in torch
+                    components_t = torch.tensor(
+                        svd.components_.T, device=self.device, dtype=torch.float32)
+                    proj = feat.float() @ components_t
+                else:
+                    proj = feat.float()
+
+                prec_t = torch.tensor(
+                    self.precision[layer_name], device=self.device, dtype=torch.float32)
+
+                # Min Mahalanobis distance over classes (in torch)
+                min_dists_sq = None
+                for c in range(self.num_classes):
+                    if c not in self.class_means.get(layer_name, {}):
+                        continue
+                    mean_t = torch.tensor(
+                        self.class_means[layer_name][c],
+                        device=self.device, dtype=torch.float32)
+                    diff = proj - mean_t.unsqueeze(0)
+                    # dists_sq_c[i] = diff[i] @ prec @ diff[i]
+                    dists_sq_c = torch.einsum('ij,jk,ik->i', diff, prec_t, diff)
+                    dists_sq_c = torch.clamp(dists_sq_c, min=0.0)
+                    if min_dists_sq is None:
+                        min_dists_sq = dists_sq_c
+                    else:
+                        min_dists_sq = torch.minimum(min_dists_sq, dists_sq_c)
+
+                if min_dists_sq is not None:
+                    loss = loss + min_dists_sq.sum()
+
+            # Backprop to input
+            if x_input.grad is not None:
+                x_input.grad.zero_()
+            loss.backward()
+
+        finally:
+            # Remove gradient hooks, restore detaching hooks (H5: leak-safe)
+            for h in grad_hooks:
+                h.remove()
+            self._hooks = []
+            self._register_hooks()
+
+        # Perturb input
+        if x_input.grad is not None:
+            x_preprocessed = x_input.detach() - self.epsilon * x_input.grad.sign()
+        else:
+            x_preprocessed = x_input.detach()
+
+        # Re-extract features with standard (detached) hooks
+        self._features = {}
+        with torch.no_grad():
+            _ = self.model(x_preprocessed)
+        result = {}
+        for name in sorted(self._features.keys()):
+            feat = self._features[name]
+            result[name] = feat.reshape(feat.shape[0], -1).numpy()
+        return result
+
+    def _extract_features_batched(self, data, preprocess=False):
         """Extract features in batches and concatenate across samples.
 
         Parameters
         ----------
         data : torch.Tensor or np.ndarray
             Full dataset ``(N, C, H, W)``.
+        preprocess : bool
+            If True, apply input preprocessing before feature extraction.
 
         Returns
         -------
@@ -135,7 +251,7 @@ class MultiLayerMahalanobisDetector:
         all_features = {}  # layer_name -> list of arrays
         for i in range(0, len(data), self.batch_size):
             batch = data[i:i + self.batch_size]
-            batch_features = self._extract_features(batch)
+            batch_features = self._extract_features(batch, preprocess=preprocess)
             for name, feat in batch_features.items():
                 all_features.setdefault(name, []).append(feat)
 
@@ -197,25 +313,39 @@ class MultiLayerMahalanobisDetector:
                 proj = raw
                 self.svd[layer_name] = None
 
-            # Tied (shared) covariance across all classes
-            try:
-                lw = LedoitWolf().fit(proj)
-                precision = lw.precision_
-            except Exception:
-                precision = np.eye(proj.shape[1])
-
-            self.precision[layer_name] = precision
-
-            # Per-class means
+            # Per-class means and covariances
             self.class_means[layer_name] = {}
             global_mean = np.mean(proj, axis=0)
+            per_class_covs = []
             for c in range(self.num_classes):
                 mask = (labels == c)
                 class_data = proj[mask]
-                if class_data.shape[0] >= 1:
+                if class_data.shape[0] >= 2:
                     self.class_means[layer_name][c] = np.mean(class_data, axis=0)
+                    try:
+                        lw = LedoitWolf().fit(class_data)
+                        per_class_covs.append(lw.covariance_)
+                    except Exception:
+                        per_class_covs.append(np.eye(proj.shape[1]))
+                elif class_data.shape[0] == 1:
+                    self.class_means[layer_name][c] = class_data[0]
                 else:
                     self.class_means[layer_name][c] = global_mean
+
+            # Tied covariance: average of per-class covariances (Lee et al. 2018)
+            if per_class_covs:
+                tied_cov = np.mean(per_class_covs, axis=0)
+            else:
+                tied_cov = np.eye(proj.shape[1])
+
+            try:
+                precision = np.linalg.inv(tied_cov)
+                if np.any(np.isnan(precision)):
+                    precision = np.linalg.inv(tied_cov + 1e-6 * np.eye(tied_cov.shape[0]))
+            except np.linalg.LinAlgError:
+                precision = np.linalg.inv(tied_cov + 1e-6 * np.eye(tied_cov.shape[0]))
+
+            self.precision[layer_name] = precision
 
     # ------------------------------------------------------------------
     # Per-layer Mahalanobis scores
@@ -311,7 +441,7 @@ class MultiLayerMahalanobisDetector:
         if isinstance(data, np.ndarray):
             data = torch.from_numpy(data)
 
-        features_dict = self._extract_features_batched(data)
+        features_dict = self._extract_features_batched(data, preprocess=(self.epsilon > 0))
         layer_scores = self._mahalanobis_scores_per_layer(features_dict)
 
         if self.logreg is not None:
@@ -339,5 +469,5 @@ class MultiLayerMahalanobisDetector:
         if isinstance(data, np.ndarray):
             data = torch.from_numpy(data)
 
-        features_dict = self._extract_features_batched(data)
+        features_dict = self._extract_features_batched(data, preprocess=(self.epsilon > 0))
         return self._mahalanobis_scores_per_layer(features_dict)

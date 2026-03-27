@@ -69,7 +69,7 @@ class CNN_2D(nn.Module):
         }
         self.bias = bias
         self.batch_norm = batch_norm
-        self.dropout = True
+        self.dropout = dropout
         self.matrix_input_dim = c * w * h + 1 if bias or batch_norm else c * w * h
         self.activation = activation
         self.pooling = pooling

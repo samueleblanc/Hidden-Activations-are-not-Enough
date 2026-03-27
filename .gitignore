@@ -24,3 +24,6 @@ nibi -imagenet.pdf
 CLAUDE.md
 scratch/
 overall_errors.json
+docs/
+.claude/
+CLAUDE.md

@@ -49,7 +49,7 @@ def train_one_epoch(
         criterion: nn.CrossEntropyLoss, 
         optimizer: Union[optim.SGD, optim.Adam], 
         device: torch.device,
-        scheduler,
+        scheduler: str
     ) -> None:
     """
         Args:
@@ -60,7 +60,7 @@ def train_one_epoch(
             device: the device to train on.
     """
     model.train()
-    #running_loss = 0.0
+    running_loss = 0.0
     for inputs, labels in train_loader:
         inputs, labels = inputs.to(device), labels.to(device)
         optimizer.zero_grad()
@@ -68,8 +68,8 @@ def train_one_epoch(
         loss = criterion(outputs, labels)
         loss.backward()
         optimizer.step()
-        #running_loss += loss.item() * inputs.size(0)
-        if isinstance(scheduler, CyclicLR):
+        running_loss += loss.item() * inputs.size(0)
+        if scheduler == 'cyclic':
             scheduler.step()
 
 
@@ -101,7 +101,7 @@ def evaluate_model(
             _, predicted = torch.max(outputs, 1)
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
-    return running_loss / len(data_loader), correct / total
+    return running_loss / total, correct / total
 
 
 def main() -> None:
@@ -126,36 +126,6 @@ def main() -> None:
     else:
         raise ValueError("Experiment not specified in constants/constants.py")
 
-    # Pretrained-only fast path: for experiments with epochs=0 and pretrained=True,
-    # just symlink/copy pretrained weights as epoch_0.pth and skip training entirely.
-    is_pretrained_only = DEFAULT_EXPERIMENTS[experiment].get('pretrained', False) and epochs == 0
-    if is_pretrained_only:
-        weights_dir = Path(f'experiments/{experiment}/weights')
-        final_weights = weights_dir / 'epoch_0.pth'
-        if not final_weights.exists():
-            pretrained_src = weights_dir / 'pretrained-weights.pth'
-            if pretrained_src.exists():
-                weights_dir.mkdir(parents=True, exist_ok=True)
-                import shutil
-                shutil.copy2(str(pretrained_src), str(final_weights))
-                print(f"[pretrained-only] Saved {pretrained_src} -> {final_weights}", flush=True)
-            else:
-                raise FileNotFoundError(f"No pretrained weights at {pretrained_src}")
-        print(f"[pretrained-only] Skipping training for {experiment}.", flush=True)
-        return
-
-    # Check if training is already complete — skip if final weights exist
-    weights_dir = Path(f'experiments/{experiment}/weights')
-    if args.temp_dir:
-        temp_weights_dir = Path(f'{args.temp_dir}/experiments/{experiment}/weights')
-        if temp_weights_dir.exists():
-            weights_dir = temp_weights_dir
-    final_weights = weights_dir / f'epoch_{epochs}.pth'
-    if final_weights.exists():
-        print(f"Training already completed. Weights found: {final_weights}", flush=True)
-        print(f"Skipping training for {experiment}.", flush=True)
-        return
-
     print(f"Training: {experiment}", flush=True)
     device = get_device()
     train_loader, test_loader = get_dataset(
@@ -167,28 +137,12 @@ def main() -> None:
 
     input_shape = get_input_shape(dataset)
     num_classes = get_num_classes(dataset)
-    # Create model without pretrained (avoids internet downloads on compute nodes)
-    model = get_architecture(input_shape, num_classes, architecture_index, pretrained=False, freeze_features=False).to(device)
+    model = get_architecture(input_shape, num_classes, architecture_index, pretrained=True, freeze_features=True).to(device)
 
-    # Load pretrained weights from local file if available (for transfer learning)
-    arch_pretrained_paths = {-3: 'alexnet_imagenet', -2: 'resnet_imagenet', -1: 'vgg_imagenet'}
-    if architecture_index in arch_pretrained_paths:
-        pretrained_path = Path(f'experiments/{arch_pretrained_paths[architecture_index]}/weights/pretrained-weights.pth')
-        if args.temp_dir:
-            temp_path = Path(f'{args.temp_dir}/experiments/{arch_pretrained_paths[architecture_index]}/weights/pretrained-weights.pth')
-            if temp_path.exists():
-                pretrained_path = temp_path
-        if pretrained_path.exists():
-            print(f"Loading pretrained weights from: {pretrained_path}", flush=True)
-            state_dict = torch.load(str(pretrained_path), map_location=device)
-            model.load_state_dict(state_dict, strict=False)
-            # Freeze conv layers for transfer learning
-            for layer in model.layers:
-                if isinstance(layer, nn.Conv2d):
-                    for param in layer.parameters():
-                        param.requires_grad = False
-        else:
-            print(f"WARNING: Pretrained weights not found at {pretrained_path}. Training from scratch.", flush=True)
+    # Track whether pretrained weights were loaded and conv layers frozen.
+    # Only architectures -3 (AlexNet), -2 (ResNet18), -1 (VGG11) accept
+    # pretrained=True / freeze_features=True; others train from scratch.
+    pretrained_loaded = architecture_index in (-3, -2, -1)
 
     # Define loss function and optimizer
     criterion = nn.CrossEntropyLoss().to(device)
@@ -204,7 +158,7 @@ def main() -> None:
         scheduler = StepLR(optimizer=optimizer, step_size=30, gamma=0.1)
 
     elif sched == 'cosine':
-        scheduler = CosineAnnealingLR(optimizer, T_max=epochs)
+        scheduler = CosineAnnealingLR(optimizer, T_max=120)
 
     elif sched == 'exp':
         scheduler = ExponentialLR(optimizer, gamma=0.95)
@@ -223,8 +177,16 @@ def main() -> None:
             checkpoints = list(checkpoints_path.glob('epoch_*.pth'))
             if checkpoints:
                 latest_checkpoint = max(checkpoints, key=lambda cp: int(cp.stem.split('_')[1]))
-                model.load_state_dict(torch.load(latest_checkpoint))
-                start_epoch = int(latest_checkpoint.stem.split('_')[1]) + 1
+                checkpoint = torch.load(latest_checkpoint, map_location=device)
+                if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+                    model.load_state_dict(checkpoint['model_state_dict'])
+                    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+                    scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+                    start_epoch = checkpoint['epoch'] + 1
+                else:
+                    # Legacy checkpoint format (just state_dict)
+                    model.load_state_dict(checkpoint)
+                    start_epoch = int(latest_checkpoint.stem.split('_')[1]) + 1
                 print(f"Resuming training from epoch {start_epoch}")
 
     history = {'train_acc':[],
@@ -234,7 +196,7 @@ def main() -> None:
 
     print("Training...", flush=True)
     for epoch in range(start_epoch, epochs+1):
-        if epoch == 60:
+        if epoch == 60 and pretrained_loaded:
             # Unfreeze the feature extractor layers
             for layer in model.layers:
                 if isinstance(layer, nn.Conv2d):
@@ -264,7 +226,7 @@ def main() -> None:
             criterion = criterion, 
             optimizer = optimizer, 
             device = device,
-            scheduler = sched
+            scheduler = scheduler
         )
         train_loss, train_accuracy = evaluate_model(
             model = model, 
@@ -290,9 +252,15 @@ def main() -> None:
         if sched != 'cyclic':
             scheduler.step()
 
-        if epoch % save_every_epochs == 0 or epoch == epochs - 1:
+        if epoch % save_every_epochs == 0 or epoch == epochs:
             os.makedirs(f'experiments/{experiment}/weights/', exist_ok=True)
-            torch.save(model.state_dict(), f'experiments/{experiment}/weights/epoch_{epoch}.pth')
+            checkpoint = {
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'scheduler_state_dict': scheduler.state_dict(),
+                'epoch': epoch,
+            }
+            torch.save(checkpoint, f'experiments/{experiment}/weights/epoch_{epoch}.pth')
         os.makedirs(f'experiments/{experiment}/weights/', exist_ok=True)
         with open(f'experiments/{experiment}/weights/history.json', 'w') as json_file:
             json.dump(history, json_file, indent=4)

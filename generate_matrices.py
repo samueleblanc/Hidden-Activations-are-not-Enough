@@ -38,7 +38,17 @@ def main() -> None:
     if chunk_id is None:
         raise ValueError("chunk_id must be provided or set via SLURM_ARRAY_TASK_ID")
 
-    chunk_size = num_samples // args.total_chunks
+    # Remainder-aware chunking (same pattern as generate_adversarial_matrices.py)
+    N = num_samples
+    base_chunk = N // args.total_chunks
+    remainder = N % args.total_chunks
+    if chunk_id < remainder:
+        start_idx = chunk_id * (base_chunk + 1)
+        end_idx = start_idx + (base_chunk + 1)
+    else:
+        start_idx = chunk_id * base_chunk + remainder
+        end_idx = start_idx + base_chunk
+    chunk_size = end_idx - start_idx
 
     if args.temp_dir is not None:
         weights_path = f'{args.temp_dir}/experiments/{experiment}/weights/'
@@ -62,6 +72,7 @@ def main() -> None:
         'chunk_size': chunk_size,
         'architecture_index': architecture_index,
         'batch_size': args.batch_size,
+        'start_idx': start_idx,
         'device': get_device(chunk_id, torch.cuda.device_count())
     }
 
@@ -74,16 +85,16 @@ def main() -> None:
     print(f"Chunk {chunk_id} wall-clock time: {t_elapsed:.1f}s ({t_elapsed/3600:.2f}h)", flush=True)
 
     if success:
-        done_file = os.path.join(save_path, f"done_chunk_{args.chunk_id}.txt")
+        done_file = os.path.join(save_path, f"done_chunk_{chunk_id}.txt")
         with open(done_file, 'w') as f:
             f.write("done")
 
         # Count generated .pth files as a sanity check
         pth_count = sum(1 for _, _, files in os.walk(save_path) for f in files if f.endswith(('.pth', '.pt')))
-        print(f"Chunk {args.chunk_id} completed and saved to {save_path} ({pth_count} .pth files)", flush=True)
+        print(f"Chunk {chunk_id} completed and saved to {save_path} ({pth_count} .pth files)", flush=True)
         print(f"Chunk {chunk_id} completed!", flush=True)
     else:
-        print(f'An error has occurred at chunk_id = {args.chunk_id}')
+        print(f'An error has occurred at chunk_id = {chunk_id}')
 
 
 if __name__ == '__main__':

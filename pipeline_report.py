@@ -128,11 +128,11 @@ def check_step_completion(experiment, total_chunks):
     epochs = exp_config.get("epochs", exp_config.get("epoch", 1))
     exp_dir = os.path.join("experiments", experiment)
 
-    # Step A: trained weights
+    # Step 1: trained weights
     weights_file = os.path.join(exp_dir, "weights", f"epoch_{epochs}.pth")
     step_a_ok = os.path.exists(weights_file)
 
-    # Steps B-G via verify_experiment
+    # Steps 2a-5 via verify_experiment
     report = None
     if os.path.isdir(exp_dir):
         report = verify_experiment(
@@ -222,7 +222,7 @@ def parse_gpu_logs(experiment, total_chunks):
     gpu_dir = "gpu-monitor"
     results = {}
     patterns = [("Calibration", f"{experiment}.calibration.log")]
-    for step in ["B", "D"]:
+    for step in ["2a", "3"]:
         for c in range(total_chunks):
             patterns.append((f"{step}.{c}", f"{experiment}.{step}.{c}.log"))
 
@@ -259,7 +259,7 @@ def parse_gpu_logs(experiment, total_chunks):
 def generate_recommendations(step_a_ok, integrity_report):
     recs = []
     if not step_a_ok:
-        recs.append("Re-run Step A (Training) -- weights file missing")
+        recs.append("Re-run Step 1 (Training) -- weights file missing")
 
     if integrity_report is None:
         recs.append("Experiment directory missing -- run full pipeline")
@@ -267,30 +267,30 @@ def generate_recommendations(step_a_ok, integrity_report):
 
     steps = integrity_report.get("steps", {})
 
-    # Step B
+    # Step 2a
     bad_b = []
     for i, e in enumerate(steps.get("matrices_zips", [])):
         if e["status"] != "OK":
             bad_b.append(str(i))
     if bad_b:
-        recs.append(f"Re-run Step B chunks [{', '.join(bad_b)}] -- matrix zips {'/'.join(e['status'] for e in steps['matrices_zips'] if e['status']!='OK')}")
+        recs.append(f"Re-run Step 2a chunks [{', '.join(bad_b)}] -- matrix zips {'/'.join(e['status'] for e in steps['matrices_zips'] if e['status']!='OK')}")
 
-    # Step C
+    # Step 2b
     bad_c = [os.path.basename(os.path.dirname(e["path"])) for e in steps.get("adversarial_examples", []) if e["status"] != "OK"]
     if bad_c:
-        recs.append(f"Re-run Step C -- missing attacks: {', '.join(bad_c)}")
+        recs.append(f"Re-run Step 2b -- missing attacks: {', '.join(bad_c)}")
 
-    # Step D (Adv Matrices)
+    # Step 3 (Adv Matrices)
     bad_d = []
     for i, e in enumerate(steps.get("adv_matrices_zips", [])):
         if e["status"] != "OK":
             bad_d.append(str(i))
     if bad_d:
-        recs.append(f"Re-run Step D chunks [{', '.join(bad_d)}]")
+        recs.append(f"Re-run Step 3 chunks [{', '.join(bad_d)}]")
 
     # Dependency propagation
     if bad_c and not bad_d:
-        recs.append("  (propagated) Step D needs re-run due to Step C failure")
+        recs.append("  (propagated) Step 3 needs re-run due to Step 2b failure")
 
     return recs
 
@@ -381,7 +381,7 @@ def write_report(experiment, test_mode, total_chunks, jobs, sacct_data,
 
     # --- Section 3: Step Completion ---
     w("=== Section 3: Pipeline Step Completion ===")
-    w(f"  [A] Training weights:       {'OK' if step_a_ok else 'MISSING'}  (epoch_{epochs}.pth)")
+    w(f"  [1] Training weights:       {'OK' if step_a_ok else 'MISSING'}  (epoch_{epochs}.pth)")
 
     if integrity_report:
         steps = integrity_report.get("steps", {})
@@ -390,15 +390,15 @@ def write_report(experiment, test_mode, total_chunks, jobs, sacct_data,
             ok = sum(1 for e in entries if e["status"] == "OK")
             return f"{ok}/{len(entries)} OK" + (f"  (MISSING: {', '.join(str(i) for i,e in enumerate(entries) if e['status']!='OK')})" if ok < len(entries) else "")
 
-        w(f"  [B] Matrix zips:            {count_status(steps.get('matrices_zips', []))}")
+        w(f"  [2a] Matrix zips:           {count_status(steps.get('matrices_zips', []))}")
         adv = steps.get("adversarial_examples", [])
         adv_ok = sum(1 for e in adv if e["status"] == "OK")
-        w(f"  [C] Adversarial examples:   {adv_ok}/{len(adv)} OK")
+        w(f"  [2b] Adversarial examples:  {adv_ok}/{len(adv)} OK")
         if adv_ok < len(adv):
             for e in adv:
                 if e["status"] != "OK":
-                    w(f"       MISSING: {os.path.basename(os.path.dirname(e['path']))}")
-        w(f"  [D] Adv matrix zips:        {count_status(steps.get('adv_matrices_zips', []))}")
+                    w(f"        MISSING: {os.path.basename(os.path.dirname(e['path']))}")
+        w(f"  [3] Adv matrix zips:        {count_status(steps.get('adv_matrices_zips', []))}")
 
         summary = integrity_report.get("summary", {})
         w(f"\n  Summary: {summary.get('ok',0)} OK, {summary.get('missing',0)} MISSING, {summary.get('corrupt',0)} CORRUPT")

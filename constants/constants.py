@@ -40,6 +40,7 @@ ARCHITECTURES = [
     ("VGG")
 ]
 
+# 16 adversarial attacks (see ATTACK_CATEGORIES for grouping)
 ATTACKS = [
     # --- Gradient-based attacks ---
     "GN",           # Gaussian Noise (baseline)

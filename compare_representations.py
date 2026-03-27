@@ -25,6 +25,7 @@ Usage:
 import os
 import json
 import time
+import random
 import torch
 import numpy as np
 from pathlib import Path
@@ -87,6 +88,13 @@ class AllLayerExtractor:
             parts.append(feat.reshape(feat.shape[0], -1))
         return torch.cat(parts, dim=1).numpy()
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.cleanup()
+        return False
+
     def cleanup(self):
         for h in self.hooks:
             h.remove()
@@ -103,42 +111,43 @@ def extract_penultimate_features(model, data, batch_size=128):
             batch = data[i:i+batch_size].to(device).float()
             f = model.forward(batch, return_penultimate=True)
             feats.append(f.detach().cpu().numpy().reshape(f.shape[0], -1))
-    return np.vstack(feats) if feats else np.zeros((0, 0))
+    return np.vstack(feats) if feats else np.zeros((0, 1))
 
 
 def extract_all_layer_features(model, data, batch_size=128):
     """Extract concatenated all-layer activation features."""
     device = next(model.parameters()).device
-    extractor = AllLayerExtractor(model)
-    feats = []
-    for i in range(0, len(data), batch_size):
-        batch = data[i:i+batch_size].to(device).float()
-        f = extractor.extract(batch)
-        if f is not None:
-            feats.append(f)
-    extractor.cleanup()
-    return np.vstack(feats) if feats else np.zeros((0, 0))
+    with AllLayerExtractor(model) as extractor:
+        feats = []
+        for i in range(0, len(data), batch_size):
+            batch = data[i:i+batch_size].to(device).float()
+            f = extractor.extract(batch)
+            if f is not None:
+                feats.append(f)
+    return np.vstack(feats) if feats else np.zeros((0, 1))
 
 
 def load_matrices_as_features(base_path, attack_name, max_samples=None):
-    """Load pre-computed knowledge matrices and flatten them into feature vectors."""
+    """Load pre-computed knowledge matrices and flatten them into feature vectors.
+    Uses glob-based discovery to handle gaps in index numbering."""
     mat_dir = Path(base_path) / 'adversarial_matrices' / attack_name
+    if not mat_dir.exists():
+        return None
+    # M6: Filter out non-numeric directory names, sort safely
+    mat_paths = [p for p in mat_dir.glob('*/matrix.pth') if p.parent.name.isdigit()]
+    mat_paths = sorted(mat_paths, key=lambda p: int(p.parent.name))
+    if max_samples:
+        mat_paths = mat_paths[:max_samples]
     mats = []
-    i = 0
-    while True:
-        mat_path = mat_dir / str(i) / 'matrix.pth'
-        if not mat_path.exists():
-            break
-        m = torch.load(mat_path, map_location='cpu')
+    for mp in mat_paths:
+        m = torch.load(mp, map_location='cpu')
         mats.append(m.numpy().ravel())
-        i += 1
-        if max_samples and i >= max_samples:
-            break
     return np.array(mats) if mats else None
 
 
 def load_train_matrices(base_path, num_classes, per_class=1000):
-    """Load training matrices and flatten."""
+    """Load training matrices and flatten.
+    Uses glob-based discovery to handle gaps in index numbering."""
     mat_dir = Path(base_path) / 'matrices'
     mats = []
     labels = []
@@ -146,17 +155,13 @@ def load_train_matrices(base_path, num_classes, per_class=1000):
         class_dir = mat_dir / str(c)
         if not class_dir.exists():
             continue
-        count = 0
-        j = 0
-        while count < per_class:
-            mat_path = class_dir / str(j) / 'matrix.pt'
-            if not mat_path.exists():
-                break
-            m = torch.load(mat_path, map_location='cpu')
+        # Discover all matrix files, sorted by index (filter non-numeric dirs)
+        mat_paths = [p for p in class_dir.glob('*/matrix.pt') if p.parent.name.isdigit()]
+        mat_paths = sorted(mat_paths, key=lambda p: int(p.parent.name))
+        for mp in mat_paths[:per_class]:
+            m = torch.load(mp, map_location='cpu')
             mats.append(m.numpy().ravel())
             labels.append(c)
-            count += 1
-            j += 1
     return np.array(mats), np.array(labels)
 
 
@@ -206,8 +211,13 @@ class MahalanobisDetector:
             else:
                 try:
                     lw = LedoitWolf().fit(class_data)
+                    prec = lw.precision_
+                    if np.any(np.isnan(prec)):
+                        import warnings
+                        warnings.warn(f"NaN in precision matrix for class {c}, using identity fallback")
+                        prec = np.eye(proj.shape[1])
                     self.class_means[c] = lw.location_
-                    self.class_precisions[c] = lw.precision_
+                    self.class_precisions[c] = prec
                 except Exception:
                     self.class_means[c] = global_mean
                     self.class_precisions[c] = global_prec
@@ -248,7 +258,7 @@ class KNNDetector:
         else:
             self.svd = None
             proj = features
-        self.knn = NearestNeighbors(n_neighbors=min(self.k, len(proj) - 1),
+        self.knn = NearestNeighbors(n_neighbors=max(1, min(self.k, len(proj) - 1)),
                                     metric='euclidean')
         self.knn.fit(proj)
 
@@ -263,7 +273,7 @@ class KDEDetector:
     """Kernel Density Estimation anomaly detector with TruncatedSVD.
     Score = negative log-likelihood (higher = more anomalous)."""
 
-    def __init__(self, bandwidth=1.0, max_components=256):
+    def __init__(self, bandwidth='scott', max_components=256):
         self.bandwidth = bandwidth
         self.max_components = max_components
         self.svd = None
@@ -306,7 +316,10 @@ class GMMDetector:
         else:
             self.svd = None
             proj = features
-        self.gmm = GaussianMixture(n_components=min(self.n_gmm_components, len(proj)),
+        n_gmm = min(self.n_gmm_components, len(proj), proj.shape[1])
+        n_gmm = max(1, n_gmm)
+        self.gmm = GaussianMixture(n_components=n_gmm,
+                                   covariance_type='diag',
                                    random_state=0)
         self.gmm.fit(proj)
 
@@ -376,7 +389,7 @@ class IsolationForestDetector:
 DETECTORS = {
     'Mahalanobis': lambda: MahalanobisDetector(max_components=256),
     'KNN': lambda: KNNDetector(k=10, max_components=256),
-    'KDE': lambda: KDEDetector(bandwidth=1.0, max_components=256),
+    'KDE': lambda: KDEDetector(bandwidth='scott', max_components=256),
     'GMM': lambda: GMMDetector(n_components=10, max_components=256),
     'OCSVM': lambda: OCSVMDetector(nu=0.05, max_components=256),
     'IsolationForest': lambda: IsolationForestDetector(n_estimators=100, max_components=256),
@@ -406,18 +419,23 @@ def compute_detection_metrics(clean_scores, adv_scores):
         aupr = 0.0
 
     # FPR at 95% TPR
-    fpr_arr, tpr_arr, _ = roc_curve(labels, scores)
-    idx = np.searchsorted(tpr_arr, 0.95, side='left')
-    if idx < len(fpr_arr):
-        fpr_at_95tpr = float(fpr_arr[idx])
-    else:
-        fpr_at_95tpr = 1.0
+    try:
+        fpr_arr, tpr_arr, _ = roc_curve(labels, scores)
+        idx = np.searchsorted(tpr_arr, 0.95, side='left')
+        if idx < len(fpr_arr):
+            fpr_at_95tpr = float(fpr_arr[idx])
+        else:
+            fpr_at_95tpr = 1.0
 
-    # TPR at fixed FPR thresholds (backward compat)
-    tpr_at_5 = tpr_arr[np.searchsorted(fpr_arr, 0.05, side='right') - 1] \
-        if len(fpr_arr) > 1 else 0
-    tpr_at_10 = tpr_arr[np.searchsorted(fpr_arr, 0.10, side='right') - 1] \
-        if len(fpr_arr) > 1 else 0
+        # TPR at fixed FPR thresholds (backward compat)
+        tpr_at_5 = tpr_arr[np.searchsorted(fpr_arr, 0.05, side='right') - 1] \
+            if len(fpr_arr) > 1 else 0
+        tpr_at_10 = tpr_arr[np.searchsorted(fpr_arr, 0.10, side='right') - 1] \
+            if len(fpr_arr) > 1 else 0
+    except ValueError:
+        fpr_at_95tpr = 1.0
+        tpr_at_5 = 0.0
+        tpr_at_10 = 0.0
 
     return {
         'auroc': float(auroc),
@@ -442,6 +460,13 @@ def run_comparison(experiment_name, temp_dir=None, svd_ablation=False):
 
     If svd_ablation=True, additionally sweeps SVD rank for Mahalanobis.
     """
+    # NEW-H13: Global random seed for reproducibility
+    random.seed(42)
+    np.random.seed(42)
+    torch.manual_seed(42)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(42)
+
     exp_config = DEFAULT_EXPERIMENTS[experiment_name]
     dataset = exp_config['dataset']
     arch_idx = exp_config['architecture_index']
@@ -546,9 +571,10 @@ def run_comparison(experiment_name, temp_dir=None, svd_ablation=False):
     }
     if train_matrices is not None:
         computational_cost['knowledge_matrix'] = {
-            'seconds_per_1000': float(cost_matrix_time * 1000 / len(train_matrices)),
+            'loading_seconds_per_1000': float(cost_matrix_time * 1000 / len(train_matrices)),
             'peak_gpu_memory_gb': float(cost_matrix_mem),
             'feature_dim': int(train_matrices.shape[1]),
+            'note': 'loading_seconds measures disk I/O only; matrix computation cost is in Step 2a',
         }
 
     # -----------------------------------------------------------------------
@@ -593,6 +619,19 @@ def run_comparison(experiment_name, temp_dir=None, svd_ablation=False):
         test_mats = load_matrices_as_features(base, 'test', max_samples=2000)
         if test_mats is not None and len(test_mats) > 0:
             test_feats['knowledge_matrix'] = test_mats
+            # NEW-C2: Align clean test sample counts across representations.
+            # KM test matrices may come from a different/smaller subset than
+            # the 2000 drawn by subset(). Truncate all reps to the minimum count.
+            n_km_test = len(test_mats)
+            n_penult_test = len(test_feats['penultimate'])
+            n_clean = min(n_km_test, n_penult_test)
+            if n_clean < n_penult_test:
+                print(f"    Aligning clean test samples: {n_penult_test} -> {n_clean} "
+                      f"(KM test count)")
+                test_feats['penultimate'] = test_feats['penultimate'][:n_clean]
+                test_feats['all_layer'] = test_feats['all_layer'][:n_clean]
+                test_feats['knowledge_matrix'] = test_feats['knowledge_matrix'][:n_clean]
+                test_data = test_data[:n_clean]
         else:
             # Cannot score clean test matrices — remove from comparison
             rep_names = [r for r in rep_names if r != 'knowledge_matrix']
@@ -631,15 +670,27 @@ def run_comparison(experiment_name, temp_dir=None, svd_ablation=False):
         if len(adv_data) > 2000:
             adv_data = adv_data[:2000]
 
+        # NEW-C3: Load KM adversarial features first to determine aligned count.
+        # Truncate adv_data BEFORE extracting penultimate/all-layer features
+        # so all representations use the exact same adversarial samples.
+        km_feats = None
+        if 'knowledge_matrix' in rep_names:
+            km_feats = load_matrices_as_features(base, attack, max_samples=2000)
+            if km_feats is not None and len(km_feats) > 0:
+                n_km = len(km_feats)
+                if n_km < len(adv_data):
+                    print(f"    Aligning adv samples for {attack}: {len(adv_data)} -> {n_km} "
+                          f"(KM count)")
+                    adv_data = adv_data[:n_km]
+                    km_feats = km_feats[:len(adv_data)]
+
         # Extract adversarial representations once per attack
         adv_feats = {
             'penultimate': extract_penultimate_features(model, adv_data),
             'all_layer': extract_all_layer_features(model, adv_data),
         }
-        if 'knowledge_matrix' in rep_names:
-            km_feats = load_matrices_as_features(base, attack, max_samples=2000)
-            if km_feats is not None and len(km_feats) > 0:
-                adv_feats['knowledge_matrix'] = km_feats
+        if km_feats is not None and len(km_feats) > 0:
+            adv_feats['knowledge_matrix'] = km_feats
 
         # results[attack][det_name][rep_name] = metrics dict
         attack_results = {}
@@ -707,42 +758,50 @@ def run_comparison(experiment_name, temp_dir=None, svd_ablation=False):
     lee2018_results = {}
     print("\n  Running Lee et al. (2018) multi-layer Mahalanobis baseline...")
     try:
-        lee_det = MultiLayerMahalanobisDetector(
-            model, num_classes, device=device, max_components=256, batch_size=64
-        )
-        lee_det.fit(train_data, train_labels_np)
+        # H3: Split test_data into val (LR training) and eval (final metrics)
+        n_test = len(test_data)
+        n_val = n_test // 2
+        lee_val_data = test_data[:n_val]
+        lee_eval_data = test_data[n_val:]
 
-        # Score clean test data (per-layer scores)
-        clean_layer_scores = lee_det.score_per_layer(test_data)
+        with MultiLayerMahalanobisDetector(
+            model, num_classes, device=device, max_components=256,
+            batch_size=64, epsilon=0.005  # H4: input preprocessing
+        ) as lee_det:
+            lee_det.fit(train_data, train_labels_np)
 
-        # Score first available attack to fit logistic regression
-        first_attack = available_attacks[0] if available_attacks else None
-        if first_attack:
-            adv_path_lr = Path(base) / 'adversarial_examples' / first_attack / 'adversarial_examples.pth'
-            adv_lr = torch.load(adv_path_lr, map_location='cpu')
-            if len(adv_lr) > 1000:
-                adv_lr = adv_lr[:1000]
-            adv_layer_scores_lr = lee_det.score_per_layer(adv_lr)
-            lee_det.fit_logistic(clean_layer_scores, adv_layer_scores_lr)
-            print(f"    Logistic regression fitted on {first_attack}")
+            # Per-layer scores for val clean data (used for LR training)
+            val_layer_scores = lee_det.score_per_layer(lee_val_data)
 
-        # Score clean (final combined score)
-        lee_clean_scores = lee_det.score(test_data)
+            # H2: Per-attack logistic regression
+            for attack in available_attacks:
+                adv_path = Path(base) / 'adversarial_examples' / attack / 'adversarial_examples.pth'
+                if not adv_path.exists():
+                    continue
+                adv_data = torch.load(adv_path, map_location='cpu')
+                if len(adv_data) > 2000:
+                    adv_data = adv_data[:2000]
 
-        # Evaluate per attack
-        for attack in available_attacks:
-            adv_path = Path(base) / 'adversarial_examples' / attack / 'adversarial_examples.pth'
-            if not adv_path.exists():
-                continue
-            adv_data = torch.load(adv_path, map_location='cpu')
-            if len(adv_data) > 2000:
-                adv_data = adv_data[:2000]
-            lee_adv_scores = lee_det.score(adv_data)
-            lee2018_results[attack] = compute_detection_metrics(
-                lee_clean_scores, lee_adv_scores
-            )
+                # Split adversarial data: first half for LR training, second for eval
+                n_adv = len(adv_data)
+                n_adv_val = n_adv // 2
+                adv_val = adv_data[:n_adv_val]
+                adv_eval = adv_data[n_adv_val:]
 
-        lee_det.cleanup()
+                # Fit logistic regression per-attack on val split
+                adv_val_layer_scores = lee_det.score_per_layer(adv_val)
+                lee_det.fit_logistic(val_layer_scores, adv_val_layer_scores)
+                print(f"    LR fitted on {attack} (val={n_adv_val})")
+
+                # NEW-H1: Score clean eval data AFTER fitting LR for this attack,
+                # so it uses the correct per-attack logistic regression model.
+                eval_clean_scores = lee_det.score(lee_eval_data)
+
+                # Evaluate on eval split
+                lee_adv_scores = lee_det.score(adv_eval)
+                lee2018_results[attack] = compute_detection_metrics(
+                    eval_clean_scores, lee_adv_scores
+                )
 
         if lee2018_results:
             lee_aurocs = [m['auroc'] for m in lee2018_results.values()]
@@ -815,7 +874,9 @@ def run_comparison(experiment_name, temp_dir=None, svd_ablation=False):
     for rn in rep_names:
         if rn in computational_cost:
             cc = computational_cost[rn]
-            print(f"    {short_names[rn]:<12s}: {cc['seconds_per_1000']:.1f} s/1000 samples, "
+            time_key = 'loading_seconds_per_1000' if 'loading_seconds_per_1000' in cc else 'seconds_per_1000'
+            label = 'load' if 'loading_seconds_per_1000' in cc else 'extract'
+            print(f"    {short_names[rn]:<12s}: {cc[time_key]:.1f} s/1000 ({label}), "
                   f"{cc['peak_gpu_memory_gb']:.2f} GB peak, dim={cc['feature_dim']}")
 
     # SVD ablation summary

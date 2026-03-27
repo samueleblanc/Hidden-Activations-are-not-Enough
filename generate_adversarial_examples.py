@@ -175,7 +175,13 @@ def apply_attack(
         torch.save(torch.cat(adv_saved), attack_save_path)
         torch.save(torch.cat(wrong_preds_saved), wrong_pred_save_path)
     else:
-        print(f'WARNING: Attack {attack_name} produced 0 misclassified examples. Skipping.', flush=True)
+        print(f"  WARNING: {attack_name} produced 0 misclassified examples. Skipping save.", flush=True)
+        # Write a zero-results marker so downstream can distinguish from crash
+        save_dir = path_adv_examples / f'{attack_name}'
+        save_dir.mkdir(parents=True, exist_ok=True)
+        marker_path = save_dir / 'zero_misclassifications.txt'
+        with open(marker_path, 'w') as f:
+            f.write(f"Attack {attack_name} produced 0 misclassified adversarial examples\n")
 
     # cleanup
     del adv_saved, wrong_preds_saved, model, attack_instance
@@ -271,6 +277,38 @@ def main() -> None:
     _, test_set = get_dataset(dataset, data_loader=False, data_path=args.temp_dir)
     test_size = len(test_set) if args.test_size == -1 else args.test_size
     exp_dataset_test, exp_labels_test = subset(test_set, test_size, input_shape=input_shape)
+
+    # Quick accuracy check before running attacks
+    device = get_device()
+    model = get_model(
+        path=weights_path,
+        architecture_index=architecture_index,
+        input_shape=input_shape,
+        num_classes=num_classes,
+        device=device,
+    )
+    model.eval()
+    correct = 0
+    total = 0
+    with torch.no_grad():
+        for batch_data, batch_labels in DataLoader(
+            TensorDataset(exp_dataset_test, exp_labels_test), batch_size=64, shuffle=False
+        ):
+            if total >= 500:
+                break
+            batch_data, batch_labels = batch_data.to(device), batch_labels.to(device)
+            outputs = model(batch_data)
+            _, predicted = torch.max(outputs, 1)
+            total += batch_labels.size(0)
+            correct += (predicted == batch_labels).sum().item()
+    accuracy = correct / total if total > 0 else 0
+    print(f"  Model accuracy on {total} test samples: {accuracy:.4f}", flush=True)
+    if accuracy < 0.1:
+        print(f"  WARNING: Model accuracy is very low ({accuracy:.4f}). "
+              f"Adversarial examples may not be meaningful.", flush=True)
+    del model
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
     generate_adversarial_examples(
         exp_dataset_test = exp_dataset_test,

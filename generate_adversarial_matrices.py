@@ -60,6 +60,33 @@ def parse_args(
 
     return parser.parse_args()
 
+def save_one_matrix_with_retry(im, matrix_computer, device, max_retries=3):
+    """Compute a single matrix with OOM retry logic.
+
+    Args:
+        im: the image tensor (3D: C, H, W).
+        matrix_computer: KnowledgeMatrixComputer instance.
+        device: torch device.
+        max_retries: number of retries on OOM.
+
+    Returns:
+        The computed matrix tensor.
+    """
+    mat = None
+    for attempt in range(max_retries + 1):
+        try:
+            mat = matrix_computer.forward(im.to(device))
+            return mat
+        except RuntimeError as e:
+            if "out of memory" in str(e).lower() and attempt < max_retries:
+                print(f"    OOM on attempt {attempt+1}, retrying after cache clear...", flush=True)
+                if mat is not None:
+                    del mat
+                torch.cuda.empty_cache()
+                continue
+            raise
+
+
 def save_one_matrix(
         im: torch.Tensor,
         attack: str,
@@ -84,7 +111,7 @@ def save_one_matrix(
         matrix_save_path = Path(f'experiments/{experiment_name}/adversarial_matrices') / f'{attack}' / f'{i}/matrix.pth'
 
     if not matrix_save_path.exists():
-        mat = matrix_computer.forward(im.to(device))
+        mat = save_one_matrix_with_retry(im, matrix_computer, device)
         matrix_save_path.parent.mkdir(parents=True, exist_ok=True)
         torch.save(mat.cpu(), matrix_save_path)
         del mat
@@ -124,6 +151,8 @@ def generate_matrices_for_attacks(
         device=device
     )
     matrix_computer = KnowledgeMatrixComputer(model, batch_size=batch_size, device=device)
+    attacks_processed = []
+    total_saved = 0
     for attack in ['test'] + ATTACKS:
         if temp_dir is not None:
             path_adv_examples = Path(temp_dir) / f'experiments/{experiment_name}/adversarial_examples' / f"{attack}/adversarial_examples.pth"
@@ -176,6 +205,21 @@ def generate_matrices_for_attacks(
 
         if failed_indices:
             print(f'WARNING: Chunk {chunk_id} - Attack {attack} had {len(failed_indices)} failed matrices: {failed_indices}', flush=True)
+
+        attacks_processed.append(attack)
+        total_saved += (end - start) - len(failed_indices)
+
+    # Write done_file checkpoint
+    if temp_dir is not None:
+        save_path = os.path.join(temp_dir, 'experiments', experiment_name, 'adversarial_matrices')
+    else:
+        save_path = os.path.join('experiments', experiment_name, 'adversarial_matrices')
+    os.makedirs(save_path, exist_ok=True)
+    done_file = os.path.join(save_path, f"done_advmat_chunk_{chunk_id}.txt")
+    with open(done_file, 'w') as f:
+        f.write(f"completed at {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"attacks_processed: {len(attacks_processed)}\n")
+        f.write(f"total_matrices: {total_saved}\n")
 
 def main() -> None:
     """

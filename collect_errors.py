@@ -63,11 +63,11 @@ def discover_jobs(experiment, slurm_out_dir, slurm_err_dir):
             if not parsed:
                 continue
             if parsed["exp"] != experiment:
-                # Step C logs include the attack name in the filename:
-                #   PIPE_C_alexnet_cifar10_FGSM_12345.out
+                # Step 2b logs include the attack name in the filename:
+                #   PIPE_2b_alexnet_cifar10_FGSM_12345.out
                 # The regex parses exp="alexnet_cifar10_FGSM" instead of "alexnet_cifar10".
                 # Detect this case and store the attack suffix as the chunk.
-                if parsed["step"] == "C" and parsed["exp"].startswith(experiment + "_"):
+                if parsed["step"] == "2b" and parsed["exp"].startswith(experiment + "_"):
                     attack_suffix = parsed["exp"][len(experiment) + 1:]
                     parsed["exp"] = experiment
                     parsed["chunk"] = attack_suffix

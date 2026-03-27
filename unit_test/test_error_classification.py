@@ -208,20 +208,20 @@ class TestReadTail:
 
 class TestLogPattern:
     def test_pipe_with_chunk(self):
-        p = parse_log_filename("PIPE_B_alexnet_cifar10_c3_12345678.err")
+        p = parse_log_filename("PIPE_2a_alexnet_cifar10_c3_12345678.err")
         assert p is not None
         assert p["prefix"] == "PIPE"
-        assert p["step"] == "B"
+        assert p["step"] == "2a"
         assert p["exp"] == "alexnet_cifar10"
         assert p["chunk"] == "3"
         assert p["job_id"] == "12345678"
         assert p["ext"] == "err"
 
     def test_rec_no_chunk(self):
-        p = parse_log_filename("REC_A_resnet_cifar100_99999999.out")
+        p = parse_log_filename("REC_1_resnet_cifar100_99999999.out")
         assert p is not None
         assert p["prefix"] == "REC"
-        assert p["step"] == "A"
+        assert p["step"] == "1"
         assert p["exp"] == "resnet_cifar100"
         assert p["chunk"] is None
         assert p["job_id"] == "99999999"
@@ -235,10 +235,10 @@ class TestLogPattern:
         assert parse_log_filename("random_file.txt") is None
 
     def test_array_job(self):
-        p = parse_log_filename("PIPE_D_alexnet_cifar10_12345_3.out")
+        p = parse_log_filename("PIPE_3_alexnet_cifar10_12345_3.out")
         assert p is not None
         assert p["prefix"] == "PIPE"
-        assert p["step"] == "D"
+        assert p["step"] == "3"
         assert p["exp"] == "alexnet_cifar10"
         assert p["chunk"] == "3"  # array task ID becomes chunk
         assert p["job_id"] == "12345"

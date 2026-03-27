@@ -140,7 +140,7 @@ def compute_matrix_distances(model, clean, adversarial, device,
         sample_a = adversarial[i].to(device).float()
         mat_c = mc.forward(sample_c)
         mat_a = mc.forward(sample_a)
-        distances[i] = torch.norm(mat_c - mat_a).item()
+        distances[i] = torch.norm((mat_c - mat_a).double()).item()
         del mat_c, mat_a, sample_c, sample_a
         if torch.cuda.is_available() and (i + 1) % 50 == 0:
             torch.cuda.empty_cache()
@@ -311,7 +311,10 @@ def validate_theorem45(experiment_name, num_samples=200, attacks=None,
                                        batch_size_mc=matrix_batch_size)
 
         # Filter pairs where d_f > 0 to avoid division by zero
-        valid = d_f > 1e-12
+        # Use relative threshold to avoid discarding valid pairs in low-magnitude regimes
+        d_f_max = float(np.max(d_f)) if len(d_f) > 0 else 1.0
+        eps_threshold = max(1e-12, 1e-6 * d_f_max)
+        valid = d_f > eps_threshold
         n_valid = int(valid.sum())
         if n_valid == 0:
             print(f"  WARNING: All logit distances are ~0 for {attack_name}. "
@@ -327,7 +330,16 @@ def validate_theorem45(experiment_name, num_samples=200, attacks=None,
         ratio_h = d_h_v / d_f_v   # d_h / d_f per pair
 
         gamma_empirical = float(np.min(ratio_M))
-        bound_satisfaction = float(np.mean(d_M_v >= gamma_empirical * d_f_v))
+
+        # Bootstrap 95% CI for gamma
+        n_bootstrap = 1000
+        boot_gammas = []
+        rng = np.random.RandomState(42)
+        for _ in range(n_bootstrap):
+            idx = rng.choice(len(ratio_M), size=len(ratio_M), replace=True)
+            boot_gammas.append(float(np.min(ratio_M[idx])))
+        gamma_ci_lower = float(np.percentile(boot_gammas, 2.5))
+        gamma_ci_upper = float(np.percentile(boot_gammas, 97.5))
 
         elapsed = time.perf_counter() - t0
 
@@ -335,7 +347,8 @@ def validate_theorem45(experiment_name, num_samples=200, attacks=None,
             'num_pairs': n_pairs,
             'num_valid_pairs': n_valid,
             'gamma_empirical': gamma_empirical,
-            'bound_satisfaction_rate': bound_satisfaction,
+            'gamma_ci_95': [gamma_ci_lower, gamma_ci_upper],
+            'bound_satisfaction_rate_note': "Tautological (gamma = min ratio, so always 1.0). See gamma_ci_95 instead.",
             'amplification_M_median': float(np.median(ratio_M)),
             'amplification_h_median': float(np.median(ratio_h)),
             'amplification_M_mean': float(np.mean(ratio_M)),
@@ -352,9 +365,9 @@ def validate_theorem45(experiment_name, num_samples=200, attacks=None,
         all_amp_h.append(float(np.median(ratio_h)))
 
         print(f"  gamma = {gamma_empirical:.4f}  |  "
+              f"gamma 95% CI = [{gamma_ci_lower:.4f}, {gamma_ci_upper:.4f}]  |  "
               f"d_M/d_f = {np.median(ratio_M):.2f} (med)  |  "
               f"d_h/d_f = {np.median(ratio_h):.2f} (med)  |  "
-              f"bound OK = {bound_satisfaction:.4f}  |  "
               f"{elapsed:.1f}s", flush=True)
 
         attack_times.append(elapsed)

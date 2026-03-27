@@ -140,9 +140,9 @@ def generate_main_comparison_table(experiments: list, output_dir: Path):
         r"\caption{Detection performance: Knowledge Matrix method vs.\ best feature-space baseline. "
         r"TPR = adversarial detection rate, FPR = clean sample rejection rate.}",
         r"\label{tab:main_results}",
-        r"\begin{tabular}{ll|cc|lcc}",
+        r"\begin{tabular}{llcclcc}",
         r"\toprule",
-        r"Architecture & Dataset & \multicolumn{2}{c|}{Ours} & \multicolumn{3}{c}{Best Baseline} \\",
+        r"Architecture & Dataset & \multicolumn{2}{c}{Ours} & \multicolumn{3}{c}{Best Baseline} \\",
         r"& & TPR $\uparrow$ & FPR $\downarrow$ & Method & TPR $\uparrow$ & FPR $\downarrow$ \\",
         r"\midrule",
     ]
@@ -207,13 +207,22 @@ def generate_per_attack_table(experiments: list, output_dir: Path):
 
     df = pd.DataFrame(rows)
 
+    # Determine datasets used
+    datasets_used = set()
+    for exp in experiments:
+        if 'cifar100' in exp:
+            datasets_used.add('CIFAR-100')
+        elif 'cifar10' in exp:
+            datasets_used.add('CIFAR-10')
+    caption_datasets = ' and '.join(sorted(datasets_used)) if datasets_used else 'the given datasets'
+
     lines = [
         r"\begin{table}[t]",
         r"\centering",
         r"\caption{Detection rate by attack category across architectures. "
-        r"All experiments use CIFAR-10 with identical detection parameters.}",
+        f"All experiments use {caption_datasets} with identical detection parameters.}}",
         r"\label{tab:per_attack}",
-        r"\begin{tabular}{l|cccc}",
+        r"\begin{tabular}{lcccc}",
         r"\toprule",
         r"Architecture & Gradient & AutoAttack & Gradient-free & Elastic-net \\",
         r"\midrule",
@@ -251,17 +260,17 @@ def generate_method_comparison_table(output_dir: Path):
         r"theoretical guarantees.}",
         r"\label{tab:method_comparison}",
         r"\resizebox{\textwidth}{!}{%",
-        r"\begin{tabular}{l|ccccc}",
+        r"\begin{tabular}{lccccc}",
         r"\toprule",
         r"Property & Mahalanobis & LID & DkNN & Feature Squeeze & \textbf{Ours} \\",
         r"& \cite{lee2018} & \cite{ma2018} & \cite{papernot2018} & \cite{xu2018} & \\",
         r"\midrule",
-        r"Architecture-agnostic & \xmark & \xmark & \xmark & \xmark & \cmark \\",
-        r"Attack-agnostic & \xmark & \xmark & Partial & \xmark & \cmark \\",
-        r"No retraining needed & \cmark & \xmark & \xmark & \cmark & \cmark \\",
-        r"No auxiliary network & \cmark & \cmark & \cmark & \cmark & \cmark \\",
-        r"Theoretical guarantees & \xmark & \xmark & \xmark & \xmark & \cmark \\",
-        r"Demonstrated MLP+CNN & --- & --- & --- & --- & \cmark \\",
+        r"Architecture-agnostic & $\times$ & $\times$ & $\times$ & $\times$ & \checkmark \\",
+        r"Attack-agnostic & $\times$ & $\times$ & Partial & $\times$ & \checkmark \\",
+        r"No retraining needed & \checkmark & $\times$ & $\times$ & \checkmark & \checkmark \\",
+        r"No auxiliary network & \checkmark & \checkmark & \checkmark & \checkmark & \checkmark \\",
+        r"Theoretical guarantees & $\times$ & $\times$ & $\times$ & $\times$ & \checkmark \\",
+        r"Demonstrated MLP+CNN & --- & --- & --- & --- & \checkmark \\",
         r"\bottomrule",
         r"\end{tabular}}",
         r"\end{table}",
@@ -310,7 +319,7 @@ def generate_full_attack_table(experiments: list, output_dir: Path):
     archs = list(dict.fromkeys(archs))  # deduplicate preserving order
 
     n_archs = len(archs)
-    col_spec = "l|" + "c" * n_archs
+    col_spec = "l" + "c" * n_archs
     header = " & ".join(archs)
 
     lines = [
@@ -355,9 +364,13 @@ def load_comparison_json(experiment: str) -> dict:
         return json.load(f)
 
 
-def generate_representation_comparison_table(experiments: list, output_dir: Path):
-    """Central table: 3 representations x 6 detectors, AUROC averaged across attacks.
-    One sub-table per experiment, or a single combined table."""
+def generate_representation_comparison_table(experiments: list, output_dir: Path,
+                                              metric: str = 'auroc',
+                                              metric_label: str = 'AUROC',
+                                              higher_is_better: bool = True):
+    """Central table: 3 representations x 6 detectors, metric averaged across attacks.
+    One sub-table per experiment, or a single combined table.
+    Supports auroc, aupr, and fpr_at_95tpr metrics."""
     all_data = {}
     for exp in experiments:
         data = load_comparison_json(exp)
@@ -365,7 +378,7 @@ def generate_representation_comparison_table(experiments: list, output_dir: Path
             all_data[exp] = data
 
     if not all_data:
-        print("No representation comparison data found.")
+        print(f"No representation comparison data found for {metric_label}.")
         return
 
     # Collect detector and rep names from first available experiment
@@ -377,15 +390,16 @@ def generate_representation_comparison_table(experiments: list, output_dir: Path
                   'knowledge_matrix': 'Knowledge Matrix'}
 
     n_reps = len(rep_names)
-    col_spec = "l" + "|c" * n_reps
+    col_spec = "l" + "c" * n_reps
 
+    direction = "Higher is better" if higher_is_better else "Lower is better"
     lines = [
         r"\begin{table}[t]",
         r"\centering",
-        r"\caption{Mean AUROC across all attacks for each detector--representation pair. "
-        r"Bold indicates the best representation per detector. "
-        r"Higher is better.}",
-        r"\label{tab:rep_comparison}",
+        f"\\caption{{Mean {metric_label} across all attacks for each detector--representation pair. "
+        f"Bold indicates the best representation per detector. "
+        f"{direction}.}}",
+        f"\\label{{tab:rep_comparison_{metric}}}",
         r"\resizebox{\textwidth}{!}{%",
         f"\\begin{{tabular}}{{{col_spec}}}",
         r"\toprule",
@@ -405,27 +419,46 @@ def generate_representation_comparison_table(experiments: list, output_dir: Path
             lines.append(f"\\multicolumn{{{n_reps + 1}}}{{l}}"
                          f"{{\\textit{{{arch} / {dataset}}}}} \\\\")
 
-        avg_auroc = data.get('average_auroc', {})
+        # Get average metric data: use precomputed average_auroc if available for auroc,
+        # otherwise compute from per-attack data
+        if metric == 'auroc' and 'average_auroc' in data:
+            avg_metric = data['average_auroc']
+        else:
+            # Compute average from per-attack data
+            per_attack = data.get('per_attack', {})
+            avg_metric = {}
+            for det_name in det_names:
+                avg_metric[det_name] = {}
+                for rn in rep_names:
+                    vals_list = []
+                    for attack_data in per_attack.values():
+                        val = attack_data.get(det_name, {}).get(rn, {}).get(metric)
+                        if val is not None:
+                            vals_list.append(val)
+                    if vals_list:
+                        avg_metric[det_name][rn] = float(np.mean(vals_list))
+
         for det_name in det_names:
             vals = {}
             for rn in rep_names:
-                if isinstance(avg_auroc.get(det_name), dict):
-                    vals[rn] = avg_auroc[det_name].get(rn)
+                if isinstance(avg_metric.get(det_name), dict):
+                    vals[rn] = avg_metric[det_name].get(rn)
                 else:
                     vals[rn] = None
 
-            # Find best
-            best_val = -1
-            for v in vals.values():
-                if v is not None and v > best_val:
-                    best_val = v
+            # Find best (direction-aware)
+            valid_vals = [v for v in vals.values() if v is not None]
+            if valid_vals:
+                best_val = max(valid_vals) if higher_is_better else min(valid_vals)
+            else:
+                best_val = None
 
             row = escape_latex(det_name)
             for rn in rep_names:
                 v = vals[rn]
                 if v is not None:
                     s = f"{v:.3f}"
-                    if abs(v - best_val) < 1e-4:
+                    if best_val is not None and abs(v - best_val) < 1e-4:
                         s = f"\\textbf{{{s}}}"
                     row += f" & {s}"
                 else:
@@ -434,7 +467,7 @@ def generate_representation_comparison_table(experiments: list, output_dir: Path
 
         # Add Lee et al. (2018) baseline row if available
         lee_auroc = data.get('lee2018_mean_auroc')
-        if lee_auroc is not None:
+        if lee_auroc is not None and metric == 'auroc':
             lines.append(r"\midrule")
             row = r"Lee et al.\ (2018)$^\dagger$"
             for rn in rep_names:
@@ -456,8 +489,13 @@ def generate_representation_comparison_table(experiments: list, output_dir: Path
         r"\end{table}",
     ]
 
-    (output_dir / "representation_comparison.tex").write_text("\n".join(lines))
-    print(f"Generated {output_dir / 'representation_comparison.tex'}")
+    # Use metric-specific filename
+    if metric == 'auroc':
+        fname = "representation_comparison.tex"
+    else:
+        fname = f"representation_comparison_{metric}.tex"
+    (output_dir / fname).write_text("\n".join(lines))
+    print(f"Generated {output_dir / fname}")
 
 
 def generate_per_attack_auroc_table(experiments: list, output_dir: Path):
@@ -479,12 +517,17 @@ def generate_per_attack_auroc_table(experiments: list, output_dir: Path):
                   'knowledge_matrix': 'KnowMat'}
 
     n_reps = len(rep_names)
-    col_spec = "l|" + "c" * n_reps
 
     for exp_name, data in all_data.items():
         arch = exp_name.split("_")[0].capitalize()
         per_attack = data.get('per_attack', {})
         attack_order = [a for a in ATTACKS if a in per_attack]
+
+        # Check for Lee et al. per-attack data
+        lee_data = data.get('lee2018_baseline', {})
+        has_lee = bool(lee_data)
+        n_cols = n_reps + (1 if has_lee else 0)
+        col_spec = "l" + "c" * n_cols
 
         lines = [
             r"\begin{table}[t]",
@@ -499,10 +542,13 @@ def generate_per_attack_auroc_table(experiments: list, output_dir: Path):
         header = "Attack"
         for rn in rep_names:
             header += f" & {short_reps.get(rn, rn)}"
+        if has_lee:
+            header += r" & Lee$^\dagger$"
         lines.append(header + r" \\")
         lines.append(r"\midrule")
 
         avg_by_rep = {rn: [] for rn in rep_names}
+        lee_vals_all = []
 
         for atk in attack_order:
             atk_data = per_attack[atk]
@@ -519,7 +565,23 @@ def generate_per_attack_auroc_table(experiments: list, output_dir: Path):
                 if vals[rn] is not None:
                     avg_by_rep[rn].append(vals[rn])
 
-            best_val = max((v for v in vals.values() if v is not None), default=-1)
+            # Lee et al. value for this attack
+            lee_val = None
+            if has_lee:
+                lee_atk = lee_data.get(atk, {})
+                if isinstance(lee_atk, dict):
+                    lee_val = lee_atk.get('auroc')
+                elif isinstance(lee_atk, (int, float)):
+                    lee_val = lee_atk
+                if lee_val is not None:
+                    lee_vals_all.append(lee_val)
+
+            # Collect all values for bolding (include Lee)
+            all_vals = [v for v in vals.values() if v is not None]
+            if lee_val is not None:
+                all_vals.append(lee_val)
+            best_val = max(all_vals, default=-1)
+
             row = escape_latex(atk)
             for rn in rep_names:
                 v = vals[rn]
@@ -530,17 +592,41 @@ def generate_per_attack_auroc_table(experiments: list, output_dir: Path):
                     row += f" & {s}"
                 else:
                     row += " & ---"
+            if has_lee:
+                if lee_val is not None:
+                    s = f"{lee_val:.3f}"
+                    if abs(lee_val - best_val) < 1e-4:
+                        s = f"\\textbf{{{s}}}"
+                    row += f" & {s}"
+                else:
+                    row += " & ---"
             lines.append(row + r" \\")
 
         # Average row
         lines.append(r"\midrule")
         row = "Average"
-        best_avg = max((np.mean(v) for v in avg_by_rep.values() if v), default=-1)
+        avg_candidates = []
+        for rn in rep_names:
+            if avg_by_rep[rn]:
+                avg_candidates.append(np.mean(avg_by_rep[rn]))
+        if lee_vals_all:
+            avg_candidates.append(np.mean(lee_vals_all))
+        best_avg = max(avg_candidates, default=-1)
+
         for rn in rep_names:
             if avg_by_rep[rn]:
                 avg = np.mean(avg_by_rep[rn])
                 s = f"{avg:.3f}"
                 if abs(avg - best_avg) < 1e-4:
+                    s = f"\\textbf{{{s}}}"
+                row += f" & {s}"
+            else:
+                row += " & ---"
+        if has_lee:
+            if lee_vals_all:
+                lee_avg = np.mean(lee_vals_all)
+                s = f"{lee_avg:.3f}"
+                if abs(lee_avg - best_avg) < 1e-4:
                     s = f"\\textbf{{{s}}}"
                 row += f" & {s}"
             else:
@@ -591,7 +677,7 @@ def generate_cost_table(experiments: list, output_dir: Path):
         r"\caption{Computational cost of representation extraction. "
         r"Time is seconds per 1000 samples; memory is peak GPU allocation in GB.}",
         r"\label{tab:cost}",
-        r"\begin{tabular}{ll|lrcc}",
+        r"\begin{tabular}{lllrcc}",
         r"\toprule",
         r"Architecture & Dataset & Representation & Dim & s/1000 & GPU (GB) \\",
         r"\midrule",
@@ -634,7 +720,7 @@ def generate_svd_ablation_table(experiments: list, output_dir: Path):
                   'knowledge_matrix': 'KnowMat'}
 
     n_reps = len(rep_names)
-    col_spec = "r|" + "c" * n_reps
+    col_spec = "r" + "c" * n_reps
 
     for exp_name, ablation in all_ablation.items():
         arch = exp_name.split("_")[0].capitalize()
@@ -733,7 +819,7 @@ def generate_lee2018_comparison_table(experiments: list, output_dir: Path):
         r"compared with Lee et al.\ (2018) multi-layer Mahalanobis baseline. "
         r"Higher is better. Bold indicates the overall best.}",
         r"\label{tab:lee2018_comparison}",
-        r"\begin{tabular}{ll|ccc|c}",
+        r"\begin{tabular}{llcccc}",
         r"\toprule",
         r"Arch & Dataset & Penultimate & All-Layer & Know.\ Matrix & Lee et al. \\",
         r"\midrule",
@@ -799,7 +885,7 @@ def generate_theorem45_table(experiments: list, output_dir: Path):
             r"$d_M/d_h > 1$ shows KMs amplify more than penultimate features.}",
             f"\\label{{tab:theorem45_{exp_name}}}",
             r"\resizebox{\textwidth}{!}{%",
-            r"\begin{tabular}{l|cccc|c}",
+            r"\begin{tabular}{lccccc}",
             r"\toprule",
             r"Attack & $\hat{\gamma}$ & $d_M/d_f$ & $d_h/d_f$ & $d_M/d_h$ & Bound \% \\",
             r"\midrule",
@@ -857,7 +943,7 @@ def generate_theorem45_table(experiments: list, output_dir: Path):
             r"$\hat{\gamma}$ is the global distance lower-bound constant; "
             r"$d_M/d_h$ shows the advantage of knowledge matrices over penultimate features.}",
             r"\label{tab:theorem45_summary}",
-            r"\begin{tabular}{ll|cccc}",
+            r"\begin{tabular}{llcccc}",
             r"\toprule",
             r"Arch & Dataset & $\hat{\gamma}$ & $d_M/d_f$ & $d_h/d_f$ & $d_M/d_h$ \\",
             r"\midrule",
@@ -915,7 +1001,15 @@ def main():
                            if Path(f"experiments/{exp}/comparison/representation_comparison.json").exists()]
     if comparison_available:
         print(f"\nFound representation comparison results for: {comparison_available}")
-        generate_representation_comparison_table(comparison_available, output_dir)
+        generate_representation_comparison_table(comparison_available, output_dir,
+                                                metric='auroc', metric_label='AUROC',
+                                                higher_is_better=True)
+        generate_representation_comparison_table(comparison_available, output_dir,
+                                                metric='aupr', metric_label='AUPR',
+                                                higher_is_better=True)
+        generate_representation_comparison_table(comparison_available, output_dir,
+                                                metric='fpr_at_95tpr', metric_label='FPR@95TPR',
+                                                higher_is_better=False)
         generate_per_attack_auroc_table(comparison_available, output_dir)
         generate_cost_table(comparison_available, output_dir)
         generate_svd_ablation_table(comparison_available, output_dir)

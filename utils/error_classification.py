@@ -10,44 +10,44 @@ import re
 # ── Step metadata ─────────────────────────────────────────────────────────
 
 STEP_ORDER = [
-    "CALIB", "PREAUDIT", "A", "B", "C", "D", "E", "G", "F",
+    "CALIB", "PREAUDIT", "1", "2a", "2b", "3", "4", "2c", "5",
     "AUDIT", "DISPATCH", "ERRSCAN",
 ]
 
 STEP_LABELS = {
     "CALIB": "Calibration",
     "PREAUDIT": "Pre-Audit",
-    "A": "Training",
-    "B": "Matrices",
-    "C": "Adv Examples",
-    "D": "Adv Matrices",
-    "E": "Rep. Comparison",
-    "G": "Theorem 4.5",
-    "F": "LaTeX Tables",
+    "1": "Training",
+    "2a": "Matrices",
+    "2b": "Adv Examples",
+    "3": "Adv Matrices",
+    "4": "Rep. Comparison",
+    "2c": "Theorem 4.5",
+    "5": "LaTeX Tables",
     "AUDIT": "Final Audit",
     "DISPATCH": "Dispatcher",
     "ERRSCAN": "Error Scan",
 }
 
-# Labels with step letter prefix (used by pipeline_report.py)
+# Labels with step ID prefix (used by pipeline_report.py)
 STEP_LABELS_PREFIXED = {
     k: (f"{k} ({v})" if len(k) <= 2 else v)
     for k, v in STEP_LABELS.items()
 }
 # Override specific ones for clearer display
-STEP_LABELS_PREFIXED["A"] = "A (Training)"
-STEP_LABELS_PREFIXED["B"] = "B (Matrices)"
-STEP_LABELS_PREFIXED["C"] = "C (Adv Examples)"
-STEP_LABELS_PREFIXED["D"] = "D (Adv Matrices)"
-STEP_LABELS_PREFIXED["E"] = "E (Rep. Comparison)"
-STEP_LABELS_PREFIXED["G"] = "G (Theorem 4.5)"
-STEP_LABELS_PREFIXED["F"] = "F (LaTeX Tables)"
+STEP_LABELS_PREFIXED["1"] = "1 (Training)"
+STEP_LABELS_PREFIXED["2a"] = "2a (Matrices)"
+STEP_LABELS_PREFIXED["2b"] = "2b (Adv Examples)"
+STEP_LABELS_PREFIXED["3"] = "3 (Adv Matrices)"
+STEP_LABELS_PREFIXED["4"] = "4 (Rep. Comparison)"
+STEP_LABELS_PREFIXED["2c"] = "2c (Theorem 4.5)"
+STEP_LABELS_PREFIXED["5"] = "5 (LaTeX Tables)"
 
 
 # ── Error patterns ────────────────────────────────────────────────────────
 
 ERROR_PATTERNS = [
-    ("oom",           re.compile(r"out of memory|oom-kill|Killed|cannot allocate memory", re.I)),
+    ("oom",           re.compile(r"out of memory|oom-kill|Killed\s+by\s+signal\s+9|oom_kill|cannot allocate memory", re.I)),
     ("timeout",       re.compile(r"DUE TO TIME LIMIT|CANCELLED.*TIME", re.I)),
     ("cuda_error",    re.compile(r"CUDA error|CUDA out of memory|NCCL", re.I)),
     ("network_error", re.compile(r"network.unreachable|ConnectionError|urllib.*Error", re.I)),
@@ -84,12 +84,12 @@ ERROR_CATEGORIES = ["slurm", "code", "data", "environment", "unknown"]
 # ── Log filename pattern ──────────────────────────────────────────────────
 
 # Matches both regular and array job log filenames.
-# Regular:   PIPE_E_alexnet_cifar10_12345.out
-# Chunked:   PIPE_B_alexnet_cifar10_c3_12345.out
-# Array job:  PIPE_D_alexnet_cifar10_12345_3.out
+# Regular:   PIPE_4_alexnet_cifar10_12345.out
+# Chunked:   PIPE_2a_alexnet_cifar10_c3_12345.out
+# Array job:  PIPE_3_alexnet_cifar10_12345_3.out
 # Groups: (1)prefix (2)step (3)experiment (4)chunk_or_None (5)job_id (6)array_task_or_None (7)ext
 LOG_PATTERN = re.compile(
-    r'^(PIPE|REC)_([A-Za-z]+)_(.+?)(?:_c(\d+))?_(\d+)(?:_(\d+))?\.(out|err)$'
+    r'^(PIPE|REC)_([A-Za-z0-9]+)_(.+?)(?:_c(\d+))?_(\d+)(?:_(\d+))?\.(out|err)$'
 )
 
 

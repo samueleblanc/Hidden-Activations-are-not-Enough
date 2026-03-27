@@ -56,7 +56,7 @@ class ParallelMatrixConstruction:
             raise ValueError(f'Input size is not supported for {self.dataname}')
 
     def _validate_input_dictionary(self, dict_exp: dict):
-        correct_keys = {'epochs', 'num_samples', 'data_name', 'weights_path', 'chunk_size', 'save_path', 'architecture_index'
+        correct_keys = {'epochs', 'num_samples', 'data_name', 'weights_path', 'chunk_size', 'save_path', 'architecture_index',
                         'device', 'batch_size', 'verbose'}
         correct_types = [int, int, str, str, int, str, int, str, int, bool]
         keys = dict_exp.keys()
@@ -64,7 +64,7 @@ class ParallelMatrixConstruction:
             raise ValueError(f'Dictionary of inputs should have keys {correct_keys} and got {keys}')
 
         i = 0
-        for key, val in dict_exp:
+        for key, val in dict_exp.items():
             if type(val) != correct_types[i]:
                 raise ValueError(f'Values of input dictionary at Key: {key}, should be {correct_types[i]}, got {type(val)}')
             i += 1
@@ -131,7 +131,12 @@ class ParallelMatrixConstruction:
         model_file = "pretrained-weights.pth" if self.imagenet else f"epoch_{self.epoch}.pth"
         model_path = os.path.join(new_path, model_file)
 
-        state_dict = torch.load(model_path, map_location=self.device)
+        checkpoint = torch.load(model_path, map_location=self.device)
+        # Support both new format (full checkpoint dict) and legacy format (bare state_dict)
+        if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+            state_dict = checkpoint['model_state_dict']
+        else:
+            state_dict = checkpoint
 
         # Use pretrained=False to avoid internet downloads on compute nodes.
         # The state_dict loaded below overwrites all weights anyway.
@@ -189,7 +194,7 @@ class ParallelMatrixConstruction:
                 except RuntimeError as e:
                     if "out of memory" not in str(e).lower() or attempt == 3:
                         raise
-                    new_bs = max(64, matrix_computer.batch_size // 2)
+                    new_bs = max(1, matrix_computer.batch_size // 2)
                     print(f"[OOM] Halving batch_size: {matrix_computer.batch_size} -> {new_bs}", flush=True)
                     del matrix_computer
                     torch.cuda.empty_cache()

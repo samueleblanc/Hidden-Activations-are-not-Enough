@@ -37,7 +37,7 @@ B_CPUS=12
 B_TIME="00:20:00"
 B_MEM="280G"
 # Step C (per-attack defaults — each attack runs as a separate Slurm job)
-C_GPU="--gres=gpu:1"
+C_GPU="--gpus=h100:1"
 C_CPUS=4
 C_TIME="03:00:00"
 C_MEM="32G"
@@ -135,21 +135,30 @@ enforce_min_mem() {
     # All values assumed to be in "XG" format (integer followed by G)
     local mem_str="$1"
     local min_mem="${2:-16G}"
+    # Strip G suffix; if not present, return as-is (can't compare)
     local mem_val="${mem_str%G}"
     local min_val="${min_mem%G}"
-    if [ "$mem_val" -lt "$min_val" ] 2>/dev/null; then
-        echo "$min_mem"
-    else
-        echo "$mem_str"
+    # Only compare if both stripped to integers
+    if [[ "$mem_val" =~ ^[0-9]+$ ]] && [[ "$min_val" =~ ^[0-9]+$ ]]; then
+        if [ "$mem_val" -lt "$min_val" ]; then
+            echo "$min_mem"
+            return
+        fi
     fi
+    echo "$mem_str"
 }
 
 double_mem() {
-    # Doubles a memory value in "XG" format
+    # Doubles a memory value in "XG" format, capped at 480G
     # Usage: double_mem "16G" → "32G"
     local mem_str="$1"
+    local max_mem=480
     local mem_val="${mem_str%G}"
-    echo "$((mem_val * 2))G"
+    local doubled=$((mem_val * 2))
+    if [ "$doubled" -gt "$max_mem" ]; then
+        doubled=$max_mem
+    fi
+    echo "${doubled}G"
 }
 
 read_checkpoint_field() {

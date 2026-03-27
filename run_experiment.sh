@@ -13,9 +13,11 @@
 # Calibration is handled separately by calibration.sh.
 #
 # Usage:
-#   bash run_experiment.sh
+#   bash run_experiment.sh [--test] [--skip-audit] [--dry-run] [experiment ...]
 #
-# Edit variables below to change experiment, mode, etc.
+# Examples:
+#   bash run_experiment.sh --test --skip-audit alexnet_cifar10
+#   bash run_experiment.sh                              # defaults from experiment_config.sh
 # ==============================================================
 
 set -euo pipefail
@@ -24,10 +26,26 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/experiment_config.sh"
 
-# --- Operational flags (not in shared config) ---
+# --- Parse command-line arguments ---
 DRY_RUN=false
-SKIP_AUDIT=true
+SKIP_AUDIT=false
 TEST_MODE=false
+CLI_EXPERIMENTS=()
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --dry-run)   DRY_RUN=true; shift ;;
+        --test)      TEST_MODE=true; shift ;;
+        --skip-audit) SKIP_AUDIT=true; shift ;;
+        -*)          echo "Unknown option: $1" >&2; exit 1 ;;
+        *)           CLI_EXPERIMENTS+=("$1"); shift ;;
+    esac
+done
+
+# Override EXPERIMENTS from experiment_config.sh if CLI args provided
+if [ ${#CLI_EXPERIMENTS[@]} -gt 0 ]; then
+    EXPERIMENTS=("${CLI_EXPERIMENTS[@]}")
+fi
 
 # ==============================================================
 # Test mode overrides
@@ -50,7 +68,7 @@ if [ "$TEST_MODE" = "true" ]; then
     B_CPUS=4
     B_TIME="00:15:00"
     B_MEM="32G"
-    C_GPU="--gres=gpu:1"
+    C_GPU="--gpus=h100:1"
     C_CPUS=4
     C_TIME="00:30:00"
     C_MEM="32G"
@@ -105,6 +123,7 @@ done
 # Check datasets
 echo ""
 echo "Checking datasets..."
+export EXPERIMENT_LIST="${EXPERIMENTS[*]}"
 python3 << 'DATASET_CHECK_EOF'
 import sys
 import os
@@ -169,7 +188,6 @@ if missing:
 
 print('Datasets ready.')
 DATASET_CHECK_EOF
-export EXPERIMENT_LIST="${EXPERIMENTS[*]}"
 
 # Check pretrained weights
 echo ""
@@ -841,7 +859,11 @@ STEPD_EOF
             REMAINING=$(python3 -c "import json; c=json.load(open('$CKPT_D')); print(c['total']-c['completed'])")
             echo "  [D] Adv matrices chunk $CHUNK: RESUMING ($REMAINING remaining)"
         fi
-        JOB_ID=$(submit_job "$JOB_DIR/step_D_chunk_${CHUNK}.sh" "${JOB_C_IDS:-}")
+        # D depends on A (needs model weights) + all C (needs adv examples)
+        local D_DEPS="${JOB_A:+$JOB_A:}${JOB_C_IDS:-}"
+        # Strip trailing colon if JOB_C_IDS was empty
+        D_DEPS="${D_DEPS%:}"
+        JOB_ID=$(submit_job "$JOB_DIR/step_D_chunk_${CHUNK}.sh" "${D_DEPS}")
         JOB_D_IDS="${JOB_D_IDS:+$JOB_D_IDS:}$JOB_ID"
         echo "  [D] Adv matrices chunk $CHUNK: $JOB_ID"
     done
@@ -1833,7 +1855,9 @@ python -m utils.data_integrity --verify-zip \$SLURM_TMPDIR/experiments/$EXPERIME
 cp \$SLURM_TMPDIR/experiments/$EXPERIMENT/adv_matrices_task_${CHUNK}.zip \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/
 echo "Step D chunk $CHUNK complete."
 EOF_D
-        DEP="${JOB_C_IDS:-}"
+        # D depends on A (needs model weights) + all C (needs adv examples)
+        DEP="${JOB_A:+$JOB_A:}${JOB_C_IDS:-}"
+        DEP="${DEP%:}"
         JOB_ID=$(submit_job "$JOB_DIR/step_D_c${CHUNK}.sh" "$DEP")
         JOB_D_IDS="${JOB_D_IDS:+$JOB_D_IDS:}$JOB_ID"
         ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}$JOB_ID"

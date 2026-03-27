@@ -11,13 +11,15 @@
 
 set -euo pipefail
 
+# --- Source shared configuration ---
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/experiment_config.sh"
+
 # --- User-configurable variables ---
-EXPERIMENT="alexnet_cifar10"
-TOTAL_CHUNKS=8
-BATCH_SIZE=1800
+EXPERIMENT="${1:-alexnet_cifar10}"
+# TOTAL_CHUNKS, BATCH_SIZE, ACCOUNT, ENV_NAME etc. come from experiment_config.sh
 NUM_SAMPLES_PER_CLASS=100
 SAMPLES_PER_ATTACK=500
-ACCOUNT="def-assem"
 
 # --- Paths ---
 PLAN_FILE="experiments/$EXPERIMENT/recovery_plan.sh"
@@ -77,10 +79,10 @@ if [ "$RECOVER_STEP_A" = "true" ]; then
     cat > "$RECOVERY_DIR/step_A.sh" << 'STEPA_EOF'
 #!/bin/bash
 #SBATCH --account=ACCOUNT_PLACEHOLDER
-#SBATCH --gpus=a100_2g.10gb:1
-#SBATCH --cpus-per-task=3
-#SBATCH --time=00:30:00
-#SBATCH --mem=31G
+#SBATCH GPU_PLACEHOLDER
+#SBATCH --cpus-per-task=CPUS_PLACEHOLDER
+#SBATCH --time=TIME_PLACEHOLDER
+#SBATCH --mem=MEM_PLACEHOLDER
 #SBATCH --output=slurm_out/REC_A_train_%A.out
 #SBATCH --error=slurm_err/REC_A_train_%A.err
 
@@ -88,7 +90,7 @@ mkdir -p $SLURM_SUBMIT_DIR/slurm_out
 mkdir -p $SLURM_SUBMIT_DIR/slurm_err
 
 module load StdEnv/2023 python/3.11.5 scipy-stack/2025a
-source env_rorqual/bin/activate
+source ENV_PLACEHOLDER/bin/activate
 
 EXPERIMENT="EXPERIMENT_PLACEHOLDER"
 
@@ -105,6 +107,11 @@ STEPA_EOF
 
     sed -i "s/ACCOUNT_PLACEHOLDER/$ACCOUNT/g" "$RECOVERY_DIR/step_A.sh"
     sed -i "s/EXPERIMENT_PLACEHOLDER/$EXPERIMENT/g" "$RECOVERY_DIR/step_A.sh"
+    sed -i "s|GPU_PLACEHOLDER|$A_GPU|g" "$RECOVERY_DIR/step_A.sh"
+    sed -i "s|CPUS_PLACEHOLDER|$A_CPUS|g" "$RECOVERY_DIR/step_A.sh"
+    sed -i "s|TIME_PLACEHOLDER|$A_TIME|g" "$RECOVERY_DIR/step_A.sh"
+    sed -i "s|MEM_PLACEHOLDER|$A_MEM|g" "$RECOVERY_DIR/step_A.sh"
+    sed -i "s|ENV_PLACEHOLDER|$ENV_NAME|g" "$RECOVERY_DIR/step_A.sh"
 
     JOB_A=$(submit_job "$RECOVERY_DIR/step_A.sh" "")
     ALL_JOBS="$JOB_A"
@@ -119,18 +126,18 @@ if [ "$RECOVER_STEP_B" = "true" ]; then
         cat > "$RECOVERY_DIR/step_B_chunk_${CHUNK}.sh" << STEPB_EOF
 #!/bin/bash
 #SBATCH --account=$ACCOUNT
-#SBATCH --gpus=h100:1
-#SBATCH --cpus-per-task=12
-#SBATCH --time=00:20:00
-#SBATCH --mem=280G
+#SBATCH $B_GPU
+#SBATCH --cpus-per-task=$B_CPUS
+#SBATCH --time=$B_TIME
+#SBATCH --mem=$B_MEM
 #SBATCH --output=slurm_out/REC_B_mats_${CHUNK}_%A.out
 #SBATCH --error=slurm_err/REC_B_mats_${CHUNK}_%A.err
 
 mkdir -p \$SLURM_SUBMIT_DIR/slurm_out
 mkdir -p \$SLURM_SUBMIT_DIR/slurm_err
 
-module load StdEnv/2023 python/3.11.5 scipy-stack/2025a
-source env_rorqual/bin/activate
+module load $MODULES
+source $ENV_NAME/bin/activate
 
 EXPERIMENT="$EXPERIMENT"
 TASK_ID=$CHUNK
@@ -181,18 +188,18 @@ if [ "$RECOVER_STEP_C" = "true" ]; then
         cat > "$RECOVERY_DIR/step_C_attack_${ATTACK_NAME}.sh" << STEPC_EOF
 #!/bin/bash
 #SBATCH --account=$ACCOUNT
-#SBATCH --gres=gpu:1
-#SBATCH --cpus-per-task=4
-#SBATCH --time=03:00:00
-#SBATCH --mem=32G
+#SBATCH $C_GPU
+#SBATCH --cpus-per-task=$C_CPUS
+#SBATCH --time=$C_TIME
+#SBATCH --mem=$C_MEM
 #SBATCH --output=slurm_out/REC_C_${ATTACK_NAME}_%A.out
 #SBATCH --error=slurm_err/REC_C_${ATTACK_NAME}_%A.err
 
 mkdir -p \$SLURM_SUBMIT_DIR/slurm_out
 mkdir -p \$SLURM_SUBMIT_DIR/slurm_err
 
-module load StdEnv/2023 python/3.11.5 scipy-stack/2025a
-source env_rorqual/bin/activate
+module load $MODULES
+source $ENV_NAME/bin/activate
 
 EXPERIMENT="$EXPERIMENT"
 ATTACK_NAME="$ATTACK_NAME"
@@ -230,18 +237,18 @@ if [ "$RECOVER_STEP_D" = "true" ]; then
         cat > "$RECOVERY_DIR/step_D_chunk_${CHUNK}.sh" << STEPD_EOF
 #!/bin/bash
 #SBATCH --account=$ACCOUNT
-#SBATCH --gpus=h100:1
-#SBATCH --cpus-per-task=12
-#SBATCH --time=12:00:00
-#SBATCH --mem=280G
+#SBATCH $D_GPU
+#SBATCH --cpus-per-task=$D_CPUS
+#SBATCH --time=$D_TIME
+#SBATCH --mem=$D_MEM
 #SBATCH --output=slurm_out/REC_D_adv_mats_${CHUNK}_%A.out
 #SBATCH --error=slurm_err/REC_D_adv_mats_${CHUNK}_%A.err
 
 mkdir -p \$SLURM_SUBMIT_DIR/slurm_out
 mkdir -p \$SLURM_SUBMIT_DIR/slurm_err
 
-module load StdEnv/2023 python/3.11.5 scipy-stack/2025a
-source env_rorqual/bin/activate
+module load $MODULES
+source $ENV_NAME/bin/activate
 
 EXPERIMENT="$EXPERIMENT"
 TASK_ID=$CHUNK
@@ -270,9 +277,13 @@ cp \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adv_matrices_task_\$TASK_ID.zip \$SLU
 echo "Step D chunk $CHUNK complete."
 STEPD_EOF
 
+        # D depends on A (needs model weights) + all C (needs adv examples)
         DEP=""
+        if [ -n "$JOB_A" ]; then
+            DEP="$JOB_A"
+        fi
         if [ -n "$JOB_C_IDS" ]; then
-            DEP="$JOB_C_IDS"
+            DEP="${DEP:+$DEP:}$JOB_C_IDS"
         fi
         JOB_ID=$(submit_job "$RECOVERY_DIR/step_D_chunk_${CHUNK}.sh" "$DEP")
         JOB_D_IDS="${JOB_D_IDS:+$JOB_D_IDS:}$JOB_ID"
@@ -288,18 +299,18 @@ if [ "$RECOVER_STEP_E" = "true" ]; then
     cat > "$RECOVERY_DIR/step_E.sh" << STEPE_EOF
 #!/bin/bash
 #SBATCH --account=$ACCOUNT
-#SBATCH --gpus=h100:1
-#SBATCH --cpus-per-task=8
-#SBATCH --time=08:00:00
-#SBATCH --mem=64G
+#SBATCH $E_GPU
+#SBATCH --cpus-per-task=$E_CPUS
+#SBATCH --time=$E_TIME
+#SBATCH --mem=$E_MEM
 #SBATCH --output=slurm_out/REC_E_rep_comp_%A.out
 #SBATCH --error=slurm_err/REC_E_rep_comp_%A.err
 
 mkdir -p \$SLURM_SUBMIT_DIR/slurm_out
 mkdir -p \$SLURM_SUBMIT_DIR/slurm_err
 
-module load StdEnv/2023 python/3.11.5 scipy-stack/2025a
-source env_rorqual/bin/activate
+module load $MODULES
+source $ENV_NAME/bin/activate
 
 EXPERIMENT="$EXPERIMENT"
 
@@ -364,17 +375,17 @@ if [ "$RECOVER_STEP_F" = "true" ]; then
     cat > "$RECOVERY_DIR/step_F.sh" << STEPF_EOF
 #!/bin/bash
 #SBATCH --account=$ACCOUNT
-#SBATCH --cpus-per-task=2
-#SBATCH --time=00:15:00
-#SBATCH --mem=4G
+#SBATCH --cpus-per-task=$F_CPUS
+#SBATCH --time=$F_TIME
+#SBATCH --mem=$F_MEM
 #SBATCH --output=slurm_out/REC_F_latex_%A.out
 #SBATCH --error=slurm_err/REC_F_latex_%A.err
 
 mkdir -p \$SLURM_SUBMIT_DIR/slurm_out
 mkdir -p \$SLURM_SUBMIT_DIR/slurm_err
 
-module load StdEnv/2023 python/3.11.5 scipy-stack/2025a
-source env_rorqual/bin/activate
+module load $MODULES
+source $ENV_NAME/bin/activate
 
 cd \$SLURM_SUBMIT_DIR
 mkdir -p tables
@@ -394,17 +405,17 @@ fi
 cat > "$RECOVERY_DIR/final_audit.sh" << FINALAUDIT_EOF
 #!/bin/bash
 #SBATCH --account=$ACCOUNT
-#SBATCH --time=02:00:00
-#SBATCH --cpus-per-task=4
-#SBATCH --mem=32G
+#SBATCH --time=$AUDIT_TIME
+#SBATCH --cpus-per-task=$AUDIT_CPUS
+#SBATCH --mem=$AUDIT_MEM
 #SBATCH --output=slurm_out/REC_FINAL_AUDIT_%A.out
 #SBATCH --error=slurm_err/REC_FINAL_AUDIT_%A.err
 
 mkdir -p \$SLURM_SUBMIT_DIR/slurm_out
 mkdir -p \$SLURM_SUBMIT_DIR/slurm_err
 
-module load StdEnv/2023 python/3.11.5 scipy-stack/2025a
-source env_rorqual/bin/activate
+module load $MODULES
+source $ENV_NAME/bin/activate
 
 EXPERIMENT="$EXPERIMENT"
 TOTAL_CHUNKS=$TOTAL_CHUNKS

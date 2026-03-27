@@ -413,7 +413,12 @@ def get_model(
         Returns:
             The model to use.
     """
-    weight_path = torch.load(str(path), map_location=torch.device(device))
+    checkpoint = torch.load(str(path), map_location=torch.device(device), weights_only=False)
+    # Support both new format (full checkpoint dict) and legacy format (bare state_dict)
+    if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+        state_dict = checkpoint['model_state_dict']
+    else:
+        state_dict = checkpoint
     # Use pretrained=False to avoid internet downloads on compute nodes.
     # The state_dict loaded below overwrites all weights anyway.
     model = get_architecture(
@@ -423,7 +428,7 @@ def get_model(
                 pretrained = False,
                 freeze_features = False,
             ).to(device)
-    model.load_state_dict(weight_path)
+    model.load_state_dict(state_dict)
     return model
 
 
@@ -484,31 +489,41 @@ def get_dataset(
         data_path = data_path + '/data'
 
     if data_set == 'mnist':
-        train_set = torchvision.datasets.MNIST(
-            root = data_path, 
-            train = True, 
-            transform = transform, 
-            download = True
-        )
-        test_set = torchvision.datasets.MNIST(
-            root = data_path, 
-            train = False, 
-            transform = transform, 
-            download = True
-        )
+        try:
+            train_set = torchvision.datasets.MNIST(
+                root = data_path,
+                train = True,
+                transform = transform,
+                download = False
+            )
+            test_set = torchvision.datasets.MNIST(
+                root = data_path,
+                train = False,
+                transform = transform,
+                download = False
+            )
+        except RuntimeError:
+            raise RuntimeError(
+                f"MNIST not found at {data_path}. Pre-download on the login node first."
+            )
     elif data_set == 'fashion':
-        train_set = torchvision.datasets.FashionMNIST(
-            root = data_path, 
-            train = True, 
-            transform = transform, 
-            download = True
-        )
-        test_set = torchvision.datasets.FashionMNIST(
-            root = data_path, 
-            train = False, 
-            transform = transform, 
-            download = True
-        )
+        try:
+            train_set = torchvision.datasets.FashionMNIST(
+                root = data_path,
+                train = True,
+                transform = transform,
+                download = False
+            )
+            test_set = torchvision.datasets.FashionMNIST(
+                root = data_path,
+                train = False,
+                transform = transform,
+                download = False
+            )
+        except RuntimeError:
+            raise RuntimeError(
+                f"FashionMNIST not found at {data_path}. Pre-download on the login node first."
+            )
     elif data_set == 'cifar10':
         # Use ImageNet normalization for pretrained models
         mean = [0.485, 0.456, 0.406]
@@ -527,8 +542,13 @@ def get_dataset(
             transforms.Normalize(mean=mean, std=std)
         ])
 
-        train_set = CIFAR10(root=data_path or './data', train=True, download=True, transform=train_transform)
-        test_set = CIFAR10(root=data_path or './data', train=False, download=True, transform=test_transform)
+        try:
+            train_set = CIFAR10(root=data_path or './data', train=True, download=False, transform=train_transform)
+            test_set = CIFAR10(root=data_path or './data', train=False, download=False, transform=test_transform)
+        except RuntimeError:
+            raise RuntimeError(
+                f"CIFAR-10 not found at {data_path}. Pre-download on the login node first."
+            )
 
     elif data_set == 'cifar100':
         # Use ImageNet normalization for pretrained models
@@ -548,8 +568,13 @@ def get_dataset(
             transforms.Normalize(mean=mean, std=std)
         ])
 
-        train_set = CIFAR100(root=data_path or './data', train=True, download=True, transform=train_transform)
-        test_set = CIFAR100(root=data_path or './data', train=False, download=True, transform=test_transform)
+        try:
+            train_set = CIFAR100(root=data_path or './data', train=True, download=False, transform=train_transform)
+            test_set = CIFAR100(root=data_path or './data', train=False, download=False, transform=test_transform)
+        except RuntimeError:
+            raise RuntimeError(
+                f"CIFAR-100 not found at {data_path}. Pre-download on the login node first."
+            )
 
     elif data_set == 'imagenet':
         imagenet_root = '/datashare/imagenet/ILSVRC2012'
@@ -618,7 +643,7 @@ def compute_statistics(
     statistics = {}
     for j, paths in matrix_paths.items():
         print(f"idx: {j}, paths: {paths}", flush=True)
-        matrices = [torch.load(path, map_location=torch.device('cpu')) for path in paths]
+        matrices = [torch.load(path, map_location=torch.device('cpu'), weights_only=False) for path in paths]
         print(f'Num of matrices: {len(matrices)}', flush=True)
         #matrices = [torch.load(path).cpu() for path in paths]
         # Stack all matrices to compute statistics across all matrices in a subfolder
@@ -723,24 +748,27 @@ def zero_std(
     return torch.count_nonzero(torch.logical_and((ellipsoid_std.detach().cpu() <= epsilon), (matrix.detach().cpu() > epsilon)))
 
 def subset(
-        train_set, 
-        length: int, 
-        input_shape = (1, 28, 28)
+        train_set,
+        length: int,
+        input_shape = (1, 28, 28),
+        seed: int = 42
     ):
     """
-        Make a random subset of the training set of the given length. 
-        If the length is greater or equal to the length of the training set, 
+        Make a random subset of the training set of the given length.
+        If the length is greater or equal to the length of the training set,
         this function will shuffle the training set.
         Args:
             train_set: the training set (MNIST, CIFAR-10, etc.).
             length: the length of the subset.
             input_shape: the shape of the input.
+            seed: random seed for reproducibility (default 42).
         Returns:
             A random subset of the training set of the given length.
     """
     if length > len(train_set):
         length = len(train_set)
-    idx = random.sample(range(len(train_set)), length)
+    rng = random.Random(seed)
+    idx = rng.sample(range(len(train_set)), length)
     exp_dataset = torch.zeros([length, input_shape[0], input_shape[1], input_shape[2]])
     exp_labels = torch.zeros([length], dtype=torch.long)
     for i, j in enumerate(idx):
