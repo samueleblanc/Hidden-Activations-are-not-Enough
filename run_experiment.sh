@@ -328,7 +328,7 @@ kill \$MONITOR_PID 2>/dev/null || true
 CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints"
 mkdir -p "\$CKPT_DIR"
 if [ \$PY_EXIT -ne 0 ]; then
-    printf '{"status":"failed","exit_code":%d,"mem":"$A_MEM","timestamp":"%s"}\n' "\$PY_EXIT" "\$(date -Iseconds)" > "\$CKPT_DIR/step_A.json"
+    printf '{"status":"failed","exit_code":%d,"mem":"$A_MEM","time":"$A_TIME","timestamp":"%s"}\n' "\$PY_EXIT" "\$(date -Iseconds)" > "\$CKPT_DIR/step_A.json"
     exit 1
 elif [ -f "\$SLURM_TMPDIR/experiments/$EXP/weights/epoch_${EPOCH}.pth" ] || \
    [ -f "\$SLURM_SUBMIT_DIR/experiments/$EXP/weights/epoch_${EPOCH}.pth" ]; then
@@ -344,15 +344,41 @@ STEPA_EOF
         if [ "$FAILED_EXIT" = "137" ] && [ -n "$FAILED_MEM" ]; then
             A_MEM=$(double_mem "$FAILED_MEM")
             echo "  [A] Training:            RE-RUNNING (OOM killed, doubling memory: $FAILED_MEM -> $A_MEM)"
+        elif [ "$FAILED_EXIT" = "140" ] || [ "$FAILED_EXIT" = "" ]; then
+            local FAILED_TIME=$(read_checkpoint_field "$CKPT_A" "time")
+            if [ -n "$FAILED_TIME" ]; then
+                A_TIME=$(double_time "$FAILED_TIME")
+                echo "  [A] Training:            RE-RUNNING (possible timeout, doubling time: $FAILED_TIME -> $A_TIME)"
+            else
+                echo "  [A] Training:            RE-RUNNING (previous run failed, exit_code=$FAILED_EXIT)"
+            fi
         else
             echo "  [A] Training:            RE-RUNNING (previous run failed, exit_code=$FAILED_EXIT)"
         fi
+        # Update the already-written Slurm script with new resource values
+        sed -i "s|#SBATCH --mem=.*|#SBATCH --mem=$A_MEM|" "$JOB_DIR/step_A.sh"
+        sed -i "s|#SBATCH --time=.*|#SBATCH --time=$A_TIME|" "$JOB_DIR/step_A.sh"
         rm -f "$CKPT_A"
     fi
     if [ "$A_STATUS" = "complete" ] || [ -f "experiments/$EXP/weights/epoch_${EPOCH}.pth" ]; then
         echo "  [A] Training:            SKIPPED (already complete)"
         JOB_A=""
     else
+        # Check sacct for unrecorded failures (SIGKILL scenario — no checkpoint written)
+        if [ "$A_STATUS" = "missing" ]; then
+            local SACCT_STATE
+            SACCT_STATE=$(detect_last_job_state "PIPE_A_${EXP}" "$SLURM_OUT_DIR")
+            if [ "$SACCT_STATE" = "OOM_KILLED" ]; then
+                A_MEM=$(double_mem "$A_MEM")
+                echo "  [A] Training:            RE-RUNNING (sacct: OOM kill, doubling memory -> $A_MEM)"
+            elif [ "$SACCT_STATE" = "TIMEOUT" ]; then
+                A_TIME=$(double_time "$A_TIME")
+                echo "  [A] Training:            RE-RUNNING (sacct: timeout, doubling time -> $A_TIME)"
+            fi
+            # Update the already-written Slurm script with new resource values
+            sed -i "s|#SBATCH --mem=.*|#SBATCH --mem=$A_MEM|" "$JOB_DIR/step_A.sh"
+            sed -i "s|#SBATCH --time=.*|#SBATCH --time=$A_TIME|" "$JOB_DIR/step_A.sh"
+        fi
         JOB_A=$(submit_job "$JOB_DIR/step_A.sh" "$DEP_PREFIX")
         echo "  [A] Training:            $JOB_A"
     fi
@@ -464,7 +490,7 @@ if [ \$PY_EXIT -ne 0 ]; then
     trap - USR1
     CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints"
     mkdir -p "\$CKPT_DIR"
-    printf '{"status":"failed","exit_code":%d,"mem":"$B_MEM","timestamp":"%s"}\n' "\$PY_EXIT" "\$(date -Iseconds)" > "\$CKPT_DIR/step_B_chunk_${CHUNK}.json"
+    printf '{"status":"failed","exit_code":%d,"mem":"$B_MEM","time":"$B_TIME","timestamp":"%s"}\n' "\$PY_EXIT" "\$(date -Iseconds)" > "\$CKPT_DIR/step_B_chunk_${CHUNK}.json"
     exit 1
 fi
 
@@ -499,9 +525,20 @@ STEPB_EOF
             if [ "$FAILED_EXIT" = "137" ] && [ -n "$FAILED_MEM" ]; then
                 B_MEM=$(double_mem "$FAILED_MEM")
                 echo "  [B] Matrices chunk $CHUNK: RE-RUNNING (OOM killed, doubling memory: $FAILED_MEM -> $B_MEM)"
+            elif [ "$FAILED_EXIT" = "140" ] || [ "$FAILED_EXIT" = "" ]; then
+                local FAILED_TIME=$(read_checkpoint_field "$CKPT_B" "time")
+                if [ -n "$FAILED_TIME" ]; then
+                    B_TIME=$(double_time "$FAILED_TIME")
+                    echo "  [B] Matrices chunk $CHUNK: RE-RUNNING (possible timeout, doubling time: $FAILED_TIME -> $B_TIME)"
+                else
+                    echo "  [B] Matrices chunk $CHUNK: RE-RUNNING (previous run failed, exit_code=$FAILED_EXIT)"
+                fi
             else
                 echo "  [B] Matrices chunk $CHUNK: RE-RUNNING (previous run failed, exit_code=$FAILED_EXIT)"
             fi
+            # Update the already-written Slurm script with new resource values
+            sed -i "s|#SBATCH --mem=.*|#SBATCH --mem=$B_MEM|" "$JOB_DIR/step_B_chunk_${CHUNK}.sh"
+            sed -i "s|#SBATCH --time=.*|#SBATCH --time=$B_TIME|" "$JOB_DIR/step_B_chunk_${CHUNK}.sh"
             rm -f "$CKPT_B"
         fi
         if [ "$B_STATUS" = "complete" ] && [ -f "experiments/$EXP/matrices_task_${CHUNK}.zip" ]; then
@@ -515,6 +552,21 @@ STEPB_EOF
         if [ "$B_STATUS" = "partial" ]; then
             REMAINING=$(python3 -c "import json; c=json.load(open('$CKPT_B')); print(c['total']-c['completed'])")
             echo "  [B] Matrices chunk $CHUNK: RESUMING ($REMAINING remaining)"
+        fi
+        # Check sacct for unrecorded failures (SIGKILL scenario — no checkpoint written)
+        if [ "$B_STATUS" = "missing" ]; then
+            local SACCT_STATE
+            SACCT_STATE=$(detect_last_job_state "PIPE_B_${EXP}_c${CHUNK}" "$SLURM_OUT_DIR")
+            if [ "$SACCT_STATE" = "OOM_KILLED" ]; then
+                B_MEM=$(double_mem "$B_MEM")
+                echo "  [B] Matrices chunk $CHUNK: RE-RUNNING (sacct: OOM kill, doubling memory -> $B_MEM)"
+            elif [ "$SACCT_STATE" = "TIMEOUT" ]; then
+                B_TIME=$(double_time "$B_TIME")
+                echo "  [B] Matrices chunk $CHUNK: RE-RUNNING (sacct: timeout, doubling time -> $B_TIME)"
+            fi
+            # Update the already-written Slurm script with new resource values
+            sed -i "s|#SBATCH --mem=.*|#SBATCH --mem=$B_MEM|" "$JOB_DIR/step_B_chunk_${CHUNK}.sh"
+            sed -i "s|#SBATCH --time=.*|#SBATCH --time=$B_TIME|" "$JOB_DIR/step_B_chunk_${CHUNK}.sh"
         fi
         JOB_ID=$(submit_job "$JOB_DIR/step_B_chunk_${CHUNK}.sh" "${JOB_A:-}")
         JOB_B_IDS="${JOB_B_IDS:+$JOB_B_IDS:}$JOB_ID"
@@ -574,6 +626,16 @@ print('test ' + ' '.join(attacks))
                 if [ "$FAILED_EXIT" = "137" ] && [ -n "$FAILED_MEM" ]; then
                     local OOM_MEM_OVERRIDE=$(double_mem "$FAILED_MEM")
                     echo "  [C] Attack $ATTACK_NAME:   RE-RUNNING (OOM killed, doubling memory: $FAILED_MEM -> $OOM_MEM_OVERRIDE)"
+                elif [ "$FAILED_EXIT" = "140" ] || [ "$FAILED_EXIT" = "" ]; then
+                    local FAILED_TIME=$(read_checkpoint_field "$CKPT_C_ATK" "time")
+                    if [ -n "$FAILED_TIME" ]; then
+                        local TIMEOUT_TIME_OVERRIDE=$(double_time "$FAILED_TIME")
+                        echo "  [C] Attack $ATTACK_NAME:   RE-RUNNING (possible timeout, doubling time: $FAILED_TIME -> $TIMEOUT_TIME_OVERRIDE)"
+                    else
+                        echo "  [C] Attack $ATTACK_NAME:   RE-RUNNING (previous run failed, exit_code=$FAILED_EXIT)"
+                        local TIMEOUT_TIME_OVERRIDE=""
+                    fi
+                    local OOM_MEM_OVERRIDE=""
                 else
                     echo "  [C] Attack $ATTACK_NAME:   RE-RUNNING (previous run failed, exit_code=$FAILED_EXIT)"
                     local OOM_MEM_OVERRIDE=""
@@ -590,7 +652,7 @@ print('test ' + ' '.join(attacks))
                 CALIB_ATK_TIME=$(python3 -c "
 import json
 c = json.load(open('$CALIB_FILE'))
-pa = c.get('slurm_resources',{}).get('C',{}).get('per_attack_slurm',{}).get('$ATTACK_NAME',{})
+pa = c.get('slurm_resources',{}).get('2b',{}).get('per_attack_slurm',{}).get('$ATTACK_NAME',{})
 print(pa.get('time', ''))" 2>/dev/null || echo "")
                 if [ -n "$CALIB_ATK_TIME" ]; then
                     C_ATK_TIME=$(enforce_min_time "$CALIB_ATK_TIME" "01:00:00")
@@ -600,7 +662,7 @@ print(pa.get('time', ''))" 2>/dev/null || echo "")
                 CALIB_ATK_MEM=$(python3 -c "
 import json
 c = json.load(open('$CALIB_FILE'))
-pa = c.get('slurm_resources',{}).get('C',{}).get('per_attack_slurm',{}).get('$ATTACK_NAME',{})
+pa = c.get('slurm_resources',{}).get('2b',{}).get('per_attack_slurm',{}).get('$ATTACK_NAME',{})
 print(pa.get('mem', ''))" 2>/dev/null || echo "")
                 if [ -n "$CALIB_ATK_MEM" ]; then
                     C_ATK_MEM=$(enforce_min_mem "$CALIB_ATK_MEM" "16G")
@@ -611,6 +673,25 @@ print(pa.get('mem', ''))" 2>/dev/null || echo "")
             if [ -n "${OOM_MEM_OVERRIDE:-}" ]; then
                 C_ATK_MEM="$OOM_MEM_OVERRIDE"
                 unset OOM_MEM_OVERRIDE
+            fi
+
+            # If previous run timed out, override with doubled time
+            if [ -n "${TIMEOUT_TIME_OVERRIDE:-}" ]; then
+                C_ATK_TIME="$TIMEOUT_TIME_OVERRIDE"
+                unset TIMEOUT_TIME_OVERRIDE
+            fi
+
+            # Check sacct for unrecorded failures (SIGKILL scenario — no checkpoint written)
+            if [ "$ATK_STATUS" = "missing" ]; then
+                local SACCT_STATE
+                SACCT_STATE=$(detect_last_job_state "PIPE_C_${EXP}_${ATTACK_NAME}" "$SLURM_OUT_DIR")
+                if [ "$SACCT_STATE" = "OOM_KILLED" ]; then
+                    C_ATK_MEM=$(double_mem "$C_ATK_MEM")
+                    echo "  [C] Attack $ATTACK_NAME:   RE-RUNNING (sacct: OOM kill, doubling memory -> $C_ATK_MEM)"
+                elif [ "$SACCT_STATE" = "TIMEOUT" ]; then
+                    C_ATK_TIME=$(double_time "$C_ATK_TIME")
+                    echo "  [C] Attack $ATTACK_NAME:   RE-RUNNING (sacct: timeout, doubling time -> $C_ATK_TIME)"
+                fi
             fi
 
             cat > "$JOB_DIR/step_C_attack_${ATTACK_NAME}.sh" << STEPC_EOF
@@ -663,7 +744,7 @@ kill \$MONITOR_PID 2>/dev/null || true
 CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints"
 mkdir -p "\$CKPT_DIR"
 if [ \$PY_EXIT -ne 0 ]; then
-    printf '{"status":"failed","exit_code":%d,"mem":"$C_ATK_MEM","timestamp":"%s"}\n' "\$PY_EXIT" "\$(date -Iseconds)" > "\$CKPT_DIR/step_C_attack_\${ATTACK_NAME}.json"
+    printf '{"status":"failed","exit_code":%d,"mem":"$C_ATK_MEM","time":"$C_ATK_TIME","timestamp":"%s"}\n' "\$PY_EXIT" "\$(date -Iseconds)" > "\$CKPT_DIR/step_C_attack_\${ATTACK_NAME}.json"
     exit 1
 fi
 
@@ -807,7 +888,7 @@ if [ \$PY_EXIT -ne 0 ]; then
     trap - USR1
     CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints"
     mkdir -p "\$CKPT_DIR"
-    printf '{"status":"failed","exit_code":%d,"mem":"$D_MEM","timestamp":"%s"}\n' "\$PY_EXIT" "\$(date -Iseconds)" > "\$CKPT_DIR/step_D_chunk_${CHUNK}.json"
+    printf '{"status":"failed","exit_code":%d,"mem":"$D_MEM","time":"$D_TIME","timestamp":"%s"}\n' "\$PY_EXIT" "\$(date -Iseconds)" > "\$CKPT_DIR/step_D_chunk_${CHUNK}.json"
     exit 1
 fi
 
@@ -842,9 +923,20 @@ STEPD_EOF
             if [ "$FAILED_EXIT" = "137" ] && [ -n "$FAILED_MEM" ]; then
                 D_MEM=$(double_mem "$FAILED_MEM")
                 echo "  [D] Adv matrices chunk $CHUNK: RE-RUNNING (OOM killed, doubling memory: $FAILED_MEM -> $D_MEM)"
+            elif [ "$FAILED_EXIT" = "140" ] || [ "$FAILED_EXIT" = "" ]; then
+                local FAILED_TIME=$(read_checkpoint_field "$CKPT_D" "time")
+                if [ -n "$FAILED_TIME" ]; then
+                    D_TIME=$(double_time "$FAILED_TIME")
+                    echo "  [D] Adv matrices chunk $CHUNK: RE-RUNNING (possible timeout, doubling time: $FAILED_TIME -> $D_TIME)"
+                else
+                    echo "  [D] Adv matrices chunk $CHUNK: RE-RUNNING (previous run failed, exit_code=$FAILED_EXIT)"
+                fi
             else
                 echo "  [D] Adv matrices chunk $CHUNK: RE-RUNNING (previous run failed, exit_code=$FAILED_EXIT)"
             fi
+            # Update the already-written Slurm script with new resource values
+            sed -i "s|#SBATCH --mem=.*|#SBATCH --mem=$D_MEM|" "$JOB_DIR/step_D_chunk_${CHUNK}.sh"
+            sed -i "s|#SBATCH --time=.*|#SBATCH --time=$D_TIME|" "$JOB_DIR/step_D_chunk_${CHUNK}.sh"
             rm -f "$CKPT_D"
         fi
         if [ "$D_STATUS" = "complete" ] && [ -f "experiments/$EXP/adv_matrices_task_${CHUNK}.zip" ]; then
@@ -858,6 +950,21 @@ STEPD_EOF
         if [ "$D_STATUS" = "partial" ]; then
             REMAINING=$(python3 -c "import json; c=json.load(open('$CKPT_D')); print(c['total']-c['completed'])")
             echo "  [D] Adv matrices chunk $CHUNK: RESUMING ($REMAINING remaining)"
+        fi
+        # Check sacct for unrecorded failures (SIGKILL scenario — no checkpoint written)
+        if [ "$D_STATUS" = "missing" ]; then
+            local SACCT_STATE
+            SACCT_STATE=$(detect_last_job_state "PIPE_D_${EXP}_c${CHUNK}" "$SLURM_OUT_DIR")
+            if [ "$SACCT_STATE" = "OOM_KILLED" ]; then
+                D_MEM=$(double_mem "$D_MEM")
+                echo "  [D] Adv matrices chunk $CHUNK: RE-RUNNING (sacct: OOM kill, doubling memory -> $D_MEM)"
+            elif [ "$SACCT_STATE" = "TIMEOUT" ]; then
+                D_TIME=$(double_time "$D_TIME")
+                echo "  [D] Adv matrices chunk $CHUNK: RE-RUNNING (sacct: timeout, doubling time -> $D_TIME)"
+            fi
+            # Update the already-written Slurm script with new resource values
+            sed -i "s|#SBATCH --mem=.*|#SBATCH --mem=$D_MEM|" "$JOB_DIR/step_D_chunk_${CHUNK}.sh"
+            sed -i "s|#SBATCH --time=.*|#SBATCH --time=$D_TIME|" "$JOB_DIR/step_D_chunk_${CHUNK}.sh"
         fi
         # D depends on A (needs model weights) + all C (needs adv examples)
         local D_DEPS="${JOB_A:+$JOB_A:}${JOB_C_IDS:-}"
@@ -945,7 +1052,7 @@ kill \$MONITOR_PID 2>/dev/null || true
 CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints"
 mkdir -p "\$CKPT_DIR"
 if [ \$PY_EXIT -ne 0 ]; then
-    printf '{"status":"failed","exit_code":%d,"mem":"$E_MEM","timestamp":"%s"}\n' "\$PY_EXIT" "\$(date -Iseconds)" > "\$CKPT_DIR/step_E.json"
+    printf '{"status":"failed","exit_code":%d,"mem":"$E_MEM","time":"$E_TIME","timestamp":"%s"}\n' "\$PY_EXIT" "\$(date -Iseconds)" > "\$CKPT_DIR/step_E.json"
     exit 1
 fi
 
@@ -957,7 +1064,7 @@ echo "Step E (representation comparison) complete for $EXP."
 if [ -f "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/comparison/representation_comparison.json" ]; then
     printf '{"status":"complete","exit_code":0,"timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_E.json"
 else
-    printf '{"status":"failed","exit_code":0,"mem":"$E_MEM","note":"no_output","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_E.json"
+    printf '{"status":"failed","exit_code":0,"mem":"$E_MEM","time":"$E_TIME","note":"no_output","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_E.json"
     echo "ERROR: Step E did not produce representation_comparison.json"
     exit 1
 fi
@@ -965,24 +1072,54 @@ STEPE_EOF
 
     # --- Submit E ---
     CKPT_E="$CKPT_BASE/step_E.json"
-    if [ "$(read_checkpoint_status "$CKPT_E")" = "failed" ]; then
+    local E_STATUS
+    E_STATUS=$(read_checkpoint_status "$CKPT_E")
+    if [ "$E_STATUS" = "failed" ]; then
         local FAILED_EXIT=$(read_checkpoint_field "$CKPT_E" "exit_code")
         local FAILED_MEM=$(read_checkpoint_field "$CKPT_E" "mem")
         if [ "$FAILED_EXIT" = "137" ] && [ -n "$FAILED_MEM" ]; then
             E_MEM=$(double_mem "$FAILED_MEM")
             echo "  [E] Rep. comparison:     RE-RUNNING (OOM killed, doubling memory: $FAILED_MEM -> $E_MEM)"
+        elif [ "$FAILED_EXIT" = "140" ] || [ "$FAILED_EXIT" = "" ]; then
+            local FAILED_TIME=$(read_checkpoint_field "$CKPT_E" "time")
+            if [ -n "$FAILED_TIME" ]; then
+                E_TIME=$(double_time "$FAILED_TIME")
+                echo "  [E] Rep. comparison:     RE-RUNNING (possible timeout, doubling time: $FAILED_TIME -> $E_TIME)"
+            else
+                echo "  [E] Rep. comparison:     RE-RUNNING (previous run failed, exit_code=$FAILED_EXIT)"
+            fi
         else
             echo "  [E] Rep. comparison:     RE-RUNNING (previous run failed, exit_code=$FAILED_EXIT)"
         fi
+        # Update the already-written Slurm script with new resource values
+        sed -i "s|#SBATCH --mem=.*|#SBATCH --mem=$E_MEM|" "$JOB_DIR/step_E.sh"
+        sed -i "s|#SBATCH --time=.*|#SBATCH --time=$E_TIME|" "$JOB_DIR/step_E.sh"
         rm -f "$CKPT_E"
+        E_STATUS="missing"
     fi
-    if [ "$(read_checkpoint_status "$CKPT_E")" = "complete" ] && [ -f "experiments/$EXP/comparison/representation_comparison.json" ]; then
+    if [ "$E_STATUS" = "complete" ] && [ -f "experiments/$EXP/comparison/representation_comparison.json" ]; then
         echo "  [E] Rep. comparison:     SKIPPED (complete)"
         JOB_E=""
     else
-        if [ "$(read_checkpoint_status "$CKPT_E")" = "complete" ]; then
+        if [ "$E_STATUS" = "complete" ]; then
             echo "  [E] WARNING: Checkpoint complete but representation_comparison.json missing. Invalidating."
             rm -f "$CKPT_E"
+            E_STATUS="missing"
+        fi
+        # Check sacct for unrecorded failures (SIGKILL scenario — no checkpoint written)
+        if [ "$E_STATUS" = "missing" ]; then
+            local SACCT_STATE
+            SACCT_STATE=$(detect_last_job_state "PIPE_E_${EXP}" "$SLURM_OUT_DIR")
+            if [ "$SACCT_STATE" = "OOM_KILLED" ]; then
+                E_MEM=$(double_mem "$E_MEM")
+                echo "  [E] Rep. comparison:     RE-RUNNING (sacct: OOM kill, doubling memory -> $E_MEM)"
+            elif [ "$SACCT_STATE" = "TIMEOUT" ]; then
+                E_TIME=$(double_time "$E_TIME")
+                echo "  [E] Rep. comparison:     RE-RUNNING (sacct: timeout, doubling time -> $E_TIME)"
+            fi
+            # Update the already-written Slurm script with new resource values
+            sed -i "s|#SBATCH --mem=.*|#SBATCH --mem=$E_MEM|" "$JOB_DIR/step_E.sh"
+            sed -i "s|#SBATCH --time=.*|#SBATCH --time=$E_TIME|" "$JOB_DIR/step_E.sh"
         fi
         # E depends on A + all B + all C attacks + all D
         local E_DEPS="${JOB_A:-}"
@@ -1038,7 +1175,7 @@ kill \$MONITOR_PID 2>/dev/null || true
 CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/checkpoints"
 mkdir -p "\$CKPT_DIR"
 if [ \$PY_EXIT -ne 0 ]; then
-    printf '{"status":"failed","exit_code":%d,"mem":"$G_MEM","timestamp":"%s"}\n' "\$PY_EXIT" "\$(date -Iseconds)" > "\$CKPT_DIR/step_G.json"
+    printf '{"status":"failed","exit_code":%d,"mem":"$G_MEM","time":"$G_TIME","timestamp":"%s"}\n' "\$PY_EXIT" "\$(date -Iseconds)" > "\$CKPT_DIR/step_G.json"
     exit 1
 fi
 
@@ -1047,7 +1184,7 @@ echo "Step G (Theorem 4.5 validation) complete for $EXP."
 if [ -f "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/theorem45/theorem45_results.json" ]; then
     printf '{"status":"complete","exit_code":0,"timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_G.json"
 else
-    printf '{"status":"failed","exit_code":0,"mem":"$G_MEM","note":"no_output","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_G.json"
+    printf '{"status":"failed","exit_code":0,"mem":"$G_MEM","time":"$G_TIME","note":"no_output","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_G.json"
     echo "ERROR: Step G did not produce theorem45_results.json"
     exit 1
 fi
@@ -1055,24 +1192,54 @@ STEPG_EOF
 
     # --- Submit G ---
     CKPT_G="$CKPT_BASE/step_G.json"
-    if [ "$(read_checkpoint_status "$CKPT_G")" = "failed" ]; then
+    local G_STATUS
+    G_STATUS=$(read_checkpoint_status "$CKPT_G")
+    if [ "$G_STATUS" = "failed" ]; then
         local FAILED_EXIT=$(read_checkpoint_field "$CKPT_G" "exit_code")
         local FAILED_MEM=$(read_checkpoint_field "$CKPT_G" "mem")
         if [ "$FAILED_EXIT" = "137" ] && [ -n "$FAILED_MEM" ]; then
             G_MEM=$(double_mem "$FAILED_MEM")
             echo "  [G] Theorem 4.5:         RE-RUNNING (OOM killed, doubling memory: $FAILED_MEM -> $G_MEM)"
+        elif [ "$FAILED_EXIT" = "140" ] || [ "$FAILED_EXIT" = "" ]; then
+            local FAILED_TIME=$(read_checkpoint_field "$CKPT_G" "time")
+            if [ -n "$FAILED_TIME" ]; then
+                G_TIME=$(double_time "$FAILED_TIME")
+                echo "  [G] Theorem 4.5:         RE-RUNNING (possible timeout, doubling time: $FAILED_TIME -> $G_TIME)"
+            else
+                echo "  [G] Theorem 4.5:         RE-RUNNING (previous run failed, exit_code=$FAILED_EXIT)"
+            fi
         else
             echo "  [G] Theorem 4.5:         RE-RUNNING (previous run failed, exit_code=$FAILED_EXIT)"
         fi
+        # Update the already-written Slurm script with new resource values
+        sed -i "s|#SBATCH --mem=.*|#SBATCH --mem=$G_MEM|" "$JOB_DIR/step_G.sh"
+        sed -i "s|#SBATCH --time=.*|#SBATCH --time=$G_TIME|" "$JOB_DIR/step_G.sh"
         rm -f "$CKPT_G"
+        G_STATUS="missing"
     fi
-    if [ "$(read_checkpoint_status "$CKPT_G")" = "complete" ] && [ -f "experiments/$EXP/theorem45/theorem45_results.json" ]; then
+    if [ "$G_STATUS" = "complete" ] && [ -f "experiments/$EXP/theorem45/theorem45_results.json" ]; then
         echo "  [G] Theorem 4.5:         SKIPPED (complete)"
         JOB_G=""
     else
-        if [ "$(read_checkpoint_status "$CKPT_G")" = "complete" ]; then
+        if [ "$G_STATUS" = "complete" ]; then
             echo "  [G] WARNING: Checkpoint complete but theorem45_results.json missing. Invalidating."
             rm -f "$CKPT_G"
+            G_STATUS="missing"
+        fi
+        # Check sacct for unrecorded failures (SIGKILL scenario — no checkpoint written)
+        if [ "$G_STATUS" = "missing" ]; then
+            local SACCT_STATE
+            SACCT_STATE=$(detect_last_job_state "PIPE_G_${EXP}" "$SLURM_OUT_DIR")
+            if [ "$SACCT_STATE" = "OOM_KILLED" ]; then
+                G_MEM=$(double_mem "$G_MEM")
+                echo "  [G] Theorem 4.5:         RE-RUNNING (sacct: OOM kill, doubling memory -> $G_MEM)"
+            elif [ "$SACCT_STATE" = "TIMEOUT" ]; then
+                G_TIME=$(double_time "$G_TIME")
+                echo "  [G] Theorem 4.5:         RE-RUNNING (sacct: timeout, doubling time -> $G_TIME)"
+            fi
+            # Update the already-written Slurm script with new resource values
+            sed -i "s|#SBATCH --mem=.*|#SBATCH --mem=$G_MEM|" "$JOB_DIR/step_G.sh"
+            sed -i "s|#SBATCH --time=.*|#SBATCH --time=$G_TIME|" "$JOB_DIR/step_G.sh"
         fi
         # G depends on A only (generates adversarial examples on-the-fly)
         local G_DEPS="${JOB_A:-}"
@@ -1106,7 +1273,7 @@ echo "Step F (LaTeX tables) complete for $EXP."
 CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints"
 mkdir -p "\$CKPT_DIR"
 if [ \$PY_EXIT -ne 0 ]; then
-    printf '{"status":"failed","exit_code":%d,"mem":"$F_MEM","timestamp":"%s"}\n' "\$PY_EXIT" "\$(date -Iseconds)" > "\$CKPT_DIR/step_F.json"
+    printf '{"status":"failed","exit_code":%d,"mem":"$F_MEM","time":"$F_TIME","timestamp":"%s"}\n' "\$PY_EXIT" "\$(date -Iseconds)" > "\$CKPT_DIR/step_F.json"
     exit 1
 fi
 
@@ -1114,7 +1281,7 @@ TEX_COUNT=\$(find \$SLURM_SUBMIT_DIR/tables/ -name "*.tex" 2>/dev/null | wc -l)
 if [ "\$TEX_COUNT" -gt 0 ]; then
     printf '{"status":"complete","exit_code":0,"timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_F.json"
 else
-    printf '{"status":"failed","exit_code":0,"mem":"$F_MEM","note":"no_output","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_F.json"
+    printf '{"status":"failed","exit_code":0,"mem":"$F_MEM","time":"$F_TIME","note":"no_output","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_F.json"
     echo "ERROR: Step F produced no .tex files"
     exit 1
 fi
@@ -1123,24 +1290,54 @@ STEPF_EOF
     # --- Submit F ---
     CKPT_F="$CKPT_BASE/step_F.json"
     F_TEX_COUNT=$(find "tables/" -name "*.tex" 2>/dev/null | wc -l) || F_TEX_COUNT=0
-    if [ "$(read_checkpoint_status "$CKPT_F")" = "failed" ]; then
+    local F_STATUS
+    F_STATUS=$(read_checkpoint_status "$CKPT_F")
+    if [ "$F_STATUS" = "failed" ]; then
         local FAILED_EXIT=$(read_checkpoint_field "$CKPT_F" "exit_code")
         local FAILED_MEM=$(read_checkpoint_field "$CKPT_F" "mem")
         if [ "$FAILED_EXIT" = "137" ] && [ -n "$FAILED_MEM" ]; then
             F_MEM=$(double_mem "$FAILED_MEM")
             echo "  [F] LaTeX tables:        RE-RUNNING (OOM killed, doubling memory: $FAILED_MEM -> $F_MEM)"
+        elif [ "$FAILED_EXIT" = "140" ] || [ "$FAILED_EXIT" = "" ]; then
+            local FAILED_TIME=$(read_checkpoint_field "$CKPT_F" "time")
+            if [ -n "$FAILED_TIME" ]; then
+                F_TIME=$(double_time "$FAILED_TIME")
+                echo "  [F] LaTeX tables:        RE-RUNNING (possible timeout, doubling time: $FAILED_TIME -> $F_TIME)"
+            else
+                echo "  [F] LaTeX tables:        RE-RUNNING (previous run failed, exit_code=$FAILED_EXIT)"
+            fi
         else
             echo "  [F] LaTeX tables:        RE-RUNNING (previous run failed, exit_code=$FAILED_EXIT)"
         fi
+        # Update the already-written Slurm script with new resource values
+        sed -i "s|#SBATCH --mem=.*|#SBATCH --mem=$F_MEM|" "$JOB_DIR/step_F.sh"
+        sed -i "s|#SBATCH --time=.*|#SBATCH --time=$F_TIME|" "$JOB_DIR/step_F.sh"
         rm -f "$CKPT_F"
+        F_STATUS="missing"
     fi
-    if [ "$(read_checkpoint_status "$CKPT_F")" = "complete" ] && [ "$F_TEX_COUNT" -gt 0 ]; then
+    if [ "$F_STATUS" = "complete" ] && [ "$F_TEX_COUNT" -gt 0 ]; then
         echo "  [F] LaTeX tables:        SKIPPED (complete)"
         JOB_F=""
     else
-        if [ "$(read_checkpoint_status "$CKPT_F")" = "complete" ]; then
+        if [ "$F_STATUS" = "complete" ]; then
             echo "  [F] WARNING: Checkpoint complete but no .tex files found. Invalidating."
             rm -f "$CKPT_F"
+            F_STATUS="missing"
+        fi
+        # Check sacct for unrecorded failures (SIGKILL scenario — no checkpoint written)
+        if [ "$F_STATUS" = "missing" ]; then
+            local SACCT_STATE
+            SACCT_STATE=$(detect_last_job_state "PIPE_F_${EXP}" "$SLURM_OUT_DIR")
+            if [ "$SACCT_STATE" = "OOM_KILLED" ]; then
+                F_MEM=$(double_mem "$F_MEM")
+                echo "  [F] LaTeX tables:        RE-RUNNING (sacct: OOM kill, doubling memory -> $F_MEM)"
+            elif [ "$SACCT_STATE" = "TIMEOUT" ]; then
+                F_TIME=$(double_time "$F_TIME")
+                echo "  [F] LaTeX tables:        RE-RUNNING (sacct: timeout, doubling time -> $F_TIME)"
+            fi
+            # Update the already-written Slurm script with new resource values
+            sed -i "s|#SBATCH --mem=.*|#SBATCH --mem=$F_MEM|" "$JOB_DIR/step_F.sh"
+            sed -i "s|#SBATCH --time=.*|#SBATCH --time=$F_TIME|" "$JOB_DIR/step_F.sh"
         fi
         # F depends on E + G
         local F_DEPS="${JOB_E:-}"
@@ -1297,14 +1494,14 @@ for EXP in "${EXPERIMENTS[@]}"; do
     CALIB_FILE="experiments/$EXP/calibration.json"
     if [ -f "$CALIB_FILE" ]; then
         echo "  Loading calibrated resources from $CALIB_FILE"
-        A_TIME=$(python3 -c "import json; print(json.load(open('$CALIB_FILE'))['slurm_resources']['A']['time'])")
-        A_MEM=$(python3 -c "import json; print(json.load(open('$CALIB_FILE'))['slurm_resources']['A']['mem'])")
-        B_TIME=$(python3 -c "import json; print(json.load(open('$CALIB_FILE'))['slurm_resources']['B']['time'])")
-        B_MEM=$(python3 -c "import json; print(json.load(open('$CALIB_FILE'))['slurm_resources']['B']['mem'])")
+        A_TIME=$(python3 -c "import json; print(json.load(open('$CALIB_FILE'))['slurm_resources']['1']['time'])")
+        A_MEM=$(python3 -c "import json; print(json.load(open('$CALIB_FILE'))['slurm_resources']['1']['mem'])")
+        B_TIME=$(python3 -c "import json; print(json.load(open('$CALIB_FILE'))['slurm_resources']['2a']['time'])")
+        B_MEM=$(python3 -c "import json; print(json.load(open('$CALIB_FILE'))['slurm_resources']['2a']['mem'])")
         # C resources are now per-attack; load defaults for fallback only
-        C_MEM=$(python3 -c "import json; print(json.load(open('$CALIB_FILE'))['slurm_resources']['C']['mem'])")
-        D_TIME=$(python3 -c "import json; d=json.load(open('$CALIB_FILE'))['slurm_resources']; print(d.get('D', d.get('F', {})).get('time', '$D_TIME'))")
-        D_MEM=$(python3 -c "import json; d=json.load(open('$CALIB_FILE'))['slurm_resources']; print(d.get('D', d.get('F', {})).get('mem', '$D_MEM'))")
+        C_MEM=$(python3 -c "import json; print(json.load(open('$CALIB_FILE'))['slurm_resources']['2b']['mem'])")
+        D_TIME=$(python3 -c "import json; d=json.load(open('$CALIB_FILE'))['slurm_resources']; print(d.get('3', {}).get('time', '$D_TIME'))")
+        D_MEM=$(python3 -c "import json; d=json.load(open('$CALIB_FILE'))['slurm_resources']; print(d.get('3', {}).get('mem', '$D_MEM'))")
         BATCH_SIZE=$(python3 -c "import json; print(json.load(open('$CALIB_FILE'))['batch_size'])")
         echo "    A: time=$A_TIME mem=$A_MEM"
         echo "    B: time=$B_TIME mem=$B_MEM  batch_size=$BATCH_SIZE"
@@ -1668,7 +1865,7 @@ PY_EXIT=\$?
 CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/checkpoints"
 mkdir -p "\$CKPT_DIR"
 if [ \$PY_EXIT -ne 0 ]; then
-    printf '{"status":"failed","exit_code":%d,"mem":"$A_MEM","timestamp":"%s"}\n' "\$PY_EXIT" "\$(date -Iseconds)" > "\$CKPT_DIR/step_A.json"
+    printf '{"status":"failed","exit_code":%d,"mem":"$A_MEM","time":"$A_TIME","timestamp":"%s"}\n' "\$PY_EXIT" "\$(date -Iseconds)" > "\$CKPT_DIR/step_A.json"
     exit 1
 fi
 echo "Step A complete."
@@ -1727,7 +1924,7 @@ kill \$MONITOR_PID 2>/dev/null || true
 if [ \$PY_EXIT -ne 0 ]; then
     CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/checkpoints"
     mkdir -p "\$CKPT_DIR"
-    printf '{"status":"failed","exit_code":%d,"mem":"$B_MEM","timestamp":"%s"}\n' "\$PY_EXIT" "\$(date -Iseconds)" > "\$CKPT_DIR/step_B_chunk_${CHUNK}.json"
+    printf '{"status":"failed","exit_code":%d,"mem":"$B_MEM","time":"$B_TIME","timestamp":"%s"}\n' "\$PY_EXIT" "\$(date -Iseconds)" > "\$CKPT_DIR/step_B_chunk_${CHUNK}.json"
     exit 1
 fi
 cd \$SLURM_TMPDIR/experiments/$EXPERIMENT
@@ -1770,7 +1967,7 @@ PY_EXIT=\$?
 CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/checkpoints"
 mkdir -p "\$CKPT_DIR"
 if [ \$PY_EXIT -ne 0 ]; then
-    printf '{"status":"failed","exit_code":%d,"mem":"$C_MEM","timestamp":"%s"}\n' "\$PY_EXIT" "\$(date -Iseconds)" > "\$CKPT_DIR/step_C_attack_${ATTACK_NAME}.json"
+    printf '{"status":"failed","exit_code":%d,"mem":"$C_MEM","time":"$C_TIME","timestamp":"%s"}\n' "\$PY_EXIT" "\$(date -Iseconds)" > "\$CKPT_DIR/step_C_attack_${ATTACK_NAME}.json"
     exit 1
 fi
 
@@ -1845,7 +2042,7 @@ kill \$MONITOR_PID 2>/dev/null || true
 if [ \$PY_EXIT -ne 0 ]; then
     CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/checkpoints"
     mkdir -p "\$CKPT_DIR"
-    printf '{"status":"failed","exit_code":%d,"mem":"$D_MEM","timestamp":"%s"}\n' "\$PY_EXIT" "\$(date -Iseconds)" > "\$CKPT_DIR/step_D_chunk_${CHUNK}.json"
+    printf '{"status":"failed","exit_code":%d,"mem":"$D_MEM","time":"$D_TIME","timestamp":"%s"}\n' "\$PY_EXIT" "\$(date -Iseconds)" > "\$CKPT_DIR/step_D_chunk_${CHUNK}.json"
     exit 1
 fi
 cd \$SLURM_TMPDIR/experiments/$EXPERIMENT/
@@ -1906,7 +2103,7 @@ PY_EXIT=\$?
 CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/checkpoints"
 mkdir -p "\$CKPT_DIR"
 if [ \$PY_EXIT -ne 0 ]; then
-    printf '{"status":"failed","exit_code":%d,"mem":"$E_MEM","timestamp":"%s"}\n' "\$PY_EXIT" "\$(date -Iseconds)" > "\$CKPT_DIR/step_E.json"
+    printf '{"status":"failed","exit_code":%d,"mem":"$E_MEM","time":"$E_TIME","timestamp":"%s"}\n' "\$PY_EXIT" "\$(date -Iseconds)" > "\$CKPT_DIR/step_E.json"
     exit 1
 fi
 
@@ -1917,7 +2114,7 @@ echo "Step E complete."
 if [ -f "\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/comparison/representation_comparison.json" ]; then
     printf '{"status":"complete","exit_code":0,"timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_E.json"
 else
-    printf '{"status":"failed","exit_code":0,"mem":"$E_MEM","note":"no_output","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_E.json"
+    printf '{"status":"failed","exit_code":0,"mem":"$E_MEM","time":"$E_TIME","note":"no_output","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_E.json"
     echo "ERROR: Step E did not produce representation_comparison.json"
     exit 1
 fi
@@ -1957,7 +2154,7 @@ PY_EXIT=\$?
 CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/checkpoints"
 mkdir -p "\$CKPT_DIR"
 if [ \$PY_EXIT -ne 0 ]; then
-    printf '{"status":"failed","exit_code":%d,"mem":"$G_MEM","timestamp":"%s"}\n' "\$PY_EXIT" "\$(date -Iseconds)" > "\$CKPT_DIR/step_G.json"
+    printf '{"status":"failed","exit_code":%d,"mem":"$G_MEM","time":"$G_TIME","timestamp":"%s"}\n' "\$PY_EXIT" "\$(date -Iseconds)" > "\$CKPT_DIR/step_G.json"
     exit 1
 fi
 
@@ -1966,7 +2163,7 @@ echo "Step G (Theorem 4.5) complete."
 if [ -f "\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/theorem45/theorem45_results.json" ]; then
     printf '{"status":"complete","exit_code":0,"timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_G.json"
 else
-    printf '{"status":"failed","exit_code":0,"mem":"$G_MEM","note":"no_output","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_G.json"
+    printf '{"status":"failed","exit_code":0,"mem":"$G_MEM","time":"$G_TIME","note":"no_output","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_G.json"
     echo "ERROR: Step G did not produce theorem45_results.json"
     exit 1
 fi
@@ -2000,7 +2197,7 @@ echo "Step F (LaTeX tables) complete."
 CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/checkpoints"
 mkdir -p "\$CKPT_DIR"
 if [ \$PY_EXIT -ne 0 ]; then
-    printf '{"status":"failed","exit_code":%d,"mem":"$F_MEM","timestamp":"%s"}\n' "\$PY_EXIT" "\$(date -Iseconds)" > "\$CKPT_DIR/step_F.json"
+    printf '{"status":"failed","exit_code":%d,"mem":"$F_MEM","time":"$F_TIME","timestamp":"%s"}\n' "\$PY_EXIT" "\$(date -Iseconds)" > "\$CKPT_DIR/step_F.json"
     exit 1
 fi
 
@@ -2008,7 +2205,7 @@ TEX_COUNT=\$(find \$SLURM_SUBMIT_DIR/tables/ -name "*.tex" 2>/dev/null | wc -l)
 if [ "\$TEX_COUNT" -gt 0 ]; then
     printf '{"status":"complete","exit_code":0,"timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_F.json"
 else
-    printf '{"status":"failed","exit_code":0,"mem":"$F_MEM","note":"no_output","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_F.json"
+    printf '{"status":"failed","exit_code":0,"mem":"$F_MEM","time":"$F_TIME","note":"no_output","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_F.json"
     echo "ERROR: Step F produced no .tex files"
     exit 1
 fi
