@@ -33,8 +33,10 @@ class TestClassifyError:
         assert classify_error("cannot allocate memory for buffer") == "oom"
 
     def test_cuda_out_of_memory(self):
-        # "CUDA out of memory" matches "oom" first (contains "out of memory")
-        assert classify_error("CUDA out of memory. Tried to allocate 2.00 GiB") == "oom"
+        # HI-13: "CUDA out of memory" now classified as "cuda_oom" (environment)
+        # rather than "oom" (slurm), because it requires code-level batch_size
+        # fixes, not more Slurm memory.
+        assert classify_error("CUDA out of memory. Tried to allocate 2.00 GiB") == "cuda_oom"
 
     def test_cuda_error(self):
         assert classify_error("RuntimeError: CUDA error: device-side assert triggered") == "cuda_error"

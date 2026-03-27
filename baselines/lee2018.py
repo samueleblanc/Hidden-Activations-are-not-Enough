@@ -57,6 +57,11 @@ class MultiLayerMahalanobisDetector:
         self.svd = {}           # layer_name -> TruncatedSVD or None
         self.layer_names = []   # ordered list of hooked layer names
 
+        # M-2: Cached torch tensors for preprocessing (populated by ``fit``)
+        self._prec_tensors = {}       # layer_name -> torch.Tensor
+        self._mean_tensors = {}       # layer_name -> {class_idx -> torch.Tensor}
+        self._components_tensors = {} # layer_name -> torch.Tensor or None
+
         # Logistic regression combiner (populated by ``fit_logistic``)
         self.logreg = None
 
@@ -169,27 +174,20 @@ class MultiLayerMahalanobisDetector:
                 feat = self._features[layer_name].reshape(x_input.shape[0], -1)
 
                 # SVD projection: apply in numpy (linear transform) then wrap back
-                svd = self.svd.get(layer_name)
-                if svd is not None:
-                    # SVD components are a linear projection: proj = (feat - mean) @ V^T
-                    # But TruncatedSVD.transform = X @ components_.T, so replicate in torch
-                    components_t = torch.tensor(
-                        svd.components_.T, device=self.device, dtype=torch.float32)
+                components_t = self._components_tensors.get(layer_name)
+                if components_t is not None:
                     proj = feat.float() @ components_t
                 else:
                     proj = feat.float()
 
-                prec_t = torch.tensor(
-                    self.precision[layer_name], device=self.device, dtype=torch.float32)
+                prec_t = self._prec_tensors[layer_name]
 
                 # Min Mahalanobis distance over classes (in torch)
                 min_dists_sq = None
                 for c in range(self.num_classes):
-                    if c not in self.class_means.get(layer_name, {}):
+                    if c not in self._mean_tensors.get(layer_name, {}):
                         continue
-                    mean_t = torch.tensor(
-                        self.class_means[layer_name][c],
-                        device=self.device, dtype=torch.float32)
+                    mean_t = self._mean_tensors[layer_name][c]
                     diff = proj - mean_t.unsqueeze(0)
                     # dists_sq_c[i] = diff[i] @ prec @ diff[i]
                     dists_sq_c = torch.einsum('ij,jk,ik->i', diff, prec_t, diff)
@@ -332,9 +330,17 @@ class MultiLayerMahalanobisDetector:
                 else:
                     self.class_means[layer_name][c] = global_mean
 
-            # Tied covariance: average of per-class covariances (Lee et al. 2018)
+            # Tied covariance: sample-weighted pooled covariance (Lee et al. 2018)
             if per_class_covs:
-                tied_cov = np.mean(per_class_covs, axis=0)
+                class_counts = []
+                for c in range(self.num_classes):
+                    mask = (labels == c)
+                    class_counts.append(max(mask.sum() - 1, 0))
+                total_weight = sum(class_counts)
+                if total_weight > 0:
+                    tied_cov = sum(w * cov for w, cov in zip(class_counts, per_class_covs)) / total_weight
+                else:
+                    tied_cov = np.mean(per_class_covs, axis=0)
             else:
                 tied_cov = np.eye(proj.shape[1])
 
@@ -346,6 +352,21 @@ class MultiLayerMahalanobisDetector:
                 precision = np.linalg.inv(tied_cov + 1e-6 * np.eye(tied_cov.shape[0]))
 
             self.precision[layer_name] = precision
+
+            # M-2: Cache torch tensors for preprocessing
+            self._prec_tensors[layer_name] = torch.tensor(
+                precision, device=self.device, dtype=torch.float32)
+            self._mean_tensors[layer_name] = {}
+            for c in self.class_means[layer_name]:
+                self._mean_tensors[layer_name][c] = torch.tensor(
+                    self.class_means[layer_name][c],
+                    device=self.device, dtype=torch.float32)
+            svd_obj = self.svd[layer_name]
+            if svd_obj is not None:
+                self._components_tensors[layer_name] = torch.tensor(
+                    svd_obj.components_.T, device=self.device, dtype=torch.float32)
+            else:
+                self._components_tensors[layer_name] = None
 
     # ------------------------------------------------------------------
     # Per-layer Mahalanobis scores
@@ -393,6 +414,8 @@ class MultiLayerMahalanobisDetector:
 
             per_layer_scores.append(min_dists)
 
+        if not per_layer_scores:
+            return np.zeros((N or 0, 0))
         return np.column_stack(per_layer_scores)  # (N, num_layers)
 
     # ------------------------------------------------------------------
@@ -446,7 +469,11 @@ class MultiLayerMahalanobisDetector:
 
         if self.logreg is not None:
             # Logistic regression probability of being adversarial
-            return self.logreg.predict_proba(layer_scores)[:, 1]
+            proba = self.logreg.predict_proba(layer_scores)
+            if proba.shape[1] >= 2:
+                return proba[:, 1]
+            # Degenerate case: only one class seen during LR training
+            return proba[:, 0]
         else:
             # Fallback: simple average across layers
             return layer_scores.mean(axis=1)

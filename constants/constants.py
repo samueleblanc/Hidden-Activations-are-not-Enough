@@ -165,6 +165,7 @@ DEFAULT_EXPERIMENTS = {
         'optimizer': 'sgd',
         'momentum': 0.6215073814724885,
         'weight_decay': 6.914150600886057e-05,
+        'scheduler': None,
     },
     'vgg_cifar10': {
         'epochs': 100,
@@ -198,6 +199,7 @@ DEFAULT_EXPERIMENTS = {
         'momentum': 0.356455066927686,
         'weight_decay': 0.0039547952367518496,
         'reduce_lr': 500,
+        'scheduler': None,
     },
 
 

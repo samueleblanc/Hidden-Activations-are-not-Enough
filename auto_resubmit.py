@@ -26,18 +26,18 @@ RETRYABLE_ERROR_TYPES = {"oom", "timeout"}
 
 # Pipeline dependency graph: step -> set of upstream steps it depends on
 DEPENDS_ON = {
-    "1": set(),
-    "2a": {"1"},
-    "2b": {"1"},
-    "2c": {"1"},
-    "3": {"2b"},
-    "4": {"1", "2a", "2b", "3"},
-    "5": {"4", "2c"},
-    "AUDIT": {"4", "2c", "5"},
+    "A": set(),
+    "B": {"A"},
+    "C": {"A"},
+    "G": {"A"},
+    "D": {"A", "C"},
+    "E": {"A", "B", "C", "D"},
+    "F": {"E", "G"},
+    "AUDIT": {"E", "G", "F"},
 }
 
 # Topological submission order
-TOPO_ORDER = ["1", "2a", "2b", "2c", "3", "4", "5", "AUDIT"]
+TOPO_ORDER = ["A", "B", "C", "G", "D", "E", "F", "AUDIT"]
 
 
 def parse_args():
@@ -137,20 +137,20 @@ def step_to_script(experiment, step, chunk, test_mode):
         if not os.path.isdir(job_dir):
             job_dir = os.path.join("experiments", experiment, "orchestrator_jobs")
 
-    if step == "1":
-        return os.path.join(job_dir, "step_1.sh")
-    elif step == "2a":
-        return os.path.join(job_dir, f"step_2a_chunk_{chunk}.sh")
-    elif step == "2b":
-        return os.path.join(job_dir, f"step_2b_attack_{chunk}.sh")
-    elif step == "3":
-        return os.path.join(job_dir, f"step_3_chunk_{chunk}.sh")
-    elif step == "4":
-        return os.path.join(job_dir, "step_4.sh")
-    elif step == "2c":
-        return os.path.join(job_dir, "step_2c.sh")
-    elif step == "5":
-        return os.path.join(job_dir, "step_5.sh")
+    if step == "A":
+        return os.path.join(job_dir, "step_A.sh")
+    elif step == "B":
+        return os.path.join(job_dir, f"step_B_chunk_{chunk}.sh")
+    elif step == "C":
+        return os.path.join(job_dir, f"step_C_attack_{chunk}.sh")
+    elif step == "D":
+        return os.path.join(job_dir, f"step_D_chunk_{chunk}.sh")
+    elif step == "E":
+        return os.path.join(job_dir, "step_E.sh")
+    elif step == "G":
+        return os.path.join(job_dir, "step_G.sh")
+    elif step == "F":
+        return os.path.join(job_dir, "step_F.sh")
     elif step == "AUDIT":
         return os.path.join(job_dir, "final_audit.sh")
     else:

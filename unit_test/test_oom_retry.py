@@ -40,21 +40,21 @@ class TestStepCDiscovery:
             f.write("")
 
     def test_step_c_attack_discovered(self):
-        self._touch(self.out_dir, "PIPE_2b_alexnet_cifar10_FGSM_12345.out")
-        self._touch(self.err_dir, "PIPE_2b_alexnet_cifar10_FGSM_12345.err")
+        self._touch(self.out_dir, "PIPE_C_alexnet_cifar10_FGSM_12345.out")
+        self._touch(self.err_dir, "PIPE_C_alexnet_cifar10_FGSM_12345.err")
 
         jobs = discover_jobs("alexnet_cifar10", self.out_dir, self.err_dir)
         assert len(jobs) == 1
         job = jobs[0]
-        assert job["step"] == "2b"
+        assert job["step"] == "C"
         assert job["chunk"] == "FGSM"
         assert job["job_id"] == "12345"
 
     def test_step_c_multiple_attacks(self):
         for attack in ["FGSM", "PGD", "CW"]:
             jid = str(10000 + hash(attack) % 1000)
-            self._touch(self.out_dir, f"PIPE_2b_alexnet_cifar10_{attack}_{jid}.out")
-            self._touch(self.err_dir, f"PIPE_2b_alexnet_cifar10_{attack}_{jid}.err")
+            self._touch(self.out_dir, f"PIPE_C_alexnet_cifar10_{attack}_{jid}.out")
+            self._touch(self.err_dir, f"PIPE_C_alexnet_cifar10_{attack}_{jid}.err")
 
         jobs = discover_jobs("alexnet_cifar10", self.out_dir, self.err_dir)
         assert len(jobs) == 3
@@ -63,21 +63,21 @@ class TestStepCDiscovery:
 
     def test_step_c_does_not_match_wrong_experiment(self):
         # resnet_cifar10_FGSM should not match experiment=alexnet_cifar10
-        self._touch(self.out_dir, "PIPE_2b_resnet_cifar10_FGSM_12345.out")
+        self._touch(self.out_dir, "PIPE_C_resnet_cifar10_FGSM_12345.out")
 
         jobs = discover_jobs("alexnet_cifar10", self.out_dir, self.err_dir)
         assert len(jobs) == 0
 
     def test_normal_steps_still_work(self):
-        self._touch(self.out_dir, "PIPE_1_alexnet_cifar10_11111.out")
-        self._touch(self.out_dir, "PIPE_2a_alexnet_cifar10_c3_22222.out")
-        self._touch(self.err_dir, "PIPE_1_alexnet_cifar10_11111.err")
-        self._touch(self.err_dir, "PIPE_2a_alexnet_cifar10_c3_22222.err")
+        self._touch(self.out_dir, "PIPE_A_alexnet_cifar10_11111.out")
+        self._touch(self.out_dir, "PIPE_B_alexnet_cifar10_c3_22222.out")
+        self._touch(self.err_dir, "PIPE_A_alexnet_cifar10_11111.err")
+        self._touch(self.err_dir, "PIPE_B_alexnet_cifar10_c3_22222.err")
 
         jobs = discover_jobs("alexnet_cifar10", self.out_dir, self.err_dir)
         assert len(jobs) == 2
         steps = {j["step"] for j in jobs}
-        assert steps == {"1", "2a"}
+        assert steps == {"A", "B"}
 
 
 # -- Bug 2: OUT_OF_MEMORY Slurm state forces oom classification -----------
@@ -297,13 +297,13 @@ class TestRetryableErrorTypes:
             os.makedirs(exp_dir)
             errors = {
                 "steps": [
-                    {"step": "2a", "chunk": 3, "job_id": "111",
+                    {"step": "B", "chunk": 3, "job_id": "111",
                      "error_detected": True, "error_type": "oom"},
-                    {"step": "2b", "chunk": "FGSM", "job_id": "222",
+                    {"step": "C", "chunk": "FGSM", "job_id": "222",
                      "error_detected": True, "error_type": "timeout"},
-                    {"step": "1", "chunk": None, "job_id": "100",
+                    {"step": "A", "chunk": None, "job_id": "100",
                      "error_detected": True, "error_type": "code"},
-                    {"step": "3", "chunk": 0, "job_id": "333",
+                    {"step": "D", "chunk": 0, "job_id": "333",
                      "error_detected": False},
                 ]
             }
@@ -326,25 +326,25 @@ class TestRetryableErrorTypes:
 
 class TestGetRetrySet:
     def test_single_oom_propagates_downstream(self):
-        oom_entries = [{"step": "2a", "chunk": 3, "job_id": "111",
+        oom_entries = [{"step": "B", "chunk": 3, "job_id": "111",
                         "error_detected": True, "error_type": "oom"}]
         all_entries = [
-            {"step": "1", "chunk": None, "job_id": "100",
+            {"step": "A", "chunk": None, "job_id": "100",
              "slurm_state": "COMPLETED", "error_detected": False},
-            {"step": "2a", "chunk": 3, "job_id": "111",
+            {"step": "B", "chunk": 3, "job_id": "111",
              "slurm_state": "OUT_OF_MEMORY", "error_detected": True, "error_type": "oom"},
-            {"step": "4", "chunk": None, "job_id": "200",
+            {"step": "E", "chunk": None, "job_id": "200",
              "slurm_state": "CANCELLED", "error_detected": True, "error_type": "unknown"},
-            {"step": "5", "chunk": None, "job_id": "300",
+            {"step": "F", "chunk": None, "job_id": "300",
              "slurm_state": "CANCELLED", "error_detected": True, "error_type": "unknown"},
         ]
 
         failed_pairs, downstream_pairs, affected_steps = get_retry_set(oom_entries, all_entries)
-        assert ("2a", 3) in failed_pairs
-        assert "4" in affected_steps
-        assert "5" in affected_steps
-        # 1 should not be affected (it completed)
-        assert "1" not in affected_steps
+        assert ("B", 3) in failed_pairs
+        assert "E" in affected_steps
+        assert "F" in affected_steps
+        # A should not be affected (it completed)
+        assert "A" not in affected_steps
 
     def test_no_failures(self):
         failed_pairs, downstream_pairs, affected_steps = get_retry_set([], [])
@@ -353,21 +353,21 @@ class TestGetRetrySet:
         assert len(affected_steps) == 0
 
     def test_timeout_propagates_downstream(self):
-        timeout_entries = [{"step": "2b", "chunk": "FGSM", "job_id": "222",
+        timeout_entries = [{"step": "C", "chunk": "FGSM", "job_id": "222",
                             "error_detected": True, "error_type": "timeout"}]
         all_entries = [
-            {"step": "1", "chunk": None, "job_id": "100",
+            {"step": "A", "chunk": None, "job_id": "100",
              "slurm_state": "COMPLETED", "error_detected": False},
-            {"step": "2b", "chunk": "FGSM", "job_id": "222",
+            {"step": "C", "chunk": "FGSM", "job_id": "222",
              "slurm_state": "TIMEOUT", "error_detected": True, "error_type": "timeout"},
-            {"step": "3", "chunk": 0, "job_id": "300",
+            {"step": "D", "chunk": 0, "job_id": "300",
              "slurm_state": "CANCELLED", "error_detected": True, "error_type": "unknown"},
         ]
 
         failed_pairs, downstream_pairs, affected_steps = get_retry_set(timeout_entries, all_entries)
-        assert ("2b", "FGSM") in failed_pairs
-        assert "3" in affected_steps
-        assert "4" in affected_steps
+        assert ("C", "FGSM") in failed_pairs
+        assert "D" in affected_steps
+        assert "E" in affected_steps
 
 
 class TestStepToScript:
@@ -381,33 +381,32 @@ class TestStepToScript:
         shutil.rmtree(self.tmpdir)
 
     def test_step_a(self):
-        # Use a relative path by changing to tmpdir context
-        path = step_to_script(self.exp, "1", None, False)
-        assert path.endswith("step_1.sh")
+        path = step_to_script(self.exp, "A", None, False)
+        assert path.endswith("step_A.sh")
 
     def test_step_b_chunk(self):
-        path = step_to_script(self.exp, "2a", "3", False)
-        assert path.endswith("step_2a_chunk_3.sh")
+        path = step_to_script(self.exp, "B", "3", False)
+        assert path.endswith("step_B_chunk_3.sh")
 
     def test_step_c_attack(self):
-        path = step_to_script(self.exp, "2b", "FGSM", False)
-        assert path.endswith("step_2b_attack_FGSM.sh")
+        path = step_to_script(self.exp, "C", "FGSM", False)
+        assert path.endswith("step_C_attack_FGSM.sh")
 
     def test_step_d_chunk(self):
-        path = step_to_script(self.exp, "3", "5", False)
-        assert path.endswith("step_3_chunk_5.sh")
+        path = step_to_script(self.exp, "D", "5", False)
+        assert path.endswith("step_D_chunk_5.sh")
 
     def test_step_e(self):
-        path = step_to_script(self.exp, "4", None, False)
-        assert path.endswith("step_4.sh")
+        path = step_to_script(self.exp, "E", None, False)
+        assert path.endswith("step_E.sh")
 
     def test_step_f(self):
-        path = step_to_script(self.exp, "5", None, False)
-        assert path.endswith("step_5.sh")
+        path = step_to_script(self.exp, "F", None, False)
+        assert path.endswith("step_F.sh")
 
     def test_step_g(self):
-        path = step_to_script(self.exp, "2c", None, False)
-        assert path.endswith("step_2c.sh")
+        path = step_to_script(self.exp, "G", None, False)
+        assert path.endswith("step_G.sh")
 
     def test_audit(self):
         path = step_to_script(self.exp, "AUDIT", None, False)

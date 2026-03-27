@@ -2,15 +2,12 @@ __pycache__/
 experiments/
 data/
 reqs.txt
-json
-os
-torch
 matrix/
 .DS_Store
 .idea/
 README-integrity.md
 env/
-requirements-local.txtCLAUDE.md
+requirements-local.txt
 README-responses.md
 README-Marco.md
 AGENTS.md
@@ -23,6 +20,7 @@ report.tex
 nibi -imagenet.pdf
 CLAUDE.md
 scratch/
+tables/*.tex
 overall_errors.json
 docs/
 .claude/

@@ -13,7 +13,7 @@ from utils.utils import get_device
 
 def parse_args() -> Namespace:
     parser = ArgumentParser()
-    parser.add_argument("--experiment_name", type=str, default=None, help="The index for default experiment")
+    parser.add_argument("--experiment_name", "--experiment", type=str, default=None, dest="experiment_name", help="The index for default experiment")
     parser.add_argument("--num_samples_per_class", type=int, default=1000, help="Number of data samples per class")
     parser.add_argument("--temp_dir", default=None, type=str, help="Temporary directory for data")
     parser.add_argument("--chunk_id", type=int, default=0, help="Chunk ID to process (set by Slurm task ID)")
@@ -60,7 +60,8 @@ def main() -> None:
     if not os.path.exists(weights_path):
         raise ValueError(f"Model needs to be trained first")
 
-    gpu_id = chunk_id % torch.cuda.device_count()  # Cycle through available GPUs
+    gpu_count = torch.cuda.device_count() if torch.cuda.is_available() else 1
+    gpu_id = chunk_id % max(1, gpu_count)  # Cycle through available GPUs
     torch.cuda.set_device(gpu_id)
 
     dict_exp = {

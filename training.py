@@ -24,9 +24,10 @@ def parse_args() -> Namespace:
     """
     parser = ArgumentParser()
     parser.add_argument(
-        "--experiment_name",
+        "--experiment_name", "--experiment",
         type = str,
-        default = None, # TODO: add the rest of experiments here and to other scripts
+        default = None,
+        dest = "experiment_name",
         help = "resnet_cifar100, resnet_cifar10, alexnet_cifar10, alexnet_imagenet, mlp_mnist, ..."
     )
     parser.add_argument(
@@ -69,7 +70,7 @@ def train_one_epoch(
         loss.backward()
         optimizer.step()
         running_loss += loss.item() * inputs.size(0)
-        if scheduler == 'cyclic':
+        if isinstance(scheduler, CyclicLR):
             scheduler.step()
 
 
@@ -119,7 +120,7 @@ def main() -> None:
         epochs = DEFAULT_EXPERIMENTS[experiment]['epochs']
         mom = DEFAULT_EXPERIMENTS[experiment]['momentum']
         wd = DEFAULT_EXPERIMENTS[experiment]['weight_decay']
-        sched = DEFAULT_EXPERIMENTS[experiment]['scheduler']
+        sched = DEFAULT_EXPERIMENTS[experiment].get('scheduler', None)
         architecture_index = DEFAULT_EXPERIMENTS[experiment]['architecture_index']
         save_every_epochs = 10
 
@@ -156,18 +157,16 @@ def main() -> None:
 
     if sched == 'step':
         scheduler = StepLR(optimizer=optimizer, step_size=30, gamma=0.1)
-
     elif sched == 'cosine':
         scheduler = CosineAnnealingLR(optimizer, T_max=120)
-
     elif sched == 'exp':
         scheduler = ExponentialLR(optimizer, gamma=0.95)
-
     elif sched == 'multi':
         scheduler = MultiStepLR(optimizer, milestones=[60, 90], gamma=0.1)
-
-    else:
+    elif sched == 'cyclic':
         scheduler = CyclicLR(optimizer, base_lr=0.001, max_lr=1)
+    else:
+        scheduler = None
 
     model.train()
     start_epoch = 0
@@ -181,7 +180,8 @@ def main() -> None:
                 if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
                     model.load_state_dict(checkpoint['model_state_dict'])
                     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-                    scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+                    if scheduler is not None and checkpoint.get('scheduler_state_dict') is not None:
+                        scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
                     start_epoch = checkpoint['epoch'] + 1
                 else:
                     # Legacy checkpoint format (just state_dict)
@@ -217,8 +217,10 @@ def main() -> None:
                 scheduler = ExponentialLR(optimizer, gamma=0.95)
             elif sched == 'multi':
                 scheduler = MultiStepLR(optimizer, milestones=[30, 50], gamma=0.1)  # Adjusted for remaining
-            else:
+            elif sched == 'cyclic':
                 scheduler = CyclicLR(optimizer, base_lr=small_lr/10, max_lr=small_lr, step_size_up=2000)
+            else:
+                scheduler = None
 
         train_one_epoch(
             model = model, 
@@ -249,7 +251,7 @@ def main() -> None:
         print(f"Epoch {epoch}/{epochs}, Train Loss: {train_loss:.4f}, Test Loss: {test_loss:.4f}, "
               f"Train Accuracy: {train_accuracy:.4f}, Test Accuracy: {test_accuracy:.4f}", flush=True)
 
-        if sched != 'cyclic':
+        if scheduler is not None and not isinstance(scheduler, CyclicLR):
             scheduler.step()
 
         if epoch % save_every_epochs == 0 or epoch == epochs:
@@ -257,7 +259,7 @@ def main() -> None:
             checkpoint = {
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
-                'scheduler_state_dict': scheduler.state_dict(),
+                'scheduler_state_dict': scheduler.state_dict() if scheduler is not None else None,
                 'epoch': epoch,
             }
             torch.save(checkpoint, f'experiments/{experiment}/weights/epoch_{epoch}.pth')

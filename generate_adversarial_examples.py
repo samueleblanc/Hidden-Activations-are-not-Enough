@@ -22,9 +22,10 @@ def parse_args(
     if parser is None:
         parser = ArgumentParser()
     parser.add_argument(
-        "--experiment_name",
+        "--experiment_name", "--experiment",
         type = str,
         default = 'alexnet_cifar10',
+        dest = "experiment_name",
         help = "Name of experiment <<network>>_<<dataset>>"
     )
     parser.add_argument(

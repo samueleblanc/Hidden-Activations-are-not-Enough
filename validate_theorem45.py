@@ -109,7 +109,7 @@ def compute_logit_distances(model, clean, adversarial, device, batch_size=64):
             a = adversarial[i:i + batch_size].to(device).float()
             out_c = model(c)
             out_a = model(a)
-            d = torch.norm(out_c - out_a, dim=1)  # per-sample L2
+            d = torch.linalg.norm(out_c.double() - out_a.double(), dim=1)  # per-sample L2
             distances.append(d.cpu().numpy())
             del c, a, out_c, out_a, d
     return np.concatenate(distances)
@@ -140,7 +140,7 @@ def compute_matrix_distances(model, clean, adversarial, device,
         sample_a = adversarial[i].to(device).float()
         mat_c = mc.forward(sample_c)
         mat_a = mc.forward(sample_a)
-        distances[i] = torch.norm((mat_c - mat_a).double()).item()
+        distances[i] = torch.linalg.norm((mat_c.double() - mat_a.double())).item()
         del mat_c, mat_a, sample_c, sample_a
         if torch.cuda.is_available() and (i + 1) % 50 == 0:
             torch.cuda.empty_cache()
@@ -334,7 +334,7 @@ def validate_theorem45(experiment_name, num_samples=200, attacks=None,
         # Bootstrap 95% CI for gamma
         n_bootstrap = 1000
         boot_gammas = []
-        rng = np.random.RandomState(42)
+        rng = np.random.RandomState(42 + idx)
         for _ in range(n_bootstrap):
             idx = rng.choice(len(ratio_M), size=len(ratio_M), replace=True)
             boot_gammas.append(float(np.min(ratio_M[idx])))

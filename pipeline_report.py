@@ -222,7 +222,7 @@ def parse_gpu_logs(experiment, total_chunks):
     gpu_dir = "gpu-monitor"
     results = {}
     patterns = [("Calibration", f"{experiment}.calibration.log")]
-    for step in ["2a", "3"]:
+    for step in ["B", "D"]:
         for c in range(total_chunks):
             patterns.append((f"{step}.{c}", f"{experiment}.{step}.{c}.log"))
 

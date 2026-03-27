@@ -22,9 +22,10 @@ def parse_args(
     if parser is None:
         parser = ArgumentParser()
     parser.add_argument(
-        "--experiment_name",
+        "--experiment_name", "--experiment",
         type = str,
         default = None,
+        dest = "experiment_name",
         help = "Name of experiment."
     )
     parser.add_argument(
@@ -79,7 +80,10 @@ def save_one_matrix_with_retry(im, matrix_computer, device, max_retries=3):
             return mat
         except RuntimeError as e:
             if "out of memory" in str(e).lower() and attempt < max_retries:
-                print(f"    OOM on attempt {attempt+1}, retrying after cache clear...", flush=True)
+                old_bs = matrix_computer.batch_size
+                new_bs = max(1, old_bs // 2)
+                print(f"    OOM on attempt {attempt+1}, halving batch_size {old_bs}->{new_bs} and retrying...", flush=True)
+                matrix_computer.batch_size = new_bs
                 if mat is not None:
                     del mat
                 torch.cuda.empty_cache()
@@ -161,7 +165,7 @@ def generate_matrices_for_attacks(
         if not path_adv_examples.exists():
             print(f'Attak {attack} does NOT exists.', flush=True)
             continue
-        attacked_dataset = torch.load(path_adv_examples)[:samples_per_attack]
+        attacked_dataset = torch.load(path_adv_examples, weights_only=True)[:samples_per_attack]
 
         print(f"Generating matrices for attack {attack}.", flush=True)
 
@@ -196,6 +200,14 @@ def generate_matrices_for_attacks(
                                 matrix_computer,
                                 temp_dir,
                                 device)
+            except RuntimeError as e:
+                if "out of memory" in str(e).lower():
+                    failed_indices.append(i)
+                    print(f'OOM: Chunk {chunk_id} - Attack {attack} - Matrix {i}/{N}: {e}', flush=True)
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                    continue
+                raise
             except Exception as e:
                 failed_indices.append(i)
                 print(f'ERROR: Chunk {chunk_id} - Attack {attack} - Matrix {i}/{N} FAILED: {type(e).__name__}: {e}', flush=True)

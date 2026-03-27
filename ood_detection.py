@@ -21,7 +21,7 @@ from utils.utils import (
     get_device, get_ellipsoid_data, zero_std, subset,
 )
 from constants.constants import DEFAULT_EXPERIMENTS
-from knowledgematrix import KnowledgeMatrixComputer
+from knowledgematrix.matrix_computer import KnowledgeMatrixComputer
 
 
 def parse_args():

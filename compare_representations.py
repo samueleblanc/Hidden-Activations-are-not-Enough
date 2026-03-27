@@ -140,7 +140,7 @@ def load_matrices_as_features(base_path, attack_name, max_samples=None):
         mat_paths = mat_paths[:max_samples]
     mats = []
     for mp in mat_paths:
-        m = torch.load(mp, map_location='cpu')
+        m = torch.load(mp, map_location='cpu', weights_only=True)
         mats.append(m.numpy().ravel())
     return np.array(mats) if mats else None
 
@@ -159,7 +159,7 @@ def load_train_matrices(base_path, num_classes, per_class=1000):
         mat_paths = [p for p in class_dir.glob('*/matrix.pt') if p.parent.name.isdigit()]
         mat_paths = sorted(mat_paths, key=lambda p: int(p.parent.name))
         for mp in mat_paths[:per_class]:
-            m = torch.load(mp, map_location='cpu')
+            m = torch.load(mp, map_location='cpu', weights_only=True)
             mats.append(m.numpy().ravel())
             labels.append(c)
     return np.array(mats), np.array(labels)
@@ -421,17 +421,19 @@ def compute_detection_metrics(clean_scores, adv_scores):
     # FPR at 95% TPR
     try:
         fpr_arr, tpr_arr, _ = roc_curve(labels, scores)
-        idx = np.searchsorted(tpr_arr, 0.95, side='left')
-        if idx < len(fpr_arr):
-            fpr_at_95tpr = float(fpr_arr[idx])
-        else:
-            fpr_at_95tpr = 1.0
+        # HI-6: Use interpolation for accurate FPR@95TPR on coarse ROC curves
+        fpr_at_95tpr = float(np.interp(0.95, tpr_arr, fpr_arr))
 
-        # TPR at fixed FPR thresholds (backward compat)
-        tpr_at_5 = tpr_arr[np.searchsorted(fpr_arr, 0.05, side='right') - 1] \
-            if len(fpr_arr) > 1 else 0
-        tpr_at_10 = tpr_arr[np.searchsorted(fpr_arr, 0.10, side='right') - 1] \
-            if len(fpr_arr) > 1 else 0
+        # TPR at fixed FPR thresholds
+        # HI-5: Clamp index to avoid -1 wraparound
+        if len(fpr_arr) > 1:
+            idx_5 = max(0, np.searchsorted(fpr_arr, 0.05, side='right') - 1)
+            tpr_at_5 = tpr_arr[idx_5]
+            idx_10 = max(0, np.searchsorted(fpr_arr, 0.10, side='right') - 1)
+            tpr_at_10 = tpr_arr[idx_10]
+        else:
+            tpr_at_5 = 0
+            tpr_at_10 = 0
     except ValueError:
         fpr_at_95tpr = 1.0
         tpr_at_5 = 0.0
@@ -504,7 +506,8 @@ def run_comparison(experiment_name, temp_dir=None, svd_ablation=False):
 
     print(f"\n{'='*70}")
     print(f"  EXPERIMENT: {experiment_name}")
-    print(f"  Architecture: {['MLP','CNN','CNN','CNN','CNN','CNN','CNN','CNN','CNN2D','CNN2D','CNN2D','AlexNet','ResNet18','VGG11'][arch_idx] if arch_idx >= -4 else 'custom'}")
+    _ARCH_NAMES = {-4: 'LeNet', -3: 'AlexNet', -2: 'ResNet18', -1: 'VGG11'}
+    print(f"  Architecture: {_ARCH_NAMES.get(arch_idx, 'custom')}")
     print(f"  Dataset: {dataset}, Classes: {num_classes}")
     print(f"{'='*70}")
 
@@ -516,8 +519,30 @@ def run_comparison(experiment_name, temp_dir=None, svd_ablation=False):
     # -----------------------------------------------------------------------
     print("  Loading training data...")
     train_set, _ = get_dataset(dataset, data_loader=False, data_path=temp_dir)
-    train_data, train_labels = subset(train_set, 5000, input_shape)
-    train_labels_np = train_labels.numpy().astype(int)
+    # HI-7: Reconstruct the exact training indices used by Step 2a's KM
+    # computation (first 500 per class, sequentially) so penultimate/all-layer
+    # features are extracted from the same samples as KM training data.
+    per_class = 500
+    train_indices = []
+    class_indices = {}
+    for idx in range(len(train_set)):
+        _, label = train_set[idx]
+        label = int(label)
+        class_indices.setdefault(label, []).append(idx)
+    for c in sorted(class_indices.keys()):
+        train_indices.extend(class_indices[c][:per_class])
+    # Build aligned training tensors
+    train_data_list = []
+    train_labels_list = []
+    for idx in train_indices:
+        img, label = train_set[idx]
+        if not isinstance(img, torch.Tensor):
+            img = torch.tensor(img)
+        train_data_list.append(img)
+        train_labels_list.append(int(label))
+    train_data = torch.stack(train_data_list)
+    train_labels_np = np.array(train_labels_list, dtype=int)
+    print(f"    Training samples: {len(train_data)} ({per_class} per class x {num_classes} classes)")
 
     # -----------------------------------------------------------------------
     # 2. Extract training representations (with cost measurement)
@@ -607,8 +632,32 @@ def run_comparison(experiment_name, temp_dir=None, svd_ablation=False):
     # 5. Score clean test data
     # -----------------------------------------------------------------------
     print("  Scoring clean test data...")
-    _, test_set = get_dataset(dataset, data_loader=False, data_path=temp_dir)
-    test_data, test_labels = subset(test_set, 2000, input_shape)
+    # CR-3: Use canonical test set from Step 2b if available, ensuring all
+    # representations evaluate on the exact same images.
+    canonical_test_path = Path(base) / 'adversarial_examples' / 'test' / 'adversarial_examples.pth'
+    if canonical_test_path.exists():
+        test_data = torch.load(canonical_test_path, map_location='cpu', weights_only=True)
+        if len(test_data) > 2000:
+            test_data = test_data[:2000]
+        print(f"    Using canonical test set from Step 2b ({len(test_data)} samples)")
+    else:
+        _, test_set = get_dataset(dataset, data_loader=False, data_path=temp_dir)
+        test_data, _ = subset(test_set, 2000, input_shape)
+        print(f"    Using random test subset ({len(test_data)} samples)")
+
+    # If KM test matrices exist, align sample count
+    if 'knowledge_matrix' in rep_names:
+        test_mats = load_matrices_as_features(base, 'test', max_samples=2000)
+        if test_mats is not None and len(test_mats) > 0:
+            n_km_test = len(test_mats)
+            n_clean = min(n_km_test, len(test_data))
+            if n_clean < len(test_data):
+                print(f"    Aligning clean test samples: {len(test_data)} -> {n_clean} "
+                      f"(KM test count)")
+                test_data = test_data[:n_clean]
+            test_mats = test_mats[:n_clean]
+        else:
+            test_mats = None
 
     # Extract test representations once
     test_feats = {
@@ -616,22 +665,8 @@ def run_comparison(experiment_name, temp_dir=None, svd_ablation=False):
         'all_layer': extract_all_layer_features(model, test_data),
     }
     if 'knowledge_matrix' in rep_names:
-        test_mats = load_matrices_as_features(base, 'test', max_samples=2000)
-        if test_mats is not None and len(test_mats) > 0:
+        if test_mats is not None:
             test_feats['knowledge_matrix'] = test_mats
-            # NEW-C2: Align clean test sample counts across representations.
-            # KM test matrices may come from a different/smaller subset than
-            # the 2000 drawn by subset(). Truncate all reps to the minimum count.
-            n_km_test = len(test_mats)
-            n_penult_test = len(test_feats['penultimate'])
-            n_clean = min(n_km_test, n_penult_test)
-            if n_clean < n_penult_test:
-                print(f"    Aligning clean test samples: {n_penult_test} -> {n_clean} "
-                      f"(KM test count)")
-                test_feats['penultimate'] = test_feats['penultimate'][:n_clean]
-                test_feats['all_layer'] = test_feats['all_layer'][:n_clean]
-                test_feats['knowledge_matrix'] = test_feats['knowledge_matrix'][:n_clean]
-                test_data = test_data[:n_clean]
         else:
             # Cannot score clean test matrices — remove from comparison
             rep_names = [r for r in rep_names if r != 'knowledge_matrix']
@@ -666,7 +701,7 @@ def run_comparison(experiment_name, temp_dir=None, svd_ablation=False):
         print(f"  Scoring attack: {attack}...")
         adv_data = torch.load(
             Path(base) / 'adversarial_examples' / attack / 'adversarial_examples.pth',
-            map_location='cpu')
+            map_location='cpu', weights_only=True)
         if len(adv_data) > 2000:
             adv_data = adv_data[:2000]
 
@@ -714,6 +749,34 @@ def run_comparison(experiment_name, temp_dir=None, svd_ablation=False):
         print("\n  Running SVD rank ablation (Mahalanobis)...")
         svd_ranks = [16, 32, 64, 128, 256, 512]
         svd_ablation_results = {}
+
+        # HI-1: Pre-load and align adversarial data once, reusing across all
+        # SVD ranks and representations. This ensures identical sample counts.
+        preloaded_adv = {}
+        for attack in available_attacks:
+            adv_path = Path(base) / 'adversarial_examples' / attack / 'adversarial_examples.pth'
+            if not adv_path.exists():
+                continue
+            adv_data = torch.load(adv_path, map_location='cpu', weights_only=True)
+            if len(adv_data) > 2000:
+                adv_data = adv_data[:2000]
+            # Align with KM count if available
+            km_feats = None
+            if 'knowledge_matrix' in rep_names:
+                km_feats = load_matrices_as_features(base, attack, max_samples=2000)
+                if km_feats is not None and len(km_feats) > 0:
+                    n_km = len(km_feats)
+                    if n_km < len(adv_data):
+                        adv_data = adv_data[:n_km]
+                        km_feats = km_feats[:len(adv_data)]
+            preloaded_adv[attack] = {
+                'data': adv_data,
+                'penultimate': extract_penultimate_features(model, adv_data),
+                'all_layer': extract_all_layer_features(model, adv_data),
+            }
+            if km_feats is not None and len(km_feats) > 0:
+                preloaded_adv[attack]['knowledge_matrix'] = km_feats
+
         for rank in svd_ranks:
             svd_ablation_results[rank] = {}
             for rn in rep_names:
@@ -730,20 +793,11 @@ def run_comparison(experiment_name, temp_dir=None, svd_ablation=False):
                 # Average AUROC across attacks
                 aurocs = []
                 for attack in available_attacks:
-                    adv_path = Path(base) / 'adversarial_examples' / attack / 'adversarial_examples.pth'
-                    if not adv_path.exists():
+                    if attack not in preloaded_adv:
                         continue
-                    adv_data = torch.load(adv_path, map_location='cpu')
-                    if len(adv_data) > 2000:
-                        adv_data = adv_data[:2000]
-                    if rn == 'penultimate':
-                        af = extract_penultimate_features(model, adv_data)
-                    elif rn == 'all_layer':
-                        af = extract_all_layer_features(model, adv_data)
-                    else:
-                        af = load_matrices_as_features(base, attack, max_samples=2000)
-                        if af is None or len(af) == 0:
-                            continue
+                    af = preloaded_adv[attack].get(rn)
+                    if af is None or len(af) == 0:
+                        continue
                     adv_sc = det.score(af)
                     m = compute_detection_metrics(clean_sc, adv_sc)
                     aurocs.append(m['auroc'])
@@ -778,9 +832,14 @@ def run_comparison(experiment_name, temp_dir=None, svd_ablation=False):
                 adv_path = Path(base) / 'adversarial_examples' / attack / 'adversarial_examples.pth'
                 if not adv_path.exists():
                     continue
-                adv_data = torch.load(adv_path, map_location='cpu')
+                adv_data = torch.load(adv_path, map_location='cpu', weights_only=True)
                 if len(adv_data) > 2000:
                     adv_data = adv_data[:2000]
+
+                # M-8: Skip attacks with too few adversarial examples for LR split
+                if len(adv_data) < 4:
+                    print(f"    Skipping {attack} for Lee: only {len(adv_data)} adv examples (need >= 4)")
+                    continue
 
                 # Split adversarial data: first half for LR training, second for eval
                 n_adv = len(adv_data)
@@ -965,11 +1024,7 @@ def print_cross_experiment_summary(all_results):
             line = f"  {r['experiment']:<20s}"
             avg = r['average_auroc']
             for rn in all_reps:
-                # New format: avg[det_name][rep_name]; old format: avg[rep_name]
-                if isinstance(avg.get(det_name), dict):
-                    val = avg[det_name].get(rn)
-                else:
-                    val = avg.get(rn) if det_name == 'Mahalanobis' else None
+                val = avg.get(det_name, {}).get(rn) if isinstance(avg.get(det_name), dict) else None
                 if val is not None:
                     line += f" | {val:>8.4f}"
                 else:
