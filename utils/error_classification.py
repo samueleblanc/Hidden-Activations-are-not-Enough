@@ -74,6 +74,29 @@ ERROR_CATEGORY_MAP = {
 
 ERROR_CATEGORIES = ["slurm", "code", "data", "environment", "unknown"]
 
+# Map fine-grained types to the 4-value enforced enum
+NORMALIZED_ERROR_TYPE = {
+    "oom": "OOM",
+    "cuda_oom": "OOM",
+    "timeout": "TIMEOUT",
+    "code": "RUNTIME",
+    "assertion": "RUNTIME",
+    "missing_file": "RUNTIME",
+    "zip_error": "RUNTIME",
+    "cuda_error": "RUNTIME",
+    "network_error": "RUNTIME",
+    "module_error": "RUNTIME",
+    "permission": "RUNTIME",
+    "unknown": "UNKNOWN",
+}
+
+
+def normalize_error_type(fine_type):
+    """Map fine-grained error type to enforced enum: OOM|TIMEOUT|RUNTIME|UNKNOWN."""
+    if fine_type is None:
+        return "UNKNOWN"
+    return NORMALIZED_ERROR_TYPE.get(fine_type, "UNKNOWN")
+
 
 # ── Log filename pattern ──────────────────────────────────────────────────
 

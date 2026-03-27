@@ -23,16 +23,22 @@ from utils.error_classification import (
     LOG_PATTERN, STEP_LABELS, STEP_ORDER,
     ERROR_CATEGORIES,
     classify_error, get_error_category, extract_traceback, read_tail,
-    parse_log_filename,
+    parse_log_filename, normalize_error_type,
 )
+from utils.atomic_io import atomic_json_dump
 
 
-SCHEMA_VERSION = "2.0"
+SCHEMA_VERSION = "3.0"
 
 # Patterns that indicate runtime errors in .out files of COMPLETED jobs
 RUNTIME_ERROR_RE = re.compile(
     r'ERROR:|FAILED:|Traceback|RuntimeError|AttributeError|urllib\.error|CUDA error'
 )
+
+# Regex for extracting --mem=<N>G from Slurm scripts
+_MEM_RE = re.compile(r'--mem=(\d+(?:\.\d+)?)G', re.I)
+# Regex for extracting --time=HH:MM:SS from Slurm scripts
+_TIME_RE = re.compile(r'--time=(\d+):(\d+):(\d+)')
 
 
 def parse_args():
@@ -46,6 +52,80 @@ def parse_args():
                         help="Merge integrity summary from audit_report.json")
     return parser.parse_args()
 
+
+# ── Slurm script resource parsing ────────────────────────────────────────
+
+def _find_slurm_script(experiment, step, chunk=None):
+    """Locate the Slurm script for a given step/chunk.
+
+    Searches experiments/{experiment}/orchestrator_jobs/ for scripts matching
+    the step and optional chunk/attack suffix.
+    """
+    script_dir = os.path.join("experiments", experiment, "orchestrator_jobs")
+    if not os.path.isdir(script_dir):
+        return None
+
+    # Build candidate filenames
+    candidates = []
+    if chunk is not None:
+        # Chunked steps (B, D) use step_B_chunk_0.sh
+        candidates.append(f"step_{step}_chunk_{chunk}.sh")
+        # Attack steps (C) use step_C_attack_FGSM.sh
+        candidates.append(f"step_{step}_attack_{chunk}.sh")
+        # Array jobs: step_B.sh (single script for all chunks)
+        candidates.append(f"step_{step}.sh")
+    else:
+        candidates.append(f"step_{step}.sh")
+
+    for candidate in candidates:
+        path = os.path.join(script_dir, candidate)
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+def _parse_mem_from_step(experiment, step, chunk=None):
+    """Read the Slurm script for a step and extract --mem=XG as float GB.
+
+    Returns None if the script is not found or memory is not specified.
+    """
+    script = _find_slurm_script(experiment, step, chunk)
+    if not script:
+        return None
+    try:
+        with open(script) as f:
+            content = f.read()
+        m = _MEM_RE.search(content)
+        if m:
+            return float(m.group(1))
+    except OSError:
+        pass
+    return None
+
+
+def _parse_time_from_step(experiment, step, chunk=None):
+    """Read the Slurm script for a step and extract --time=HH:MM:SS as float hours.
+
+    Returns None if the script is not found or time is not specified.
+    """
+    script = _find_slurm_script(experiment, step, chunk)
+    if not script:
+        return None
+    try:
+        with open(script) as f:
+            content = f.read()
+        m = _TIME_RE.search(content)
+        if m:
+            hours = int(m.group(1))
+            minutes = int(m.group(2))
+            seconds = int(m.group(3))
+            return round(hours + minutes / 60.0 + seconds / 3600.0, 4)
+    except OSError:
+        pass
+    return None
+
+
+# ── Job discovery and analysis ───────────────────────────────────────────
 
 def discover_jobs(experiment, slurm_out_dir, slurm_err_dir):
     """Discover all pipeline jobs for this experiment from log filenames.
@@ -222,6 +302,49 @@ def build_integrity_summary(audit_report):
     }
 
 
+# ── Append-mode merge ────────────────────────────────────────────────────
+
+def _load_existing_errors(out_path):
+    """Load existing overall_errors.json for append-mode merge.
+
+    Returns the existing data dict, or None if file does not exist or is invalid.
+    """
+    if not os.path.isfile(out_path):
+        return None
+    try:
+        with open(out_path) as f:
+            data = json.load(f)
+        if isinstance(data, dict) and isinstance(data.get("errors"), list):
+            return data
+    except (json.JSONDecodeError, OSError):
+        pass
+    return None
+
+
+def _merge_errors(existing_errors, new_errors):
+    """Merge new errors into existing list by job_id (newer replaces older)."""
+    merged = {e["job_id"]: e for e in existing_errors}
+    for entry in new_errors:
+        merged[entry["job_id"]] = entry
+    return list(merged.values())
+
+
+# ── Error message extraction ─────────────────────────────────────────────
+
+def _build_error_message(err_tail, traceback_text):
+    """Build a concise error message string from tail/traceback.
+
+    Returns the traceback if available, otherwise the last 5 lines of err_tail,
+    or a generic message.
+    """
+    if traceback_text:
+        return traceback_text.strip()
+    if err_tail:
+        lines = err_tail.strip().split("\n")
+        return "\n".join(lines[-5:])
+    return "No error details available"
+
+
 def main():
     args = parse_args()
     experiment = args.experiment
@@ -245,6 +368,11 @@ def main():
     error_category_summary = {cat: 0 for cat in ERROR_CATEGORIES}
     jobs_with_errors = 0
     jobs_succeeded = 0
+
+    # Collect enforced-schema error entries
+    new_errors = []
+
+    now_iso = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
     for job in jobs:
         jid = job["job_id"]
@@ -286,6 +414,27 @@ def main():
             error_types[error_type] = error_types.get(error_type, 0) + 1
             error_category_summary[error_category] = \
                 error_category_summary.get(error_category, 0) + 1
+
+            # Build enforced-schema error entry
+            mem_gb = _parse_mem_from_step(experiment, step, job["chunk"])
+            time_hours = _parse_time_from_step(experiment, step, job["chunk"])
+            new_errors.append({
+                "job_id": jid,
+                "error_type": normalize_error_type(error_type),
+                "phase": step,
+                "grid_index": job["chunk"],
+                "timestamp": now_iso,
+                "original_resources": {
+                    "memory_gb": mem_gb,
+                    "time_hours": time_hours,
+                },
+                "retry_resources": {
+                    "memory_gb": None,
+                    "time_hours": None,
+                },
+                "resolved": False,
+                "message": _build_error_message(err_tail, traceback),
+            })
         else:
             if slurm_state == "COMPLETED":
                 jobs_succeeded += 1
@@ -301,11 +450,9 @@ def main():
 
     pipeline_success = jobs_with_errors == 0
 
-    # Build report
-    report = {
+    # Build backward-compat summary
+    summary = {
         "schema_version": SCHEMA_VERSION,
-        "experiment": experiment,
-        "timestamp": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
         "mode": "test" if test_mode else "normal",
         "pipeline_success": pipeline_success,
         "total_jobs": len(jobs),
@@ -313,7 +460,6 @@ def main():
         "jobs_with_errors": jobs_with_errors,
         "error_category_summary": error_category_summary,
         "error_types_summary": error_types,
-        "steps": steps_output,
     }
 
     # Optionally include integrity summary from audit_report.json
@@ -321,13 +467,28 @@ def main():
         audit_report = load_audit_report(experiment)
         integrity = build_integrity_summary(audit_report)
         if integrity:
-            report["integrity"] = integrity
+            summary["integrity"] = integrity
 
-    # Write output
-    os.makedirs(output_dir, exist_ok=True)
+    # Append-mode: merge with existing errors
     out_path = os.path.join(output_dir, "overall_errors.json")
-    with open(out_path, "w") as f:
-        json.dump(report, f, indent=2)
+    existing_data = _load_existing_errors(out_path)
+    if existing_data and isinstance(existing_data.get("errors"), list):
+        merged_errors = _merge_errors(existing_data["errors"], new_errors)
+    else:
+        merged_errors = new_errors
+
+    # Build enforced-schema report
+    report = {
+        "experiment_name": experiment,
+        "last_updated": now_iso,
+        "errors": merged_errors,
+        "_steps_detail": steps_output,
+        "_summary": summary,
+    }
+
+    # Write output atomically
+    os.makedirs(output_dir, exist_ok=True)
+    atomic_json_dump(report, out_path)
 
     # Print summary
     status_str = "SUCCESS" if pipeline_success else "FAILURE"
