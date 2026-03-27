@@ -10,6 +10,7 @@ from typing import Union
 from matrix_construction.matrix_computation import MlpRepresentation, ConvRepresentation_2D
 from utils.utils import get_architecture, get_dataset, get_num_classes, get_device
 from knowledgematrix.matrix_computer import KnowledgeMatrixComputer
+from utils.atomic_io import atomic_torch_save
 from knowledgematrix.models.alexnet import AlexNet
 from knowledgematrix.models.resnet18 import ResNet18
 from knowledgematrix.models.vgg11 import VGG11
@@ -200,6 +201,6 @@ class ParallelMatrixConstruction:
                     torch.cuda.empty_cache()
                     matrix_computer = KnowledgeMatrixComputer(self._model, batch_size=new_bs, device=self.device)
             os.makedirs(root, exist_ok=True)
-            torch.save(matrix, matrix_path)
+            atomic_torch_save(matrix, matrix_path)
             del matrix
             torch.cuda.empty_cache()

@@ -8,6 +8,7 @@ from knowledgematrix.matrix_computer import KnowledgeMatrixComputer
 
 from utils.utils import get_model, get_num_classes, get_input_shape, get_device
 from constants.constants import DEFAULT_EXPERIMENTS, ATTACKS
+from utils.atomic_io import atomic_torch_save
 
 
 def parse_args(
@@ -117,7 +118,7 @@ def save_one_matrix(
     if not matrix_save_path.exists():
         mat = save_one_matrix_with_retry(im, matrix_computer, device)
         matrix_save_path.parent.mkdir(parents=True, exist_ok=True)
-        torch.save(mat.cpu(), matrix_save_path)
+        atomic_torch_save(mat.cpu(), matrix_save_path)
         del mat
         torch.cuda.empty_cache()
 
