@@ -839,6 +839,17 @@ STEPC_EOF
     local D_REM=$((SAMPLES_PER_ATTACK % TOTAL_CHUNKS))
     for CHUNK in $(seq 0 $((TOTAL_CHUNKS - 1))); do
         if [ "$CHUNK" -lt "$D_REM" ]; then D_CHUNK_TOTAL=$((NUM_ATTACKS * (D_BASE + 1))); else D_CHUNK_TOTAL=$((NUM_ATTACKS * D_BASE)); fi
+        # Adjust resources based on previous error report
+        if [ "$HAS_PREV_ERRORS" = "true" ]; then
+            if echo "$PREV_OOM_STEPS" | grep -q "D:$CHUNK"; then
+                D_MEM=$(double_mem "$D_MEM")
+                echo "  [D] Raising memory to $D_MEM for chunk $CHUNK (previous OOM in error report)"
+            fi
+            if echo "$PREV_TIMEOUT_STEPS" | grep -q "D:$CHUNK"; then
+                D_TIME=$(double_time "$D_TIME")
+                echo "  [D] Doubling time to $D_TIME for chunk $CHUNK (previous timeout in error report)"
+            fi
+        fi
         cat > "$JOB_DIR/step_D_chunk_${CHUNK}.sh" << STEPD_EOF
 #!/bin/bash
 #SBATCH --account=$GPU_ACCOUNT
@@ -1040,6 +1051,17 @@ STEPD_EOF
     # ==========================================================
     # Step E: Representation Comparison (depends on B + all D)
     # ==========================================================
+    # Adjust resources based on previous error report
+    if [ "$HAS_PREV_ERRORS" = "true" ]; then
+        if echo "$PREV_OOM_STEPS" | grep -q "E:"; then
+            E_MEM=$(double_mem "$E_MEM")
+            echo "  [E] Raising memory to $E_MEM (previous OOM in error report)"
+        fi
+        if echo "$PREV_TIMEOUT_STEPS" | grep -q "E:"; then
+            E_TIME=$(double_time "$E_TIME")
+            echo "  [E] Doubling time to $E_TIME (previous timeout in error report)"
+        fi
+    fi
     cat > "$JOB_DIR/step_E.sh" << STEPE_EOF
 #!/bin/bash
 #SBATCH --account=$GPU_ACCOUNT
@@ -1196,6 +1218,17 @@ STEPE_EOF
     # ==========================================================
     # Step G: Theorem 4.5 Validation (depends on A only)
     # ==========================================================
+    # Adjust resources based on previous error report
+    if [ "$HAS_PREV_ERRORS" = "true" ]; then
+        if echo "$PREV_OOM_STEPS" | grep -q "G:"; then
+            G_MEM=$(double_mem "$G_MEM")
+            echo "  [G] Raising memory to $G_MEM (previous OOM in error report)"
+        fi
+        if echo "$PREV_TIMEOUT_STEPS" | grep -q "G:"; then
+            G_TIME=$(double_time "$G_TIME")
+            echo "  [G] Doubling time to $G_TIME (previous timeout in error report)"
+        fi
+    fi
     cat > "$JOB_DIR/step_G.sh" << STEPG_EOF
 #!/bin/bash
 #SBATCH --account=$GPU_ACCOUNT
@@ -1312,6 +1345,17 @@ STEPG_EOF
     # ==========================================================
     # Step F: LaTeX Tables (depends on E + G)
     # ==========================================================
+    # Adjust resources based on previous error report
+    if [ "$HAS_PREV_ERRORS" = "true" ]; then
+        if echo "$PREV_OOM_STEPS" | grep -q "F:"; then
+            F_MEM=$(double_mem "$F_MEM")
+            echo "  [F] Raising memory to $F_MEM (previous OOM in error report)"
+        fi
+        if echo "$PREV_TIMEOUT_STEPS" | grep -q "F:"; then
+            F_TIME=$(double_time "$F_TIME")
+            echo "  [F] Doubling time to $F_TIME (previous timeout in error report)"
+        fi
+    fi
     cat > "$JOB_DIR/step_F.sh" << STEPF_EOF
 #!/bin/bash
 #SBATCH --account=$CPU_ACCOUNT
