@@ -530,3 +530,204 @@ The pipeline handles errors gracefully:
 |-- job_*.sh                          <- Individual Slurm job scripts
 +-- experiments/                      <- Experiment outputs (auto-created)
 ```
+
+<!-- PIPELINE-DOCS:START -->
+## SLURM Pipelines
+
+### Main Experiment Pipeline
+
+Runs the full 7-step experiment for one or more model/dataset configurations. Trains a neural network, computes knowledge matrices for clean and adversarial data, evaluates 6 detectors on 3 representations, validates Theorem 4.5, and generates LaTeX comparison tables.
+
+#### Quick Start
+
+1. Ensure datasets are downloaded in `data/` (CIFAR-10/100 auto-download on login node)
+2. Create the virtual environment: `python -m venv env && source env/bin/activate && pip install -r requirements.txt`
+3. Run GPU calibration first (recommended):
+
+```bash
+bash calibration.sh
+```
+
+4. Launch the pipeline for a single experiment:
+
+```bash
+bash run_experiment.sh alexnet_cifar10
+```
+
+Other modes:
+```bash
+bash run_experiment.sh --test --skip-audit alexnet_cifar10   # Quick test (small samples)
+bash run_experiment.sh --dry-run --test alexnet_cifar10       # Dry run (scripts only)
+bash run_experiment.sh --skip-audit alexnet_cifar10           # Skip pre-audit
+bash run_all_experiments.sh                                    # All experiments
+```
+
+After submission, jobs execute on the cluster. Check status with `squeue -u $USER`.
+
+#### Pipeline Execution Order
+
+```
+Step A (Training) ──> Step B ×8 (Clean Matrices)
+                  ──> Step C ×17 (Adversarial Examples, per-attack)
+                  ──> Step G (Theorem 4.5 Validation)
+Step A + C[all]  ──> Step D ×8 (Adversarial Matrices)
+A + B + C + D    ──> Step E (Representation Comparison + SVD Ablation)
+E + G            ──> Step F (LaTeX Tables)
+E + G + F        ──> Final Audit
+ALL jobs         ──> Error Scan + Auto-Retry (afterany)
+```
+
+1. **Step A — Training** — Trains the neural network model. Single H100 GPU job.
+   - Depends on: nothing
+   - Runs: `python training.py --experiment_name <EXP> --temp_dir $SLURM_TMPDIR`
+
+2. **Step B ×8 — Clean Matrices** — Computes knowledge matrices for training data, 8 parallel chunks.
+   - Depends on: Step A (afterok)
+   - Runs: `python generate_matrices.py --chunk_id <i> --total_chunks 8 ...`
+   - Features: incremental save, SIGUSR1 emergency save before wall-time kill
+
+3. **Step C ×17 — Adversarial Examples** — Generates adversarial examples, one job per attack method (16 attacks + 1 clean pass-through).
+   - Depends on: Step A (afterok)
+   - Runs: `python generate_adversarial_examples.py --attacks <ATTACK> ...`
+
+4. **Step G — Theorem 4.5 Validation** — Empirical validation of the distance lower bound.
+   - Depends on: Step A (afterok). Runs independently of B, C, D, E.
+   - Runs: `python validate_theorem45.py --num_samples 200 ...`
+
+5. **Step D ×8 — Adversarial Matrices** — Computes knowledge matrices for adversarial data, 8 parallel chunks.
+   - Depends on: Step A + all Step C (afterok)
+   - Runs: `python generate_adversarial_matrices.py --chunk_id <i> ...`
+   - Features: incremental save, SIGUSR1 emergency save
+
+6. **Step E — Representation Comparison** — 6 detectors × 3 representations + Lee et al. baseline + SVD ablation.
+   - Depends on: Steps A + B[all] + C[all] + D[all] (afterok)
+   - Runs: `python compare_representations.py --svd_ablation ...`
+
+7. **Step F — LaTeX Tables** — Generates comparison tables. CPU-only.
+   - Depends on: Steps E + G (afterok)
+   - Runs: `python generate_latex_tables.py --output tables/`
+
+8. **Final Audit** — Data integrity verification. CPU-only.
+   - Depends on: Steps E + G + F (afterok)
+
+9. **Error Scan + Auto-Retry** — Collects errors, triggers auto-retry with doubled resources.
+   - Depends on: ALL jobs (afterany — runs even if upstream fails)
+   - Runs: `python collect_errors.py` then `python auto_resubmit.py`
+
+All step-to-step dependencies use SLURM `--dependency=afterok`. The error scan uses `--dependency=afterany`.
+
+#### Configuration
+
+Edit variables in `experiment_config.sh` before running.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ACCOUNT` | `"def-assem"` | Compute Canada allocation account |
+| `EXPERIMENTS` | `("alexnet_cifar10")` | Which experiments to run |
+| `TOTAL_CHUNKS` | `8` | Parallel chunks for Steps B and D |
+| `BATCH_SIZE` | `1800` | GPU batch size (overridden by calibration) |
+| `NUM_SAMPLES_PER_CLASS` | `500` | Training matrix samples per class |
+| `SAMPLES_PER_ATTACK` | `500` | Adversarial samples per attack |
+| `ENV_NAME` | `"env"` | Virtual environment directory |
+| `MODULES` | `"StdEnv/2023 python/3.11.5 scipy-stack/2025a"` | Cluster modules to load |
+| `A_MEM` / `A_TIME` | `"15G"` / `"06:00:00"` | Step A resources (training) |
+| `B_MEM` / `B_TIME` | `"280G"` / `"00:20:00"` | Step B resources (matrices) |
+| `C_MEM` / `C_TIME` | `"32G"` / `"03:00:00"` | Step C resources (adversarial examples) |
+| `D_MEM` / `D_TIME` | `"280G"` / `"12:00:00"` | Step D resources (adversarial matrices) |
+| `E_MEM` / `E_TIME` | `"64G"` / `"08:00:00"` | Step E resources (comparison) |
+| `G_MEM` / `G_TIME` | `"64G"` / `"06:00:00"` | Step G resources (theorem 4.5) |
+| `F_MEM` / `F_TIME` | `"4G"` / `"00:15:00"` | Step F resources (LaTeX, CPU-only) |
+
+Available experiments: `alexnet_cifar10`, `resnet_cifar10`, `resnet_cifar100`, `vgg_cifar100`
+
+#### Checkpointing and Failure Recovery
+
+The pipeline writes per-step JSON checkpoints to `experiments/<EXP>/checkpoints/`. On re-run:
+
+- **Completed steps** are skipped (checkpoint + output artifact verified)
+- **Failed steps (OOM)** are resubmitted with doubled memory (exit code 137 or sacct detection)
+- **Failed steps (timeout)** are resubmitted with doubled time (exit code 140 or sacct detection)
+- **Partial steps** (B, D only) resume from where they left off via per-matrix existence checks
+
+The error scan job runs `auto_resubmit.py` which doubles `--mem` (capped at 480G) and `--time` (capped at 48h) for retryable failures and resubmits the downstream dependency chain. Max 2 automatic retries.
+
+For manual recovery: `sbatch job_audit.sh` then `bash job_recovery.sh <experiment>`.
+
+#### Results & Outputs
+
+All output is written under `experiments/<experiment>/`.
+
+```
+experiments/{experiment}/
+├── weights/                                    # Step A
+│   ├── epoch_{N}.pth                           # Model checkpoints
+│   └── history.json                            # Training history
+├── matrices_task_{0-7}.zip                     # Step B (zipped clean matrices)
+├── adversarial_examples/                       # Step C
+│   ├── test/
+│   │   ├── adversarial_examples.pth            # Clean passthrough images
+│   │   └── labels.pth                          # Ground truth labels
+│   └── {attack}/
+│       ├── adversarial_examples.pth            # Adversarial images
+│       └── wrong_predictions.pth               # Wrong labels
+├── adv_matrices_task_{0-7}.zip                 # Step D (zipped adversarial matrices)
+├── comparison/
+│   └── representation_comparison.json          # Step E (6×3 grid + cost + Lee + SVD)
+├── theorem45/
+│   └── theorem45_results.json                  # Step G
+├── calibration.json                            # GPU calibration results
+├── checkpoints/step_*.json                     # Per-step completion tracking
+├── orchestrator_jobs/*.sh                      # Generated SLURM scripts
+├── overall_errors.json                         # Error collection report
+└── audit_report.json                           # Final data integrity audit
+tables/*.tex                                    # Step F (LaTeX tables)
+```
+
+#### Monitoring
+
+```bash
+squeue -u $USER                                              # Check job status
+python pipeline_report.py --experiment alexnet_cifar10       # Post-run report
+python collect_errors.py --experiment alexnet_cifar10         # Error collection
+```
+
+View logs: `slurm_out/PIPE_{STEP}_{EXP}[_c{CHUNK}|_{ATTACK}]_{JOBID}.out`
+Check errors: `slurm_err/PIPE_{STEP}_{EXP}[_c{CHUNK}|_{ATTACK}]_{JOBID}.err`
+GPU monitoring: `gpu-monitor/{experiment}.{step}.{chunk_or_attack}.log`
+
+### Calibration Pipeline
+
+Runs GPU calibration to determine optimal batch sizes and SLURM resource estimates. Produces `calibration.json` which the main pipeline reads to set appropriate `--mem` and `--time` values.
+
+#### Quick Start
+
+```bash
+bash calibration.sh
+```
+
+Submits one calibration job per experiment. Skips if `calibration.json` already exists. Results are loaded automatically by `run_experiment.sh`.
+
+#### Configuration
+
+Uses the same `experiment_config.sh` settings. Calibration-specific resources:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CALIB_MEM` | `"32G"` | Memory for calibration job |
+| `CALIB_TIME` | `"01:00:00"` | Time limit for calibration |
+| `CALIB_GPU` | `"--gpus=h100:1"` | GPU type |
+
+### Auto-Retry Pipeline
+
+Not launched directly — triggered automatically by the error scan job at the end of the main pipeline. Reads `overall_errors.json`, identifies OOM/timeout failures, doubles resources in the SLURM scripts, and resubmits the failed step plus all downstream dependencies.
+
+Dependency graph (from `auto_resubmit.py`):
+```
+A → B ──────────────────→ E → F → AUDIT
+A → C → D ──────────────→ E
+A → G ────────────────────────→ F
+```
+
+Max 2 automatic retries per experiment (tracked in `experiments/<EXP>/auto_retry_count`).
+
+<!-- PIPELINE-DOCS:END -->

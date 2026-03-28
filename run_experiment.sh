@@ -1468,8 +1468,8 @@ mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
 module load $MODULES
 source $ENV_NAME/bin/activate
 
-EXPERIMENT="$EXP"
-TOTAL_CHUNKS=$TOTAL_CHUNKS
+export EXPERIMENT="$EXP"
+export TOTAL_CHUNKS=$TOTAL_CHUNKS
 
 mkdir -p \$SLURM_TMPDIR/experiments/\$EXPERIMENT/
 cp -r \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/* \$SLURM_TMPDIR/experiments/\$EXPERIMENT/
@@ -1654,8 +1654,8 @@ mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
 module load $MODULES
 source $ENV_NAME/bin/activate
 
-EXPERIMENT="$EXP"
-TOTAL_CHUNKS=$TOTAL_CHUNKS
+export EXPERIMENT="$EXP"
+export TOTAL_CHUNKS=$TOTAL_CHUNKS
 
 echo "Copying experiment data to temporary directory..."
 mkdir -p \$SLURM_TMPDIR/experiments/\$EXPERIMENT/
