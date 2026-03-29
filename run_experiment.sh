@@ -12,17 +12,37 @@
 #
 # Calibration is handled separately by calibration.sh.
 #
+# Configuration:
+#   Edit the USER CONFIGURATION block below, or override via
+#   environment variables (e.g., ACCOUNT=def-other bash run_experiment.sh ...)
+#
 # Usage:
 #   bash run_experiment.sh [--test] [--skip-audit] [--dry-run] [experiment ...]
 #
 # Examples:
 #   bash run_experiment.sh --test --skip-audit alexnet_cifar10
-#   bash run_experiment.sh                              # defaults from experiment_config.sh
+#   bash run_experiment.sh                              # defaults from config block below
 # ==============================================================
 
 set -euo pipefail
 
-# --- Source shared configuration ---
+# ========== USER CONFIGURATION ==========
+# Edit these values to configure the pipeline.
+# These override defaults in experiment_config.sh.
+ACCOUNT="def-assem"
+#GPU_ACCOUNT=""             # Override account for GPU jobs (defaults to ACCOUNT)
+#CPU_ACCOUNT=""             # Override account for CPU jobs (defaults to ACCOUNT)
+EXPERIMENTS=("alexnet_cifar10")
+TOTAL_CHUNKS=8
+BATCH_SIZE=1800
+NUM_SAMPLES_PER_CLASS=500
+SAMPLES_PER_ATTACK=500
+#TEST_SIZE=-1               # -1 = use full data
+#ENV_NAME="env"             # Python venv directory
+#MODULES="StdEnv/2023 python/3.11.5 scipy-stack/2025a"
+# =========================================
+
+# --- Source shared configuration (functions, resource profiles, env setup) ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/experiment_config.sh"
 
@@ -1668,15 +1688,31 @@ for EXP in "${EXPERIMENTS[@]}"; do
 #SBATCH --output=$SLURM_OUT_DIR/PIPE_PREAUDIT_${EXP}_%A.out
 #SBATCH --error=$SLURM_ERR_DIR/PIPE_PREAUDIT_${EXP}_%A.err
 
+set -euo pipefail
+echo "=== Audit starting on \$(hostname) at \$(date) ==="
+
 mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
-module load $MODULES
-source $ENV_NAME/bin/activate
+
+echo "Loading modules..."
+module load $MODULES || true
+
+echo "Activating venv ($ENV_NAME)..."
+if [ -d "\$SLURM_SUBMIT_DIR/$ENV_NAME" ]; then
+    source \$SLURM_SUBMIT_DIR/$ENV_NAME/bin/activate
+else
+    echo "ERROR: venv '$ENV_NAME' not found at \$SLURM_SUBMIT_DIR/$ENV_NAME" >&2
+    exit 1
+fi
+
+# Prevent torch from probing GPUs on CPU-only nodes
+export CUDA_VISIBLE_DEVICES=""
 
 export EXPERIMENT="$EXP"
 export TOTAL_CHUNKS=$TOTAL_CHUNKS
 
 cd \$SLURM_SUBMIT_DIR
 
+echo "Running audit..."
 # --- Run audit ---
 python << 'AUDIT_PY_EOF'
 import sys, os, json

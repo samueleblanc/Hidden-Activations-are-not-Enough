@@ -16,16 +16,32 @@
 # --- User-configurable variables ---
 export EXPERIMENT="alexnet_cifar10"
 export TOTAL_CHUNKS=8
+ENV_NAME="env"
+
+set -euo pipefail
+echo "=== Audit starting on $(hostname) at $(date) ==="
 
 # --- Environment ---
 mkdir -p $SLURM_SUBMIT_DIR/slurm_out
 mkdir -p $SLURM_SUBMIT_DIR/slurm_err
 
-module load StdEnv/2023 python/3.11.5 scipy-stack/2025a
-source env_rorqual/bin/activate
+echo "Loading modules..."
+module load StdEnv/2023 python/3.11.5 scipy-stack/2025a || true
+
+echo "Activating venv ($ENV_NAME)..."
+if [ -d "$SLURM_SUBMIT_DIR/$ENV_NAME" ]; then
+    source $SLURM_SUBMIT_DIR/$ENV_NAME/bin/activate
+else
+    echo "ERROR: venv '$ENV_NAME' not found at $SLURM_SUBMIT_DIR/$ENV_NAME" >&2
+    exit 1
+fi
+
+# Prevent torch from probing GPUs on CPU-only nodes
+export CUDA_VISIBLE_DEVICES=""
 
 # --- Run audit and save JSON report ---
 cd $SLURM_SUBMIT_DIR
+echo "Running audit..."
 
 python << 'AUDIT_EOF'
 import sys

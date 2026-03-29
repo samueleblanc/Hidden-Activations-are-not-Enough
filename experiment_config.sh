@@ -1,79 +1,84 @@
 #!/bin/bash
 # ==============================================================
-# experiment_config.sh — Shared Configuration
+# experiment_config.sh — Defaults, Resource Profiles & Helpers
 #
-# Single source of truth for experiment settings, resource
+# Provides default values for experiment settings, resource
 # profiles, accounts, and helper functions.
-# Sourced by both calibration.sh and run_experiment.sh.
+# Sourced by calibration.sh, run_experiment.sh, and job_recovery.sh.
+#
+# All variables use ${VAR:-default} so that callers can override
+# them by setting values before sourcing this file.
 # ==============================================================
 
-# --- Default configuration ---
-ACCOUNT="def-assem"
-GPU_ACCOUNT=""              # Account for GPU jobs (defaults to ACCOUNT if empty)
-CPU_ACCOUNT=""              # Account for CPU jobs (defaults to ACCOUNT if empty)
-TOTAL_CHUNKS=8
-BATCH_SIZE=1800
-NUM_SAMPLES_PER_CLASS=500
-SAMPLES_PER_ATTACK=500
-TEST_SIZE=-1
-ENV_NAME="env"
-MODULES="StdEnv/2023 python/3.11.5 scipy-stack/2025a"
-SLURM_OUT_DIR="slurm_out"
-SLURM_ERR_DIR="slurm_err"
+# --- Default configuration (overridable) ---
+ACCOUNT="${ACCOUNT:-def-assem}"
+GPU_ACCOUNT="${GPU_ACCOUNT:-}"              # Account for GPU jobs (defaults to ACCOUNT if empty)
+CPU_ACCOUNT="${CPU_ACCOUNT:-}"              # Account for CPU jobs (defaults to ACCOUNT if empty)
+TOTAL_CHUNKS="${TOTAL_CHUNKS:-8}"
+BATCH_SIZE="${BATCH_SIZE:-1800}"
+NUM_SAMPLES_PER_CLASS="${NUM_SAMPLES_PER_CLASS:-500}"
+SAMPLES_PER_ATTACK="${SAMPLES_PER_ATTACK:-500}"
+TEST_SIZE="${TEST_SIZE:--1}"
+ENV_NAME="${ENV_NAME:-env}"
+MODULES="${MODULES:-StdEnv/2023 python/3.11.5 scipy-stack/2025a}"
+SLURM_OUT_DIR="${SLURM_OUT_DIR:-slurm_out}"
+SLURM_ERR_DIR="${SLURM_ERR_DIR:-slurm_err}"
 # --- Incremental save settings ---
-SAVE_INTERVAL=200           # Incremental save every N new matrices
-SAVE_CHECK_SECONDS=60       # How often background process checks
-SAVE_GRACE_SECONDS=180      # Seconds before wall time to trigger emergency save
+SAVE_INTERVAL="${SAVE_INTERVAL:-200}"           # Incremental save every N new matrices
+SAVE_CHECK_SECONDS="${SAVE_CHECK_SECONDS:-60}"  # How often background process checks
+SAVE_GRACE_SECONDS="${SAVE_GRACE_SECONDS:-180}" # Seconds before wall time to trigger emergency save
 
-# --- Resource profiles (normal mode) ---
+# --- Resource profiles (normal mode, overridable) ---
 # Step A
-A_GPU="--gpus=h100:1"
-A_CPUS=2
-A_TIME="06:00:00"
-A_MEM="15G"
+A_GPU="${A_GPU:---gpus=h100:1}"
+A_CPUS="${A_CPUS:-2}"
+A_TIME="${A_TIME:-06:00:00}"
+A_MEM="${A_MEM:-15G}"
 # Step B
-B_GPU="--gpus=h100:1"
-B_CPUS=12
-B_TIME="00:20:00"
-B_MEM="280G"
+B_GPU="${B_GPU:---gpus=h100:1}"
+B_CPUS="${B_CPUS:-12}"
+B_TIME="${B_TIME:-00:20:00}"
+B_MEM="${B_MEM:-280G}"
 # Step C (per-attack defaults — each attack runs as a separate Slurm job)
-C_GPU="--gpus=h100:1"
-C_CPUS=4
-C_TIME="03:00:00"
-C_MEM="32G"
+C_GPU="${C_GPU:---gpus=h100:1}"
+C_CPUS="${C_CPUS:-4}"
+C_TIME="${C_TIME:-03:00:00}"
+C_MEM="${C_MEM:-32G}"
 # Step D (Adv Matrices)
-D_GPU="--gpus=h100:1"
-D_CPUS=12
-D_TIME="12:00:00"
-D_MEM="280G"
+D_GPU="${D_GPU:---gpus=h100:1}"
+D_CPUS="${D_CPUS:-12}"
+D_TIME="${D_TIME:-12:00:00}"
+D_MEM="${D_MEM:-280G}"
 # Step E (Representation Comparison - GPU)
-E_GPU="--gpus=h100:1"
-E_CPUS=8
-E_TIME="08:00:00"
-E_MEM="64G"
+E_GPU="${E_GPU:---gpus=h100:1}"
+E_CPUS="${E_CPUS:-8}"
+E_TIME="${E_TIME:-08:00:00}"
+E_MEM="${E_MEM:-64G}"
 # Step G (Theorem 4.5 Validation - GPU)
-G_GPU="--gpus=h100:1"
-G_CPUS=4
-G_TIME="06:00:00"
-G_MEM="64G"
+G_GPU="${G_GPU:---gpus=h100:1}"
+G_CPUS="${G_CPUS:-4}"
+G_TIME="${G_TIME:-06:00:00}"
+G_MEM="${G_MEM:-64G}"
 # Step F (LaTeX Tables - CPU-only, lightweight)
-F_CPUS=2
-F_TIME="00:15:00"
-F_MEM="4G"
+F_CPUS="${F_CPUS:-2}"
+F_TIME="${F_TIME:-00:15:00}"
+F_MEM="${F_MEM:-4G}"
 # Audit
-AUDIT_CPUS=4
-AUDIT_TIME="00:30:00"
-AUDIT_MEM="32G"
+AUDIT_CPUS="${AUDIT_CPUS:-4}"
+AUDIT_TIME="${AUDIT_TIME:-00:30:00}"
+AUDIT_MEM="${AUDIT_MEM:-32G}"
 # Calibration
-CALIB_GPU="--gpus=h100:1"
-CALIB_CPUS=4
-CALIB_TIME="01:00:00"
-CALIB_MEM="32G"
+CALIB_GPU="${CALIB_GPU:---gpus=h100:1}"
+CALIB_CPUS="${CALIB_CPUS:-4}"
+CALIB_TIME="${CALIB_TIME:-01:00:00}"
+CALIB_MEM="${CALIB_MEM:-32G}"
 
 # ==============================================================
-# Experiments to process
+# Experiments to process (overridable)
 # ==============================================================
-EXPERIMENTS=("alexnet_cifar10")
+if [ -z "${EXPERIMENTS+x}" ]; then
+    EXPERIMENTS=("alexnet_cifar10")
+fi
 
 # --- Resolve per-type accounts (default to ACCOUNT) ---
 GPU_ACCOUNT="${GPU_ACCOUNT:-$ACCOUNT}"
