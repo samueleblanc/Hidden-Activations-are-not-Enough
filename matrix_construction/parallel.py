@@ -2,6 +2,7 @@
     This script contains functions for computing several matrices from neural networks in parallel.
 """
 
+import gc
 import os
 import torch
 from torch.utils.data import DataLoader, Subset
@@ -198,9 +199,11 @@ class ParallelMatrixConstruction:
                     new_bs = max(1, matrix_computer.batch_size // 2)
                     print(f"[OOM] Halving batch_size: {matrix_computer.batch_size} -> {new_bs}", flush=True)
                     del matrix_computer
+                    gc.collect()
                     torch.cuda.empty_cache()
                     matrix_computer = KnowledgeMatrixComputer(self._model, batch_size=new_bs, device=self.device)
             os.makedirs(root, exist_ok=True)
             atomic_torch_save(matrix, matrix_path)
             del matrix
+            gc.collect()
             torch.cuda.empty_cache()

@@ -77,7 +77,7 @@ ERROR_CATEGORIES = ["slurm", "code", "data", "environment", "unknown"]
 # Map fine-grained types to the 4-value enforced enum
 NORMALIZED_ERROR_TYPE = {
     "oom": "OOM",
-    "cuda_oom": "OOM",
+    "cuda_oom": "CUDA_OOM",
     "timeout": "TIMEOUT",
     "code": "RUNTIME",
     "assertion": "RUNTIME",
@@ -92,7 +92,7 @@ NORMALIZED_ERROR_TYPE = {
 
 
 def normalize_error_type(fine_type):
-    """Map fine-grained error type to enforced enum: OOM|TIMEOUT|RUNTIME|UNKNOWN."""
+    """Map fine-grained error type to enforced enum: OOM|CUDA_OOM|TIMEOUT|RUNTIME|UNKNOWN."""
     if fine_type is None:
         return "UNKNOWN"
     return NORMALIZED_ERROR_TYPE.get(fine_type, "UNKNOWN")

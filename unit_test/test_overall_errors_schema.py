@@ -8,7 +8,7 @@ REQUIRED_ERROR_FIELDS = {
     "job_id", "error_type", "phase", "grid_index", "timestamp",
     "original_resources", "retry_resources", "resolved", "message",
 }
-VALID_ERROR_TYPES = {"OOM", "TIMEOUT", "RUNTIME", "UNKNOWN"}
+VALID_ERROR_TYPES = {"OOM", "CUDA_OOM", "TIMEOUT", "RUNTIME", "UNKNOWN"}
 
 
 def validate_schema(data):
@@ -80,7 +80,7 @@ from utils.error_classification import normalize_error_type
 
 def test_normalize_error_type_oom():
     assert normalize_error_type("oom") == "OOM"
-    assert normalize_error_type("cuda_oom") == "OOM"
+    assert normalize_error_type("cuda_oom") == "CUDA_OOM"
 
 
 def test_normalize_error_type_timeout():

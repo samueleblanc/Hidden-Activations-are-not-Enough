@@ -81,7 +81,7 @@ def load_errors(experiment):
     """Read overall_errors.json (new schema) and return (retryable_entries, all_entries).
 
     New schema top-level keys: experiment_name, last_updated, errors[]
-    Each error entry has: job_id, error_type (OOM|TIMEOUT|RUNTIME|UNKNOWN),
+    Each error entry has: job_id, error_type (OOM|CUDA_OOM|TIMEOUT|RUNTIME|UNKNOWN),
     phase (step letter), grid_index (chunk), timestamp, original_resources,
     retry_resources, resolved, message.
 

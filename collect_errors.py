@@ -32,7 +32,7 @@ SCHEMA_VERSION = "3.0"
 
 # Patterns that indicate runtime errors in .out files of COMPLETED jobs
 RUNTIME_ERROR_RE = re.compile(
-    r'ERROR:|FAILED:|Traceback|RuntimeError|AttributeError|urllib\.error|CUDA error'
+    r'ERROR:|FAILED:|Traceback|RuntimeError|AttributeError|urllib\.error|CUDA error|OOM:'
 )
 
 # Regex for extracting --mem=<N>G from Slurm scripts
@@ -58,12 +58,15 @@ def parse_args():
 def _find_slurm_script(experiment, step, chunk=None):
     """Locate the Slurm script for a given step/chunk.
 
-    Searches experiments/{experiment}/orchestrator_jobs/ for scripts matching
+    Searches experiments/{experiment}/orchestrator_jobs/ and
+    experiments/{experiment}/recovery_jobs/ for scripts matching
     the step and optional chunk/attack suffix.
     """
-    script_dir = os.path.join("experiments", experiment, "orchestrator_jobs")
-    if not os.path.isdir(script_dir):
-        return None
+    # Search orchestrator_jobs first, then recovery_jobs (fallback)
+    search_dirs = [
+        os.path.join("experiments", experiment, "orchestrator_jobs"),
+        os.path.join("experiments", experiment, "recovery_jobs"),
+    ]
 
     # Build candidate filenames
     candidates = []
@@ -76,11 +79,17 @@ def _find_slurm_script(experiment, step, chunk=None):
         candidates.append(f"step_{step}.sh")
     else:
         candidates.append(f"step_{step}.sh")
+        # Recovery audit script uses a different name
+        if step == "AUDIT":
+            candidates.append("final_audit.sh")
 
-    for candidate in candidates:
-        path = os.path.join(script_dir, candidate)
-        if os.path.isfile(path):
-            return path
+    for script_dir in search_dirs:
+        if not os.path.isdir(script_dir):
+            continue
+        for candidate in candidates:
+            path = os.path.join(script_dir, candidate)
+            if os.path.isfile(path):
+                return path
     return None
 
 

@@ -1,4 +1,6 @@
+import gc
 import os
+import sys
 import time
 import torch
 from argparse import ArgumentParser, Namespace
@@ -62,32 +64,36 @@ def parse_args(
 
     return parser.parse_args()
 
-def save_one_matrix_with_retry(im, matrix_computer, device, max_retries=3):
+def save_one_matrix_with_retry(im, model, matrix_computer, device, max_retries=3):
     """Compute a single matrix with OOM retry logic.
+
+    On OOM, destroys and recreates the KnowledgeMatrixComputer with halved
+    batch_size (matching the proven pattern from matrix_construction/parallel.py).
 
     Args:
         im: the image tensor (3D: C, H, W).
+        model: the neural network model (needed to recreate matrix_computer).
         matrix_computer: KnowledgeMatrixComputer instance.
         device: torch device.
         max_retries: number of retries on OOM.
 
     Returns:
-        The computed matrix tensor.
+        Tuple of (computed matrix tensor, matrix_computer) — the computer may
+        have been recreated with a smaller batch_size.
     """
-    mat = None
     for attempt in range(max_retries + 1):
         try:
             mat = matrix_computer.forward(im.to(device))
-            return mat
+            return mat, matrix_computer
         except RuntimeError as e:
             if "out of memory" in str(e).lower() and attempt < max_retries:
                 old_bs = matrix_computer.batch_size
                 new_bs = max(1, old_bs // 2)
                 print(f"    OOM on attempt {attempt+1}, halving batch_size {old_bs}->{new_bs} and retrying...", flush=True)
-                matrix_computer.batch_size = new_bs
-                if mat is not None:
-                    del mat
+                del matrix_computer
+                gc.collect()
                 torch.cuda.empty_cache()
+                matrix_computer = KnowledgeMatrixComputer(model, batch_size=new_bs, device=device)
                 continue
             raise
 
@@ -97,17 +103,24 @@ def save_one_matrix(
         attack: str,
         i: int,
         experiment_name: str,
+        model,
         matrix_computer,
         temp_dir: Union[str, None],
         device
-    ) -> None:
+    ):
     """
         Args:
             im: the image to save the matrix of.
             attack: the attack to save the matrix of.
             i: the index of the image.
-            default_index: the index of the default experiment (See constants/constants.py).
+            experiment_name: the name of the experiment.
+            model: the neural network model (needed for OOM retry recreation).
+            matrix_computer: KnowledgeMatrixComputer instance.
+            temp_dir: temporary directory path.
+            device: torch device.
 
+        Returns:
+            The (possibly recreated) matrix_computer.
     """
 
     if temp_dir is not None:
@@ -116,11 +129,13 @@ def save_one_matrix(
         matrix_save_path = Path(f'experiments/{experiment_name}/adversarial_matrices') / f'{attack}' / f'{i}/matrix.pth'
 
     if not matrix_save_path.exists():
-        mat = save_one_matrix_with_retry(im, matrix_computer, device)
+        mat, matrix_computer = save_one_matrix_with_retry(im, model, matrix_computer, device)
         matrix_save_path.parent.mkdir(parents=True, exist_ok=True)
         atomic_torch_save(mat.cpu(), matrix_save_path)
         del mat
         torch.cuda.empty_cache()
+
+    return matrix_computer
 
 def generate_matrices_for_attacks(
         experiment_name: str,
@@ -134,7 +149,7 @@ def generate_matrices_for_attacks(
         chunk_id: int = 0,
         total_chunks: int = 4,
         samples_per_attack: int = 200,
-    ) -> None:
+    ) -> int:
     """
         Calls the save_one_matrix function for each adversarial example.
 
@@ -158,6 +173,7 @@ def generate_matrices_for_attacks(
     matrix_computer = KnowledgeMatrixComputer(model, batch_size=batch_size, device=device)
     attacks_processed = []
     total_saved = 0
+    total_failed = 0
     for attack in ['test'] + ATTACKS:
         if temp_dir is not None:
             path_adv_examples = Path(temp_dir) / f'experiments/{experiment_name}/adversarial_examples' / f"{attack}/adversarial_examples.pth"
@@ -194,18 +210,20 @@ def generate_matrices_for_attacks(
         for i in range(start, end):
             try:
                 print(f'Chunk {chunk_id} - Matrix {i}/{N}', flush=True)
-                save_one_matrix(attacked_dataset[i].to(device),
+                matrix_computer = save_one_matrix(attacked_dataset[i].to(device),
                                 attack,
                                 i,
                                 experiment_name,
+                                model,
                                 matrix_computer,
                                 temp_dir,
                                 device)
             except RuntimeError as e:
                 if "out of memory" in str(e).lower():
                     failed_indices.append(i)
-                    print(f'OOM: Chunk {chunk_id} - Attack {attack} - Matrix {i}/{N}: {e}', flush=True)
+                    print(f'ERROR: CUDA OOM - Chunk {chunk_id} - Attack {attack} - Matrix {i}/{N}: {e}', flush=True)
                     if torch.cuda.is_available():
+                        gc.collect()
                         torch.cuda.empty_cache()
                     continue
                 raise
@@ -213,6 +231,7 @@ def generate_matrices_for_attacks(
                 failed_indices.append(i)
                 print(f'ERROR: Chunk {chunk_id} - Attack {attack} - Matrix {i}/{N} FAILED: {type(e).__name__}: {e}', flush=True)
                 if torch.cuda.is_available():
+                    gc.collect()
                     torch.cuda.empty_cache()
                 continue
 
@@ -220,6 +239,7 @@ def generate_matrices_for_attacks(
             print(f'WARNING: Chunk {chunk_id} - Attack {attack} had {len(failed_indices)} failed matrices: {failed_indices}', flush=True)
 
         attacks_processed.append(attack)
+        total_failed += len(failed_indices)
         total_saved += (end - start) - len(failed_indices)
 
     # Write done_file checkpoint
@@ -233,6 +253,9 @@ def generate_matrices_for_attacks(
         f.write(f"completed at {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
         f.write(f"attacks_processed: {len(attacks_processed)}\n")
         f.write(f"total_matrices: {total_saved}\n")
+        f.write(f"total_failed: {total_failed}\n")
+
+    return total_failed
 
 def main() -> None:
     """
@@ -264,7 +287,7 @@ def main() -> None:
     num_classes = get_num_classes(dataset)
     device = get_device()
 
-    generate_matrices_for_attacks(
+    total_failed = generate_matrices_for_attacks(
         experiment_name = args.experiment_name,
         temp_dir = args.temp_dir,
         weights_path = weights_path,
@@ -286,6 +309,10 @@ def main() -> None:
     pth_count = sum(1 for _, _, files in os.walk(adv_mat_dir) for f in files if f.endswith(('.pth', '.pt'))) if os.path.isdir(adv_mat_dir) else 0
     t_elapsed = time.perf_counter() - t_start
     print(f"----CHUNK {args.chunk_id} ADVERSARIAL MATRICES COMPUTED ({pth_count} .pth files, {t_elapsed:.1f}s / {t_elapsed/3600:.2f}h)----", flush=True)
+
+    if total_failed > 0:
+        print(f"ERROR: {total_failed} total matrices failed due to CUDA OOM or other errors", flush=True)
+        sys.exit(2)
 
 
 if __name__ == "__main__":

@@ -313,13 +313,16 @@ print(' '.join(e.get('phase','') + ':' + str(e.get('grid_index',''))
     # Step A: Training
     # ==========================================================
     # Adjust resources based on previous error report
+    local A_MEM_ADJ=false A_TIME_ADJ=false
     if [ "$HAS_PREV_ERRORS" = "true" ]; then
         if echo "$PREV_OOM_STEPS" | grep -q "A:"; then
             A_MEM=$(double_mem "$A_MEM")
+            A_MEM_ADJ=true
             echo "  [A] Raising memory to $A_MEM (previous OOM in error report)"
         fi
         if echo "$PREV_TIMEOUT_STEPS" | grep -q "A:"; then
             A_TIME=$(double_time "$A_TIME")
+            A_TIME_ADJ=true
             echo "  [A] Doubling time to $A_TIME (previous timeout in error report)"
         fi
     fi
@@ -407,10 +410,10 @@ STEPA_EOF
         if [ "$A_STATUS" = "missing" ]; then
             local SACCT_STATE
             SACCT_STATE=$(detect_last_job_state "PIPE_A_${EXP}" "$SLURM_OUT_DIR")
-            if [ "$SACCT_STATE" = "OOM_KILLED" ]; then
+            if [ "$SACCT_STATE" = "OOM_KILLED" ] && [ "$A_MEM_ADJ" = "false" ]; then
                 A_MEM=$(double_mem "$A_MEM")
                 echo "  [A] Training:            RE-RUNNING (sacct: OOM kill, doubling memory -> $A_MEM)"
-            elif [ "$SACCT_STATE" = "TIMEOUT" ]; then
+            elif [ "$SACCT_STATE" = "TIMEOUT" ] && [ "$A_TIME_ADJ" = "false" ]; then
                 A_TIME=$(double_time "$A_TIME")
                 echo "  [A] Training:            RE-RUNNING (sacct: timeout, doubling time -> $A_TIME)"
             fi
@@ -427,13 +430,16 @@ STEPA_EOF
     # ==========================================================
     for CHUNK in $(seq 0 $((TOTAL_CHUNKS - 1))); do
         # Adjust resources based on previous error report
+        local B_MEM_ADJ=false B_TIME_ADJ=false
         if [ "$HAS_PREV_ERRORS" = "true" ]; then
             if echo "$PREV_OOM_STEPS" | grep -q "B:$CHUNK"; then
                 B_MEM=$(double_mem "$B_MEM")
+                B_MEM_ADJ=true
                 echo "  [B] Raising memory to $B_MEM for chunk $CHUNK (previous OOM in error report)"
             fi
             if echo "$PREV_TIMEOUT_STEPS" | grep -q "B:$CHUNK"; then
                 B_TIME=$(double_time "$B_TIME")
+                B_TIME_ADJ=true
                 echo "  [B] Doubling time to $B_TIME for chunk $CHUNK (previous timeout in error report)"
             fi
         fi
@@ -607,10 +613,10 @@ STEPB_EOF
         if [ "$B_STATUS" = "missing" ]; then
             local SACCT_STATE
             SACCT_STATE=$(detect_last_job_state "PIPE_B_${EXP}_c${CHUNK}" "$SLURM_OUT_DIR")
-            if [ "$SACCT_STATE" = "OOM_KILLED" ]; then
+            if [ "$SACCT_STATE" = "OOM_KILLED" ] && [ "$B_MEM_ADJ" = "false" ]; then
                 B_MEM=$(double_mem "$B_MEM")
                 echo "  [B] Matrices chunk $CHUNK: RE-RUNNING (sacct: OOM kill, doubling memory -> $B_MEM)"
-            elif [ "$SACCT_STATE" = "TIMEOUT" ]; then
+            elif [ "$SACCT_STATE" = "TIMEOUT" ] && [ "$B_TIME_ADJ" = "false" ]; then
                 B_TIME=$(double_time "$B_TIME")
                 echo "  [B] Matrices chunk $CHUNK: RE-RUNNING (sacct: timeout, doubling time -> $B_TIME)"
             fi
@@ -648,6 +654,8 @@ print('test ' + ' '.join(attacks))
         echo "  [C] Adv examples:        SKIPPED (legacy step_C.json complete, $C_ADV_COUNT files)"
     else
         for ATTACK_NAME in $C_ATTACK_LIST; do
+            # Per-attack resource adjustment flags (prevent quadrupling)
+            local C_MEM_ADJ=false C_TIME_ADJ=false
             # Per-attack checkpoint
             local CKPT_C_ATK="$CKPT_BASE/step_C_attack_${ATTACK_NAME}.json"
             local ATK_STATUS
@@ -675,11 +683,13 @@ print('test ' + ' '.join(attacks))
                 local FAILED_MEM=$(read_checkpoint_field "$CKPT_C_ATK" "mem")
                 if [ "$FAILED_EXIT" = "137" ] && [ -n "$FAILED_MEM" ]; then
                     local OOM_MEM_OVERRIDE=$(double_mem "$FAILED_MEM")
+                    C_MEM_ADJ=true
                     echo "  [C] Attack $ATTACK_NAME:   RE-RUNNING (OOM killed, doubling memory: $FAILED_MEM -> $OOM_MEM_OVERRIDE)"
                 elif [ "$FAILED_EXIT" = "140" ] || [ "$FAILED_EXIT" = "" ]; then
                     local FAILED_TIME=$(read_checkpoint_field "$CKPT_C_ATK" "time")
                     if [ -n "$FAILED_TIME" ]; then
                         local TIMEOUT_TIME_OVERRIDE=$(double_time "$FAILED_TIME")
+                        C_TIME_ADJ=true
                         echo "  [C] Attack $ATTACK_NAME:   RE-RUNNING (possible timeout, doubling time: $FAILED_TIME -> $TIMEOUT_TIME_OVERRIDE)"
                     else
                         echo "  [C] Attack $ATTACK_NAME:   RE-RUNNING (previous run failed, exit_code=$FAILED_EXIT)"
@@ -735,22 +745,24 @@ print(pa.get('mem', ''))" 2>/dev/null || echo "")
             if [ "$ATK_STATUS" = "missing" ]; then
                 local SACCT_STATE
                 SACCT_STATE=$(detect_last_job_state "PIPE_C_${EXP}_${ATTACK_NAME}" "$SLURM_OUT_DIR")
-                if [ "$SACCT_STATE" = "OOM_KILLED" ]; then
+                if [ "$SACCT_STATE" = "OOM_KILLED" ] && [ "$C_MEM_ADJ" = "false" ]; then
                     C_ATK_MEM=$(double_mem "$C_ATK_MEM")
+                    C_MEM_ADJ=true
                     echo "  [C] Attack $ATTACK_NAME:   RE-RUNNING (sacct: OOM kill, doubling memory -> $C_ATK_MEM)"
-                elif [ "$SACCT_STATE" = "TIMEOUT" ]; then
+                elif [ "$SACCT_STATE" = "TIMEOUT" ] && [ "$C_TIME_ADJ" = "false" ]; then
                     C_ATK_TIME=$(double_time "$C_ATK_TIME")
+                    C_TIME_ADJ=true
                     echo "  [C] Attack $ATTACK_NAME:   RE-RUNNING (sacct: timeout, doubling time -> $C_ATK_TIME)"
                 fi
             fi
 
             # Adjust resources based on previous error report
             if [ "$HAS_PREV_ERRORS" = "true" ]; then
-                if echo "$PREV_OOM_STEPS" | grep -q "C:$ATTACK_NAME"; then
+                if echo "$PREV_OOM_STEPS" | grep -q "C:$ATTACK_NAME" && [ "$C_MEM_ADJ" = "false" ]; then
                     C_ATK_MEM=$(double_mem "$C_ATK_MEM")
                     echo "  [C] Raising memory to $C_ATK_MEM for $ATTACK_NAME (previous OOM in error report)"
                 fi
-                if echo "$PREV_TIMEOUT_STEPS" | grep -q "C:$ATTACK_NAME"; then
+                if echo "$PREV_TIMEOUT_STEPS" | grep -q "C:$ATTACK_NAME" && [ "$C_TIME_ADJ" = "false" ]; then
                     C_ATK_TIME=$(double_time "$C_ATK_TIME")
                     echo "  [C] Doubling time to $C_ATK_TIME for $ATTACK_NAME (previous timeout in error report)"
                 fi
@@ -840,13 +852,16 @@ STEPC_EOF
     for CHUNK in $(seq 0 $((TOTAL_CHUNKS - 1))); do
         if [ "$CHUNK" -lt "$D_REM" ]; then D_CHUNK_TOTAL=$((NUM_ATTACKS * (D_BASE + 1))); else D_CHUNK_TOTAL=$((NUM_ATTACKS * D_BASE)); fi
         # Adjust resources based on previous error report
+        local D_MEM_ADJ=false D_TIME_ADJ=false
         if [ "$HAS_PREV_ERRORS" = "true" ]; then
             if echo "$PREV_OOM_STEPS" | grep -q "D:$CHUNK"; then
                 D_MEM=$(double_mem "$D_MEM")
+                D_MEM_ADJ=true
                 echo "  [D] Raising memory to $D_MEM for chunk $CHUNK (previous OOM in error report)"
             fi
             if echo "$PREV_TIMEOUT_STEPS" | grep -q "D:$CHUNK"; then
                 D_TIME=$(double_time "$D_TIME")
+                D_TIME_ADJ=true
                 echo "  [D] Doubling time to $D_TIME for chunk $CHUNK (previous timeout in error report)"
             fi
         fi
@@ -1028,10 +1043,10 @@ STEPD_EOF
         if [ "$D_STATUS" = "missing" ]; then
             local SACCT_STATE
             SACCT_STATE=$(detect_last_job_state "PIPE_D_${EXP}_c${CHUNK}" "$SLURM_OUT_DIR")
-            if [ "$SACCT_STATE" = "OOM_KILLED" ]; then
+            if [ "$SACCT_STATE" = "OOM_KILLED" ] && [ "$D_MEM_ADJ" = "false" ]; then
                 D_MEM=$(double_mem "$D_MEM")
                 echo "  [D] Adv matrices chunk $CHUNK: RE-RUNNING (sacct: OOM kill, doubling memory -> $D_MEM)"
-            elif [ "$SACCT_STATE" = "TIMEOUT" ]; then
+            elif [ "$SACCT_STATE" = "TIMEOUT" ] && [ "$D_TIME_ADJ" = "false" ]; then
                 D_TIME=$(double_time "$D_TIME")
                 echo "  [D] Adv matrices chunk $CHUNK: RE-RUNNING (sacct: timeout, doubling time -> $D_TIME)"
             fi
@@ -1052,13 +1067,16 @@ STEPD_EOF
     # Step E: Representation Comparison (depends on B + all D)
     # ==========================================================
     # Adjust resources based on previous error report
+    local E_MEM_ADJ=false E_TIME_ADJ=false
     if [ "$HAS_PREV_ERRORS" = "true" ]; then
         if echo "$PREV_OOM_STEPS" | grep -q "E:"; then
             E_MEM=$(double_mem "$E_MEM")
+            E_MEM_ADJ=true
             echo "  [E] Raising memory to $E_MEM (previous OOM in error report)"
         fi
         if echo "$PREV_TIMEOUT_STEPS" | grep -q "E:"; then
             E_TIME=$(double_time "$E_TIME")
+            E_TIME_ADJ=true
             echo "  [E] Doubling time to $E_TIME (previous timeout in error report)"
         fi
     fi
@@ -1194,10 +1212,10 @@ STEPE_EOF
         if [ "$E_STATUS" = "missing" ]; then
             local SACCT_STATE
             SACCT_STATE=$(detect_last_job_state "PIPE_E_${EXP}" "$SLURM_OUT_DIR")
-            if [ "$SACCT_STATE" = "OOM_KILLED" ]; then
+            if [ "$SACCT_STATE" = "OOM_KILLED" ] && [ "$E_MEM_ADJ" = "false" ]; then
                 E_MEM=$(double_mem "$E_MEM")
                 echo "  [E] Rep. comparison:     RE-RUNNING (sacct: OOM kill, doubling memory -> $E_MEM)"
-            elif [ "$SACCT_STATE" = "TIMEOUT" ]; then
+            elif [ "$SACCT_STATE" = "TIMEOUT" ] && [ "$E_TIME_ADJ" = "false" ]; then
                 E_TIME=$(double_time "$E_TIME")
                 echo "  [E] Rep. comparison:     RE-RUNNING (sacct: timeout, doubling time -> $E_TIME)"
             fi
@@ -1219,13 +1237,16 @@ STEPE_EOF
     # Step G: Theorem 4.5 Validation (depends on A only)
     # ==========================================================
     # Adjust resources based on previous error report
+    local G_MEM_ADJ=false G_TIME_ADJ=false
     if [ "$HAS_PREV_ERRORS" = "true" ]; then
         if echo "$PREV_OOM_STEPS" | grep -q "G:"; then
             G_MEM=$(double_mem "$G_MEM")
+            G_MEM_ADJ=true
             echo "  [G] Raising memory to $G_MEM (previous OOM in error report)"
         fi
         if echo "$PREV_TIMEOUT_STEPS" | grep -q "G:"; then
             G_TIME=$(double_time "$G_TIME")
+            G_TIME_ADJ=true
             echo "  [G] Doubling time to $G_TIME (previous timeout in error report)"
         fi
     fi
@@ -1325,10 +1346,10 @@ STEPG_EOF
         if [ "$G_STATUS" = "missing" ]; then
             local SACCT_STATE
             SACCT_STATE=$(detect_last_job_state "PIPE_G_${EXP}" "$SLURM_OUT_DIR")
-            if [ "$SACCT_STATE" = "OOM_KILLED" ]; then
+            if [ "$SACCT_STATE" = "OOM_KILLED" ] && [ "$G_MEM_ADJ" = "false" ]; then
                 G_MEM=$(double_mem "$G_MEM")
                 echo "  [G] Theorem 4.5:         RE-RUNNING (sacct: OOM kill, doubling memory -> $G_MEM)"
-            elif [ "$SACCT_STATE" = "TIMEOUT" ]; then
+            elif [ "$SACCT_STATE" = "TIMEOUT" ] && [ "$G_TIME_ADJ" = "false" ]; then
                 G_TIME=$(double_time "$G_TIME")
                 echo "  [G] Theorem 4.5:         RE-RUNNING (sacct: timeout, doubling time -> $G_TIME)"
             fi
@@ -1346,13 +1367,16 @@ STEPG_EOF
     # Step F: LaTeX Tables (depends on E + G)
     # ==========================================================
     # Adjust resources based on previous error report
+    local F_MEM_ADJ=false F_TIME_ADJ=false
     if [ "$HAS_PREV_ERRORS" = "true" ]; then
         if echo "$PREV_OOM_STEPS" | grep -q "F:"; then
             F_MEM=$(double_mem "$F_MEM")
+            F_MEM_ADJ=true
             echo "  [F] Raising memory to $F_MEM (previous OOM in error report)"
         fi
         if echo "$PREV_TIMEOUT_STEPS" | grep -q "F:"; then
             F_TIME=$(double_time "$F_TIME")
+            F_TIME_ADJ=true
             echo "  [F] Doubling time to $F_TIME (previous timeout in error report)"
         fi
     fi
@@ -1434,10 +1458,10 @@ STEPF_EOF
         if [ "$F_STATUS" = "missing" ]; then
             local SACCT_STATE
             SACCT_STATE=$(detect_last_job_state "PIPE_F_${EXP}" "$SLURM_OUT_DIR")
-            if [ "$SACCT_STATE" = "OOM_KILLED" ]; then
+            if [ "$SACCT_STATE" = "OOM_KILLED" ] && [ "$F_MEM_ADJ" = "false" ]; then
                 F_MEM=$(double_mem "$F_MEM")
                 echo "  [F] LaTeX tables:        RE-RUNNING (sacct: OOM kill, doubling memory -> $F_MEM)"
-            elif [ "$SACCT_STATE" = "TIMEOUT" ]; then
+            elif [ "$SACCT_STATE" = "TIMEOUT" ] && [ "$F_TIME_ADJ" = "false" ]; then
                 F_TIME=$(double_time "$F_TIME")
                 echo "  [F] LaTeX tables:        RE-RUNNING (sacct: timeout, doubling time -> $F_TIME)"
             fi
