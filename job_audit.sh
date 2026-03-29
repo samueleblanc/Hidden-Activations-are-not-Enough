@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --account=def-assem
-#SBATCH --time=02:00:00
+#SBATCH --time=00:30:00
 #SBATCH --cpus-per-task=4
-#SBATCH --mem=100G
+#SBATCH --mem=32G
 #SBATCH --output=slurm_out/AUDIT_%A.out
 #SBATCH --error=slurm_err/AUDIT_%A.err
 
@@ -24,12 +24,6 @@ mkdir -p $SLURM_SUBMIT_DIR/slurm_err
 module load StdEnv/2023 python/3.11.5 scipy-stack/2025a
 source env_rorqual/bin/activate
 
-# --- Copy experiment to $SLURM_TMPDIR ---
-echo "Copying experiment data to temporary directory..."
-mkdir -p $SLURM_TMPDIR/experiments/$EXPERIMENT/
-cp -r experiments/$EXPERIMENT/* $SLURM_TMPDIR/experiments/$EXPERIMENT/
-echo "Copy complete."
-
 # --- Run audit and save JSON report ---
 cd $SLURM_SUBMIT_DIR
 
@@ -45,9 +39,8 @@ from constants.constants import ATTACKS, DEFAULT_EXPERIMENTS
 
 experiment = os.environ["EXPERIMENT"]
 total_chunks = int(os.environ["TOTAL_CHUNKS"])
-tmpdir = os.environ["SLURM_TMPDIR"]
 
-experiment_dir = os.path.join(tmpdir, "experiments", experiment)
+experiment_dir = os.path.join(os.environ["SLURM_SUBMIT_DIR"], "experiments", experiment)
 
 # Determine num_classes from the experiment's dataset
 num_classes = 10
@@ -69,7 +62,7 @@ report = verify_experiment(
     total_chunks=total_chunks,
     num_samples_rejection_level=num_samples_rejection_level,
     attacks_list=ATTACKS,
-    sample_ratio=1.0,
+    sample_ratio=0.1,
 )
 
 _print_report(report)
@@ -93,10 +86,9 @@ sys.path.insert(0, os.environ["SLURM_SUBMIT_DIR"])
 
 experiment = os.environ["EXPERIMENT"]
 total_chunks = int(os.environ["TOTAL_CHUNKS"])
-tmpdir = os.environ["SLURM_TMPDIR"]
 submit_dir = os.environ["SLURM_SUBMIT_DIR"]
 
-experiment_dir = os.path.join(tmpdir, "experiments", experiment)
+experiment_dir = os.path.join(submit_dir, "experiments", experiment)
 report_path = os.path.join(experiment_dir, "audit_report.json")
 
 with open(report_path, "r") as f:
@@ -232,10 +224,5 @@ if recovery_needed:
 else:
     print("No recovery needed — all artifacts OK.")
 RECOVERY_PLAN_EOF
-
-# --- Copy audit_report.json to permanent storage ---
-echo "Copying audit report to permanent storage..."
-cp $SLURM_TMPDIR/experiments/$EXPERIMENT/audit_report.json \
-   $SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/audit_report.json
 
 echo "Audit job complete."

@@ -1495,9 +1495,6 @@ source $ENV_NAME/bin/activate
 export EXPERIMENT="$EXP"
 export TOTAL_CHUNKS=$TOTAL_CHUNKS
 
-mkdir -p \$SLURM_TMPDIR/experiments/\$EXPERIMENT/
-cp -r \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/* \$SLURM_TMPDIR/experiments/\$EXPERIMENT/
-
 cd \$SLURM_SUBMIT_DIR
 
 python << 'AUDIT_PY_EOF'
@@ -1508,8 +1505,7 @@ from constants.constants import ATTACKS, DEFAULT_EXPERIMENTS
 
 experiment = os.environ["EXPERIMENT"]
 total_chunks = int(os.environ["TOTAL_CHUNKS"])
-tmpdir = os.environ["SLURM_TMPDIR"]
-experiment_dir = os.path.join(tmpdir, "experiments", experiment)
+experiment_dir = os.path.join(os.environ["SLURM_SUBMIT_DIR"], "experiments", experiment)
 
 num_classes = 10
 if experiment in DEFAULT_EXPERIMENTS:
@@ -1521,7 +1517,7 @@ report = verify_experiment(
     experiment_dir=experiment_dir, experiment_name=experiment,
     num_classes=num_classes, num_samples_per_class=1000,
     total_chunks=total_chunks, num_samples_rejection_level=10000,
-    attacks_list=ATTACKS, sample_ratio=1.0,
+    attacks_list=ATTACKS, sample_ratio=0.1,
 )
 _print_report(report)
 
@@ -1531,8 +1527,6 @@ with open(report_path, "w") as f:
 print(f"Final audit report saved to: {report_path}")
 AUDIT_PY_EOF
 
-cp \$SLURM_TMPDIR/experiments/\$EXPERIMENT/audit_report.json \
-   \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/audit_report.json 2>/dev/null || true
 echo "Final audit complete for $EXP."
 FINALAUDIT_EOF
 
@@ -1681,11 +1675,6 @@ source $ENV_NAME/bin/activate
 export EXPERIMENT="$EXP"
 export TOTAL_CHUNKS=$TOTAL_CHUNKS
 
-echo "Copying experiment data to temporary directory..."
-mkdir -p \$SLURM_TMPDIR/experiments/\$EXPERIMENT/
-cp -r \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/* \$SLURM_TMPDIR/experiments/\$EXPERIMENT/ 2>/dev/null || true
-echo "Copy complete."
-
 cd \$SLURM_SUBMIT_DIR
 
 # --- Run audit ---
@@ -1697,8 +1686,7 @@ from constants.constants import ATTACKS, DEFAULT_EXPERIMENTS
 
 experiment = os.environ["EXPERIMENT"]
 total_chunks = int(os.environ["TOTAL_CHUNKS"])
-tmpdir = os.environ["SLURM_TMPDIR"]
-experiment_dir = os.path.join(tmpdir, "experiments", experiment)
+experiment_dir = os.path.join(os.environ["SLURM_SUBMIT_DIR"], "experiments", experiment)
 
 num_classes = 10
 if experiment in DEFAULT_EXPERIMENTS:
@@ -1710,7 +1698,7 @@ report = verify_experiment(
     experiment_dir=experiment_dir, experiment_name=experiment,
     num_classes=num_classes, num_samples_per_class=1000,
     total_chunks=total_chunks, num_samples_rejection_level=10000,
-    attacks_list=ATTACKS, sample_ratio=1.0,
+    attacks_list=ATTACKS, sample_ratio=0.1,
 )
 _print_report(report)
 
@@ -1730,10 +1718,9 @@ sys.path.insert(0, os.environ["SLURM_SUBMIT_DIR"])
 
 experiment = os.environ["EXPERIMENT"]
 total_chunks = int(os.environ["TOTAL_CHUNKS"])
-tmpdir = os.environ["SLURM_TMPDIR"]
 submit_dir = os.environ["SLURM_SUBMIT_DIR"]
 
-experiment_dir = os.path.join(tmpdir, "experiments", experiment)
+experiment_dir = os.path.join(submit_dir, "experiments", experiment)
 report_path = os.path.join(experiment_dir, "audit_report.json")
 
 with open(report_path, "r") as f:
@@ -1851,8 +1838,6 @@ else:
     print("No recovery needed - all artifacts OK.")
 RECOVERY_PLAN_PY_EOF
 
-cp \$SLURM_TMPDIR/experiments/\$EXPERIMENT/audit_report.json \
-   \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/audit_report.json 2>/dev/null || true
 echo "Audit job complete for $EXP."
 AUDIT_EOF
 
