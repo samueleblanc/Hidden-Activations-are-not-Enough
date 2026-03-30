@@ -1681,10 +1681,9 @@ for EXP in "${EXPERIMENTS[@]}"; do
         # --- Adjust resources based on prior failures ---
         # In skip-audit mode, submit_full_pipeline() handles this internally.
         # In audit mode, we must adjust BEFORE baking values into dispatch.sh.
-        local ERRORS_JSON="experiments/$EXP/overall_errors.json"
+        ERRORS_JSON="experiments/$EXP/overall_errors.json"
         if [ -f "$ERRORS_JSON" ]; then
             echo "  Reading previous error report: $ERRORS_JSON"
-            local PREV_OOM_STEPS PREV_TIMEOUT_STEPS
             PREV_OOM_STEPS=$(python3 -c "
 import json
 with open('$ERRORS_JSON') as f:
@@ -1716,16 +1715,14 @@ print(' '.join(e.get('phase','') + ':' + str(e.get('grid_index',''))
         fi
 
         # Check checkpoint files for SIGKILL OOM (exit 137) — process killed before writing error report
-        local CKPT_BASE="experiments/$EXP/checkpoints"
+        CKPT_BASE="experiments/$EXP/checkpoints"
         for SL in A B C D E G; do
-            local CKPT_FILE="$CKPT_BASE/step_${SL}.json"
+            CKPT_FILE="$CKPT_BASE/step_${SL}.json"
             if [ -f "$CKPT_FILE" ]; then
-                local CKPT_STATUS CKPT_EXIT CKPT_MEM
                 CKPT_STATUS=$(python3 -c "import json; print(json.load(open('$CKPT_FILE')).get('status',''))" 2>/dev/null || echo "")
                 CKPT_EXIT=$(python3 -c "import json; print(json.load(open('$CKPT_FILE')).get('exit_code',''))" 2>/dev/null || echo "")
                 CKPT_MEM=$(python3 -c "import json; print(json.load(open('$CKPT_FILE')).get('mem',''))" 2>/dev/null || echo "")
                 if [ "$CKPT_STATUS" = "failed" ] && [ "$CKPT_EXIT" = "137" ] && [ -n "$CKPT_MEM" ]; then
-                    local NEW_MEM
                     NEW_MEM=$(double_mem "$CKPT_MEM")
                     eval "${SL}_MEM=\"$NEW_MEM\""
                     echo "  [${SL}] Checkpoint: OOM kill, doubling memory to $NEW_MEM"
