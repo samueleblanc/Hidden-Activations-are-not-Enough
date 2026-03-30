@@ -145,7 +145,11 @@ class MultiLayerMahalanobisDetector:
         4. Perturb: x_preprocessed = x - epsilon * sign(grad)
         5. Re-extract features from preprocessed input
         """
-        x_input = x.to(self.device).float().requires_grad_(True)
+        # NC1-FIX: .detach() ensures x_input is a leaf tensor so .grad
+        # is populated after backward(). Without detach, .to()/.float() may
+        # return a non-leaf if x is already on-device and float, causing
+        # the preprocessing perturbation to be a no-op.
+        x_input = x.to(self.device).float().detach().requires_grad_(True)
 
         # Forward pass with gradient-enabled hooks
         self._features = {}
@@ -167,7 +171,10 @@ class MultiLayerMahalanobisDetector:
 
             # Compute Mahalanobis loss entirely in PyTorch to preserve gradients.
             # Pre-convert numpy statistics to torch tensors.
-            loss = torch.tensor(0.0, device=self.device, requires_grad=True)
+            # NC1-FIX: Use plain zero tensor. The reassignment
+            # loss = loss + ... creates a new non-leaf connected to the
+            # computation graph. The old requires_grad=True leaf was unused.
+            loss = torch.zeros(1, device=self.device)
             for layer_name in self.layer_names:
                 if layer_name not in self._features or layer_name not in self.precision:
                     continue
@@ -204,6 +211,18 @@ class MultiLayerMahalanobisDetector:
             if x_input.grad is not None:
                 x_input.grad.zero_()
             loss.backward()
+
+            # NC1 diagnostic: verify gradient actually flowed to input
+            if x_input.grad is None:
+                import warnings
+                warnings.warn(
+                    f"Lee preprocessing: no gradient on x_input "
+                    f"(loss={loss.item():.6f}). Preprocessing is a no-op.")
+            elif x_input.grad.abs().max().item() == 0:
+                import warnings
+                warnings.warn(
+                    f"Lee preprocessing: gradient is all zeros "
+                    f"(loss={loss.item():.6f}). Preprocessing has no effect.")
 
         finally:
             # Remove gradient hooks, restore detaching hooks (H5: leak-safe)

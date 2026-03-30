@@ -22,6 +22,7 @@ Usage:
     python compare_representations.py --experiment lenet_cifar10 alexnet_cifar10 resnet_cifar10 vgg_cifar10
 """
 
+import gc
 import os
 import json
 import time
@@ -576,8 +577,11 @@ def run_comparison(experiment_name, temp_dir=None, svd_ablation=False):
     cost_matrix_time = time.perf_counter() - t0
     cost_matrix_mem = torch.cuda.max_memory_allocated() / 1e9 if torch.cuda.is_available() else 0
     if train_matrices is None or len(train_matrices) == 0:
-        print("    WARNING: No training matrices found, skipping matrix comparison")
-        train_matrices = None
+        raise RuntimeError(
+            f"FATAL: No training matrices found at {Path(base) / 'matrices'}. "
+            f"Step 2a output is missing or zip extraction failed. "
+            f"Check that matrices_task_*.zip files exist and were extracted."
+        )
     else:
         print(f"    Shape: {train_matrices.shape}  ({cost_matrix_time:.1f}s)")
         train_mat_labels = train_mat_labels.astype(int)
@@ -669,10 +673,12 @@ def run_comparison(experiment_name, temp_dir=None, svd_ablation=False):
         if test_mats is not None:
             test_feats['knowledge_matrix'] = test_mats
         else:
-            # Cannot score clean test matrices — remove from comparison
-            rep_names = [r for r in rep_names if r != 'knowledge_matrix']
-            for det_name in fitted_detectors:
-                fitted_detectors[det_name].pop('knowledge_matrix', None)
+            raise RuntimeError(
+                f"FATAL: No test knowledge matrices found at "
+                f"{Path(base) / 'adversarial_matrices' / 'test'}. "
+                f"Step 3 must produce 'test' directory with matrix.pth files. "
+                f"Check adv_matrices_task_*.zip extraction."
+            )
 
     # clean_scores[det_name][rep_name] = 1D array of scores
     clean_scores = {}
@@ -728,6 +734,15 @@ def run_comparison(experiment_name, temp_dir=None, svd_ablation=False):
         if km_feats is not None and len(km_feats) > 0:
             adv_feats['knowledge_matrix'] = km_feats
 
+        # A4: Verify sample alignment across representations
+        rep_counts = {rn: len(af) for rn, af in adv_feats.items()}
+        if len(set(rep_counts.values())) > 1:
+            min_count = min(rep_counts.values())
+            print(f"    WARNING: Sample count mismatch for {attack}: {rep_counts}. "
+                  f"Truncating all to {min_count}.")
+            adv_feats = {rn: af[:min_count] for rn, af in adv_feats.items()}
+        print(f"    Aligned counts for {attack}: {rep_counts}")
+
         # results[attack][det_name][rep_name] = metrics dict
         attack_results = {}
         for det_name in DETECTORS:
@@ -742,6 +757,9 @@ def run_comparison(experiment_name, temp_dir=None, svd_ablation=False):
 
         results[attack] = attack_results
 
+    # Free per-attack memory before SVD ablation
+    gc.collect()
+
     # -----------------------------------------------------------------------
     # 7. SVD rank ablation (optional)
     # -----------------------------------------------------------------------
@@ -751,33 +769,9 @@ def run_comparison(experiment_name, temp_dir=None, svd_ablation=False):
         svd_ranks = [16, 32, 64, 128, 256, 512]
         svd_ablation_results = {}
 
-        # HI-1: Pre-load and align adversarial data once, reusing across all
-        # SVD ranks and representations. This ensures identical sample counts.
-        preloaded_adv = {}
-        for attack in available_attacks:
-            adv_path = Path(base) / 'adversarial_examples' / attack / 'adversarial_examples.pth'
-            if not adv_path.exists():
-                continue
-            adv_data = torch.load(adv_path, map_location='cpu', weights_only=True)
-            if len(adv_data) > 2000:
-                adv_data = adv_data[:2000]
-            # Align with KM count if available
-            km_feats = None
-            if 'knowledge_matrix' in rep_names:
-                km_feats = load_matrices_as_features(base, attack, max_samples=2000)
-                if km_feats is not None and len(km_feats) > 0:
-                    n_km = len(km_feats)
-                    if n_km < len(adv_data):
-                        adv_data = adv_data[:n_km]
-                        km_feats = km_feats[:len(adv_data)]
-            preloaded_adv[attack] = {
-                'data': adv_data,
-                'penultimate': extract_penultimate_features(model, adv_data),
-                'all_layer': extract_all_layer_features(model, adv_data),
-            }
-            if km_feats is not None and len(km_feats) > 0:
-                preloaded_adv[attack]['knowledge_matrix'] = km_feats
-
+        # OOM-FIX: Process one (rank, representation) at a time instead of
+        # preloading all attack features. Extracts adversarial features on
+        # the fly to keep memory bounded (~10 GB peak vs 64+ GB before).
         for rank in svd_ranks:
             svd_ablation_results[rank] = {}
             for rn in rep_names:
@@ -791,17 +785,37 @@ def run_comparison(experiment_name, temp_dir=None, svd_ablation=False):
                 clean_sc = det.score(test_feats[rn]) if rn in test_feats else None
                 if clean_sc is None:
                     continue
-                # Average AUROC across attacks
+                # Average AUROC across attacks — extract features on the fly
                 aurocs = []
                 for attack in available_attacks:
-                    if attack not in preloaded_adv:
+                    adv_path = Path(base) / 'adversarial_examples' / attack / 'adversarial_examples.pth'
+                    if not adv_path.exists():
                         continue
-                    af = preloaded_adv[attack].get(rn)
+                    # Extract features for THIS representation only
+                    if rn == 'knowledge_matrix':
+                        af = load_matrices_as_features(base, attack, max_samples=2000)
+                    else:
+                        adv_data_svd = torch.load(adv_path, map_location='cpu', weights_only=True)
+                        if len(adv_data_svd) > 2000:
+                            adv_data_svd = adv_data_svd[:2000]
+                        # Align with KM count if available
+                        if 'knowledge_matrix' in rep_names:
+                            km_count = load_matrices_as_features(base, attack, max_samples=2000)
+                            if km_count is not None and len(km_count) > 0:
+                                adv_data_svd = adv_data_svd[:len(km_count)]
+                            del km_count
+                        if rn == 'penultimate':
+                            af = extract_penultimate_features(model, adv_data_svd)
+                        else:  # all_layer
+                            af = extract_all_layer_features(model, adv_data_svd)
+                        del adv_data_svd
                     if af is None or len(af) == 0:
                         continue
                     adv_sc = det.score(af)
                     m = compute_detection_metrics(clean_sc, adv_sc)
                     aurocs.append(m['auroc'])
+                    del af
+                gc.collect()
                 svd_ablation_results[rank][rn] = {
                     'mean_auroc': float(np.mean(aurocs)) if aurocs else None,
                     'n_attacks': len(aurocs),

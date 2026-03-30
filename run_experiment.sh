@@ -1144,6 +1144,25 @@ for i in \$(seq 0 $((TOTAL_CHUNKS - 1))); do
     fi
 done
 
+# A2-SHELL: Verify matrix extraction succeeded before launching Python
+TRAIN_MAT_COUNT=\$(find \$SLURM_TMPDIR/experiments/\$EXPERIMENT/matrices/ -name "matrix.pt" 2>/dev/null | wc -l)
+echo "Training matrices found: \$TRAIN_MAT_COUNT"
+if [ "\$TRAIN_MAT_COUNT" -eq 0 ]; then
+    echo "ERROR: No training matrices found after zip extraction!"
+    echo "Check that matrices_task_*.zip files exist in experiments/\$EXPERIMENT/"
+    ls -la \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/matrices_task_*.zip 2>/dev/null || echo "  No zip files found!"
+    exit 1
+fi
+
+ADV_MAT_COUNT=\$(find \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adversarial_matrices/ -name "matrix.pth" 2>/dev/null | wc -l)
+echo "Adversarial matrices found: \$ADV_MAT_COUNT"
+if [ "\$ADV_MAT_COUNT" -eq 0 ]; then
+    echo "ERROR: No adversarial matrices found after zip extraction!"
+    echo "Check that adv_matrices_task_*.zip files exist in experiments/\$EXPERIMENT/"
+    ls -la \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adv_matrices_task_*.zip 2>/dev/null || echo "  No zip files found!"
+    exit 1
+fi
+
 echo "All data ready. Starting representation comparison..."
 
 # GPU monitoring
@@ -2298,6 +2317,19 @@ for i in \$(seq 0 $((TOTAL_CHUNKS - 1))); do
         unzip -o \$SLURM_TMPDIR/experiments/$EXPERIMENT/adv_matrices_task_\$i.zip -d \$SLURM_TMPDIR/experiments/$EXPERIMENT/
     }
 done
+# A2-SHELL: Verify matrix extraction succeeded
+TRAIN_MAT_COUNT=\$(find \$SLURM_TMPDIR/experiments/$EXPERIMENT/matrices/ -name "matrix.pt" 2>/dev/null | wc -l)
+echo "Training matrices found: \$TRAIN_MAT_COUNT"
+if [ "\$TRAIN_MAT_COUNT" -eq 0 ]; then
+    echo "ERROR: No training matrices after zip extraction!"
+    exit 1
+fi
+ADV_MAT_COUNT=\$(find \$SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_matrices/ -name "matrix.pth" 2>/dev/null | wc -l)
+echo "Adversarial matrices found: \$ADV_MAT_COUNT"
+if [ "\$ADV_MAT_COUNT" -eq 0 ]; then
+    echo "ERROR: No adversarial matrices after zip extraction!"
+    exit 1
+fi
 echo "All data ready. Starting representation comparison..."
 python compare_representations.py --experiment $EXPERIMENT --temp_dir \$SLURM_TMPDIR --svd_ablation
 PY_EXIT=\$?
