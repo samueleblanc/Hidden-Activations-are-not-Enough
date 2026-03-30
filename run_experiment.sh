@@ -1238,6 +1238,18 @@ STEPE_EOF
         rm -f "$CKPT_E"
         E_STATUS="missing"
     fi
+    # Content validation: if JSON exists but is missing KM/SVD data, invalidate
+    if [ "$E_STATUS" = "complete" ] && [ -f "experiments/$EXP/comparison/representation_comparison.json" ]; then
+        if ! python3 -c "
+import json, sys
+d = json.load(open('experiments/$EXP/comparison/representation_comparison.json'))
+sys.exit(0 if 'knowledge_matrix' in d.get('representations', []) and 'svd_ablation' in d else 1)
+" 2>/dev/null; then
+            echo "  [E] WARNING: representation_comparison.json incomplete (missing KM or SVD). Invalidating."
+            rm -f "$CKPT_E"
+            E_STATUS="missing"
+        fi
+    fi
     if [ "$E_STATUS" = "complete" ] && [ -f "experiments/$EXP/comparison/representation_comparison.json" ]; then
         echo "  [E] Rep. comparison:     SKIPPED (complete)"
         JOB_E=""
@@ -1879,10 +1891,24 @@ if recover_a:
 if recover_c and not recover_d:
     recover_d = True; recover_d_chunks = [str(i) for i in range(total_chunks)]
     reason_d.append("Propagated: depends on Step C")
-# E (representation comparison) — recover if comparison JSON missing
+# E (representation comparison) — recover if comparison JSON missing or incomplete
 comparison_path = os.path.join(experiment_dir, "comparison", "representation_comparison.json")
 recover_e = not os.path.exists(comparison_path)
 reason_e = ["comparison/representation_comparison.json missing"] if recover_e else []
+# Validate content: must contain knowledge_matrix and svd_ablation
+if not recover_e:
+    try:
+        with open(comparison_path) as _cf:
+            _comp = json.load(_cf)
+        if 'knowledge_matrix' not in _comp.get('representations', []):
+            recover_e = True
+            reason_e.append("representation_comparison.json missing knowledge_matrix results (stale from silent dropout)")
+        if 'svd_ablation' not in _comp:
+            recover_e = True
+            reason_e.append("representation_comparison.json missing svd_ablation results")
+    except (json.JSONDecodeError, IOError) as exc:
+        recover_e = True
+        reason_e.append(f"representation_comparison.json corrupted: {exc}")
 # E depends on A + B + C + D
 if (recover_a or recover_b or recover_c or recover_d) and not recover_e:
     recover_e = True; deps = []
