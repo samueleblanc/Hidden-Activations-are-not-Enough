@@ -19,12 +19,13 @@ import json
 import argparse
 import subprocess
 from collections import defaultdict
+from datetime import datetime
 
 from utils.atomic_io import atomic_json_dump
 
 
 # Error types that trigger automatic retry with resource doubling
-RETRYABLE_ERROR_TYPES = {"OOM", "TIMEOUT"}
+RETRYABLE_ERROR_TYPES = {"OOM", "TIMEOUT", "CUDA_OOM"}
 
 # Pipeline dependency graph: step -> set of upstream steps it depends on
 DEPENDS_ON = {
@@ -152,6 +153,17 @@ def update_retry_resources(experiment, job_id, new_mem_gb, new_time_hours):
     atomic_json_dump(report, path)
 
 
+def _write_resubmit_status(experiment, submitted=0, max_retries_reached=False):
+    """Write auto_resubmit_status.json for the relaunch sentinel."""
+    status = {
+        "submitted": submitted,
+        "max_retries_reached": max_retries_reached,
+        "timestamp": datetime.now().isoformat(),
+    }
+    path = os.path.join("experiments", experiment, "auto_resubmit_status.json")
+    atomic_json_dump(status, path)
+
+
 def check_retry_count(experiment, max_retries):
     """Read/increment retry counter. Returns current count (before increment).
 
@@ -178,6 +190,8 @@ def check_retry_count(experiment, max_retries):
 
     if current >= max_retries:
         print(f"Auto retry limit reached ({current}/{max_retries}). No further retries.")
+        # Write status so sentinel knows auto_resubmit exhausted retries
+        _write_resubmit_status(experiment, submitted=0, max_retries_reached=True)
         sys.exit(0)
 
     # Increment (always write to new counter)
@@ -426,6 +440,18 @@ def submit_retry_chain(experiment, failed_pairs, downstream_pairs, affected_step
                 if result.returncode == 0:
                     scan_id = result.stdout.strip().split(";")[0]
                     print(f"  [ERRSCAN] Resubmitted error scan: {scan_id} (afterany)")
+                    # Chain the relaunch sentinel after error scan
+                    sentinel_script = os.path.join(job_dir, "sentinel.sh")
+                    if os.path.isfile(sentinel_script):
+                        sentinel_cmd = ["sbatch", "--parsable",
+                                        f"--dependency=afterany:{scan_id}",
+                                        sentinel_script]
+                        sresult = subprocess.run(sentinel_cmd, capture_output=True, text=True)
+                        if sresult.returncode == 0:
+                            sentinel_id = sresult.stdout.strip().split(";")[0]
+                            print(f"  [SENTINEL] Resubmitted sentinel: {sentinel_id} (afterany on error scan)")
+                        else:
+                            print(f"  WARNING: Failed to resubmit sentinel: {sresult.stderr.strip()}")
                 else:
                     print(f"  WARNING: Failed to resubmit error_scan: {result.stderr.strip()}")
         else:
@@ -441,10 +467,14 @@ def main():
 
     print(f"Auto retry check for experiment: {experiment}")
 
+    # Clear stale status from prior cycle so sentinel doesn't read old data
+    _write_resubmit_status(experiment, submitted=0)
+
     # Load errors
     retryable_entries, all_entries = load_errors(experiment)
     if not retryable_entries:
         print("No retryable failures (OOM/timeout) detected. Nothing to retry.")
+        _write_resubmit_status(experiment, submitted=0)
         return
 
     print(f"Found {len(retryable_entries)} retryable failure(s):")
@@ -472,6 +502,9 @@ def main():
         print(f"Resubmitted {len(submitted)} job(s).")
     else:
         print("No jobs were submitted.")
+
+    # Write status for relaunch sentinel
+    _write_resubmit_status(experiment, submitted=len(submitted) if submitted else 0)
 
 
 if __name__ == "__main__":

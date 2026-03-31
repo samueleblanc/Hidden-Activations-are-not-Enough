@@ -27,6 +27,8 @@ SLURM_ERR_DIR="${SLURM_ERR_DIR:-slurm_err}"
 SAVE_INTERVAL="${SAVE_INTERVAL:-200}"           # Incremental save every N new matrices
 SAVE_CHECK_SECONDS="${SAVE_CHECK_SECONDS:-60}"  # How often background process checks
 SAVE_GRACE_SECONDS="${SAVE_GRACE_SECONDS:-180}" # Seconds before wall time to trigger emergency save
+# --- Relaunch sentinel ---
+MAX_SENTINEL_CYCLES="${MAX_SENTINEL_CYCLES:-5}"  # Max whole-pipeline re-launch cycles
 
 # --- Resource profiles (normal mode, overridable) ---
 # Step A

@@ -1659,6 +1659,37 @@ ERRSCAN_EOF
         local ERROR_SCAN_JOB
         ERROR_SCAN_JOB=$(submit_job_afterany "$JOB_DIR/error_scan.sh" "$ERRSCAN_DEPS")
         echo "  [*] Error scan:          $ERROR_SCAN_JOB (afterany)"
+
+        # ==========================================================
+        # Relaunch sentinel — cyclical retry on OOM/timeout errors
+        # Checks overall_errors.json after error scan; if retryable
+        # errors remain and cycle count < max, re-invokes pipeline
+        # ==========================================================
+        local SENTINEL_FLAGS=""
+        [ "$TEST_MODE" = "true" ] && SENTINEL_FLAGS="$SENTINEL_FLAGS --test"
+        [ "$SKIP_AUDIT" = "true" ] && SENTINEL_FLAGS="$SENTINEL_FLAGS --skip-audit"
+
+        cat > "$JOB_DIR/sentinel.sh" << SENTINEL_EOF
+#!/bin/bash
+#SBATCH --account=$CPU_ACCOUNT
+#SBATCH --cpus-per-task=1
+#SBATCH --time=00:20:00
+#SBATCH --mem=2G
+#SBATCH --output=$SLURM_OUT_DIR/PIPE_SENTINEL_${EXP}_%A.out
+#SBATCH --error=$SLURM_ERR_DIR/PIPE_SENTINEL_${EXP}_%A.err
+
+module load $MODULES
+source $ENV_NAME/bin/activate
+cd \$SLURM_SUBMIT_DIR
+
+python relaunch_sentinel.py --experiment $EXP $SENTINEL_FLAGS || {
+    echo "WARNING: relaunch_sentinel.py exited with code \$? (non-fatal)"
+}
+SENTINEL_EOF
+
+        local SENTINEL_JOB
+        SENTINEL_JOB=$(submit_job_afterany "$JOB_DIR/sentinel.sh" "$ERROR_SCAN_JOB")
+        echo "  [*] Relaunch sentinel:   $SENTINEL_JOB (afterany on error scan)"
     fi
     echo ""
 }
@@ -2547,6 +2578,31 @@ EOF_ERRSCAN
     # Submit with afterany so it runs even when upstream jobs fail
     ERRSCAN_JOB=$(sbatch --parsable --dependency=afterany:${ALL_JOBS} "$JOB_DIR/error_scan.sh")
     echo "[ERRSCAN] Error scan: $ERRSCAN_JOB (afterany)"
+
+    # --- Relaunch sentinel (cyclical retry on OOM/timeout) ---
+    SENTINEL_FLAGS=""
+    case "$SLURM_OUT_DIR" in *test*) SENTINEL_FLAGS="--test" ;; esac
+
+    cat > "$JOB_DIR/sentinel.sh" << EOF_SENTINEL
+#!/bin/bash
+#SBATCH --account=$CPU_ACCOUNT
+#SBATCH --cpus-per-task=1
+#SBATCH --time=00:20:00
+#SBATCH --mem=2G
+#SBATCH --output=$SLURM_OUT_DIR/REC_SENTINEL_${EXPERIMENT}_%A.out
+#SBATCH --error=$SLURM_ERR_DIR/REC_SENTINEL_${EXPERIMENT}_%A.err
+
+module load $MODULES
+source $ENV_NAME/bin/activate
+cd \$SLURM_SUBMIT_DIR
+
+python relaunch_sentinel.py --experiment $EXPERIMENT $SENTINEL_FLAGS --skip-audit || {
+    echo "WARNING: relaunch_sentinel.py exited with code \$? (non-fatal)"
+}
+EOF_SENTINEL
+
+    SENTINEL_JOB=$(sbatch --parsable --dependency=afterany:${ERRSCAN_JOB} "$JOB_DIR/sentinel.sh")
+    echo "[SENTINEL] Relaunch sentinel: $SENTINEL_JOB (afterany on error scan)"
 fi
 
 echo "Dispatcher complete for $EXPERIMENT."
