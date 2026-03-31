@@ -48,6 +48,7 @@ from utils.utils import (
 from constants.constants import DEFAULT_EXPERIMENTS, ATTACKS, ATTACK_CATEGORIES
 from baselines.lee2018 import MultiLayerMahalanobisDetector
 from utils.atomic_io import atomic_json_dump
+from knowledgematrix.matrix_computer import KnowledgeMatrixComputer
 
 
 # ---------------------------------------------------------------------------
@@ -165,6 +166,32 @@ def load_train_matrices(base_path, num_classes, per_class=1000):
             mats.append(m.numpy().ravel())
             labels.append(c)
     return np.array(mats), np.array(labels)
+
+
+def compute_km_features_on_the_fly(model, images, device, batch_size=1800):
+    """Compute knowledge matrices on-the-fly and return as flattened numpy array.
+    Fallback for when pre-computed test KMs are missing."""
+    matrix_computer = KnowledgeMatrixComputer(model, batch_size=batch_size, device=device)
+    mats = []
+    for i in range(len(images)):
+        try:
+            mat = matrix_computer.forward(images[i].to(device))
+            mats.append(mat.cpu().numpy().ravel())
+        except RuntimeError as e:
+            if "out of memory" in str(e).lower():
+                gc.collect()
+                torch.cuda.empty_cache()
+                old_bs = matrix_computer.batch_size
+                new_bs = max(1, old_bs // 2)
+                print(f"    OOM computing KM {i}, halving batch_size {old_bs}->{new_bs}", flush=True)
+                matrix_computer = KnowledgeMatrixComputer(model, batch_size=new_bs, device=device)
+                mat = matrix_computer.forward(images[i].to(device))
+                mats.append(mat.cpu().numpy().ravel())
+            else:
+                raise
+        if (i + 1) % 100 == 0:
+            print(f"    Computed {i+1}/{len(images)} test KMs on-the-fly", flush=True)
+    return np.array(mats) if mats else None
 
 
 # ---------------------------------------------------------------------------
@@ -650,19 +677,30 @@ def run_comparison(experiment_name, temp_dir=None, svd_ablation=False):
         test_data, _ = subset(test_set, 2000, input_shape)
         print(f"    Using random test subset ({len(test_data)} samples)")
 
-    # If KM test matrices exist, align sample count
+    # If KM test matrices exist, align sample count; otherwise compute on-the-fly
     if 'knowledge_matrix' in rep_names:
         test_mats = load_matrices_as_features(base, 'test', max_samples=2000)
-        if test_mats is not None and len(test_mats) > 0:
-            n_km_test = len(test_mats)
-            n_clean = min(n_km_test, len(test_data))
-            if n_clean < len(test_data):
-                print(f"    Aligning clean test samples: {len(test_data)} -> {n_clean} "
-                      f"(KM test count)")
-                test_data = test_data[:n_clean]
-            test_mats = test_mats[:n_clean]
-        else:
-            test_mats = None
+        if test_mats is None or len(test_mats) == 0:
+            # Fallback: compute test KMs on-the-fly
+            print(f"    WARNING: No pre-computed test KMs at "
+                  f"{Path(base) / 'adversarial_matrices' / 'test'}")
+            print(f"    Computing test knowledge matrices on-the-fly "
+                  f"({len(test_data)} samples)...", flush=True)
+            test_mats = compute_km_features_on_the_fly(model, test_data, device)
+            if test_mats is None or len(test_mats) == 0:
+                raise RuntimeError(
+                    f"FATAL: Could not compute test knowledge matrices. "
+                    f"Check GPU memory and model state."
+                )
+            print(f"    Computed {len(test_mats)} test KMs on-the-fly")
+        # Align sample counts
+        n_km_test = len(test_mats)
+        n_clean = min(n_km_test, len(test_data))
+        if n_clean < len(test_data):
+            print(f"    Aligning clean test samples: {len(test_data)} -> {n_clean} "
+                  f"(KM test count)")
+            test_data = test_data[:n_clean]
+        test_mats = test_mats[:n_clean]
 
     # Extract test representations once
     test_feats = {
@@ -670,15 +708,7 @@ def run_comparison(experiment_name, temp_dir=None, svd_ablation=False):
         'all_layer': extract_all_layer_features(model, test_data),
     }
     if 'knowledge_matrix' in rep_names:
-        if test_mats is not None:
-            test_feats['knowledge_matrix'] = test_mats
-        else:
-            raise RuntimeError(
-                f"FATAL: No test knowledge matrices found at "
-                f"{Path(base) / 'adversarial_matrices' / 'test'}. "
-                f"Step 3 must produce 'test' directory with matrix.pth files. "
-                f"Check adv_matrices_task_*.zip extraction."
-            )
+        test_feats['knowledge_matrix'] = test_mats
 
     # clean_scores[det_name][rep_name] = 1D array of scores
     clean_scores = {}

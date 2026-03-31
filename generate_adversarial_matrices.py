@@ -180,7 +180,8 @@ def generate_matrices_for_attacks(
         else:
             path_adv_examples = Path(f'experiments/{experiment_name}/adversarial_examples') / f"{attack}/adversarial_examples.pth"
         if not path_adv_examples.exists():
-            print(f'Attak {attack} does NOT exists.', flush=True)
+            print(f'WARNING: Attack "{attack}" adversarial examples not found at '
+                  f'{path_adv_examples}. Skipping.', flush=True)
             continue
         attacked_dataset = torch.load(path_adv_examples, weights_only=True)[:samples_per_attack]
 

@@ -1163,6 +1163,22 @@ if [ "\$ADV_MAT_COUNT" -eq 0 ]; then
     exit 1
 fi
 
+# Per-attack diagnostic
+echo "Adversarial matrix breakdown by attack:"
+for d in \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adversarial_matrices/*/; do
+    n=\$(basename "\$d"); c=\$(find "\$d" -name "matrix.pth" 2>/dev/null | wc -l)
+    echo "  \$n: \$c matrices"
+done
+
+# Check for test/ specifically (required for clean KM scoring)
+TEST_MAT_COUNT=\$(find \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adversarial_matrices/test/ -name "matrix.pth" 2>/dev/null | wc -l)
+echo "Test (clean) knowledge matrices: \$TEST_MAT_COUNT"
+if [ "\$TEST_MAT_COUNT" -eq 0 ]; then
+    echo "WARNING: No test knowledge matrices found. compare_representations.py will compute them on-the-fly."
+    echo "  To avoid this, ensure Step C 'test' job completes and Step D re-runs."
+    ls -la \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adversarial_examples/test/ 2>/dev/null || echo "  adversarial_examples/test/ also MISSING (Step C 'test' never ran)"
+fi
+
 echo "All data ready. Starting representation comparison..."
 
 # GPU monitoring
@@ -2356,6 +2372,23 @@ if [ "\$ADV_MAT_COUNT" -eq 0 ]; then
     echo "ERROR: No adversarial matrices after zip extraction!"
     exit 1
 fi
+
+# Per-attack diagnostic
+echo "Adversarial matrix breakdown by attack:"
+for d in \$SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_matrices/*/; do
+    n=\$(basename "\$d"); c=\$(find "\$d" -name "matrix.pth" 2>/dev/null | wc -l)
+    echo "  \$n: \$c matrices"
+done
+
+# Check for test/ specifically (required for clean KM scoring)
+TEST_MAT_COUNT=\$(find \$SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_matrices/test/ -name "matrix.pth" 2>/dev/null | wc -l)
+echo "Test (clean) knowledge matrices: \$TEST_MAT_COUNT"
+if [ "\$TEST_MAT_COUNT" -eq 0 ]; then
+    echo "WARNING: No test knowledge matrices found. compare_representations.py will compute them on-the-fly."
+    echo "  To avoid this, ensure Step C 'test' job completes and Step D re-runs."
+    ls -la \$SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_examples/test/ 2>/dev/null || echo "  adversarial_examples/test/ also MISSING (Step C 'test' never ran)"
+fi
+
 echo "All data ready. Starting representation comparison..."
 python compare_representations.py --experiment $EXPERIMENT --temp_dir \$SLURM_TMPDIR --svd_ablation
 PY_EXIT=\$?
