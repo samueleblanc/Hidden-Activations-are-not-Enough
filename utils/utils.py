@@ -373,17 +373,28 @@ def get_architecture(
     elif architecture_index in (-3, -2, -1):
         arch_map = {-3: AlexNet, -2: ResNet18, -1: VGG11}
         cls = arch_map[architecture_index]
-        sig = inspect.signature(cls.__init__)
-        if 'freeze_features' in sig.parameters:
-            model = cls(input_shape, num_classes, pretrained=pretrained, freeze_features=freeze_features)
+
+        if pretrained:
+            # Load pretrained weights from local files to avoid internet access
+            # on compute nodes (knowledgematrix downloads by default).
+            from torchvision.models import alexnet as tv_alexnet, resnet18 as tv_resnet18, vgg11 as tv_vgg11
+            tv_map = {-3: tv_alexnet, -2: tv_resnet18, -1: tv_vgg11}
+            weight_map = {
+                -3: 'experiments/alexnet_imagenet/weights/pretrained-weights.pth',
+                -2: 'experiments/resnet_imagenet/weights/pretrained-weights.pth',
+                -1: 'experiments/vgg_imagenet/weights/pretrained-weights.pth',
+            }
+            tv_model = tv_map[architecture_index]()
+            tv_model.load_state_dict(torch.load(weight_map[architecture_index], map_location='cpu', weights_only=True))
+            model = cls(input_shape, num_classes, pretrained=True, pretrained_model=tv_model)
         else:
-            model = cls(input_shape, num_classes, pretrained=pretrained)
-            if freeze_features and pretrained:
-                for layer in model.layers:
-                    if isinstance(layer, nn.Conv2d):
-                        for param in layer.parameters():
-                            param.requires_grad = False
-        # Defensive: ensure input_shape is correct for KnowledgeMatrixComputer
+            model = cls(input_shape, num_classes, pretrained=False)
+
+        if freeze_features and pretrained:
+            for layer in model.layers:
+                if isinstance(layer, nn.Conv2d):
+                    for param in layer.parameters():
+                        param.requires_grad = False
         model.input_shape = input_shape
     else:
         model = CNN_2D(
