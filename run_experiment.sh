@@ -1630,7 +1630,7 @@ FINALAUDIT_EOF
 #!/bin/bash
 #SBATCH --account=$CPU_ACCOUNT
 #SBATCH --cpus-per-task=1
-#SBATCH --time=00:15:00
+#SBATCH --time=01:00:00
 #SBATCH --mem=2G
 #SBATCH --output=$SLURM_OUT_DIR/PIPE_ERRSCAN_${EXP}_%A.out
 #SBATCH --error=$SLURM_ERR_DIR/PIPE_ERRSCAN_${EXP}_%A.err
@@ -2553,7 +2553,7 @@ if [ -n "$ALL_JOBS" ]; then
 #!/bin/bash
 #SBATCH --account=$CPU_ACCOUNT
 #SBATCH --cpus-per-task=1
-#SBATCH --time=00:15:00
+#SBATCH --time=01:00:00
 #SBATCH --mem=2G
 #SBATCH --output=$SLURM_OUT_DIR/REC_ERRSCAN_${EXPERIMENT}_%A.out
 #SBATCH --error=$SLURM_ERR_DIR/REC_ERRSCAN_${EXPERIMENT}_%A.err

@@ -533,12 +533,12 @@ def run_comparison(experiment_name, temp_dir=None, svd_ablation=False):
         print(f"  Skipping {experiment_name}: no adversarial matrices")
         return None
 
-    print(f"\n{'='*70}")
-    print(f"  EXPERIMENT: {experiment_name}")
+    print(f"\n{'='*70}", flush=True)
+    print(f"  EXPERIMENT: {experiment_name}", flush=True)
     _ARCH_NAMES = {-4: 'LeNet', -3: 'AlexNet', -2: 'ResNet18', -1: 'VGG11'}
-    print(f"  Architecture: {_ARCH_NAMES.get(arch_idx, 'custom')}")
-    print(f"  Dataset: {dataset}, Classes: {num_classes}")
-    print(f"{'='*70}")
+    print(f"  Architecture: {_ARCH_NAMES.get(arch_idx, 'custom')}", flush=True)
+    print(f"  Dataset: {dataset}, Classes: {num_classes}", flush=True)
+    print(f"{'='*70}", flush=True)
 
     model = get_model(weights_path, arch_idx, input_shape, num_classes, device)
     model.eval()
@@ -546,7 +546,7 @@ def run_comparison(experiment_name, temp_dir=None, svd_ablation=False):
     # -----------------------------------------------------------------------
     # 1. Load training data for fitting detectors
     # -----------------------------------------------------------------------
-    print("  Loading training data...")
+    print("  Loading training data...", flush=True)
     train_set, _ = get_dataset(dataset, data_loader=False, data_path=temp_dir)
     # HI-7: Reconstruct the exact training indices used by Step 2a's KM
     # computation (first 500 per class, sequentially) so penultimate/all-layer
@@ -571,7 +571,7 @@ def run_comparison(experiment_name, temp_dir=None, svd_ablation=False):
         train_labels_list.append(int(label))
     train_data = torch.stack(train_data_list)
     train_labels_np = np.array(train_labels_list, dtype=int)
-    print(f"    Training samples: {len(train_data)} ({per_class} per class x {num_classes} classes)")
+    print(f"    Training samples: {len(train_data)} ({per_class} per class x {num_classes} classes)", flush=True)
 
     # -----------------------------------------------------------------------
     # 2. Extract training representations (with cost measurement)
@@ -581,25 +581,25 @@ def run_comparison(experiment_name, temp_dir=None, svd_ablation=False):
     if torch.cuda.is_available():
         torch.cuda.reset_peak_memory_stats()
     t0 = time.perf_counter()
-    print("  Extracting training PENULTIMATE features...")
+    print("  Extracting training PENULTIMATE features...", flush=True)
     train_penult = extract_penultimate_features(model, train_data)
     cost_penult_time = time.perf_counter() - t0
     cost_penult_mem = torch.cuda.max_memory_allocated() / 1e9 if torch.cuda.is_available() else 0
-    print(f"    Shape: {train_penult.shape}  ({cost_penult_time:.1f}s)")
+    print(f"    Shape: {train_penult.shape}  ({cost_penult_time:.1f}s)", flush=True)
 
     if torch.cuda.is_available():
         torch.cuda.reset_peak_memory_stats()
     t0 = time.perf_counter()
-    print("  Extracting training ALL-LAYER features...")
+    print("  Extracting training ALL-LAYER features...", flush=True)
     train_alllayer = extract_all_layer_features(model, train_data)
     cost_alllayer_time = time.perf_counter() - t0
     cost_alllayer_mem = torch.cuda.max_memory_allocated() / 1e9 if torch.cuda.is_available() else 0
-    print(f"    Shape: {train_alllayer.shape}  ({cost_alllayer_time:.1f}s)")
+    print(f"    Shape: {train_alllayer.shape}  ({cost_alllayer_time:.1f}s)", flush=True)
 
     if torch.cuda.is_available():
         torch.cuda.reset_peak_memory_stats()
     t0 = time.perf_counter()
-    print("  Loading training KNOWLEDGE MATRICES...")
+    print("  Loading training KNOWLEDGE MATRICES...", flush=True)
     train_matrices, train_mat_labels = load_train_matrices(base, num_classes, per_class=500)
     cost_matrix_time = time.perf_counter() - t0
     cost_matrix_mem = torch.cuda.max_memory_allocated() / 1e9 if torch.cuda.is_available() else 0
@@ -610,7 +610,7 @@ def run_comparison(experiment_name, temp_dir=None, svd_ablation=False):
             f"Check that matrices_task_*.zip files exist and were extracted."
         )
     else:
-        print(f"    Shape: {train_matrices.shape}  ({cost_matrix_time:.1f}s)")
+        print(f"    Shape: {train_matrices.shape}  ({cost_matrix_time:.1f}s)", flush=True)
         train_mat_labels = train_mat_labels.astype(int)
 
     n_train = len(train_data)
@@ -655,7 +655,7 @@ def run_comparison(experiment_name, temp_dir=None, svd_ablation=False):
         fitted_detectors[det_name] = {}
         for rn in rep_names:
             feats, labs = train_reps[rn]
-            print(f"  Fitting {det_name} on {rn}...")
+            print(f"  Fitting {det_name} on {rn}...", flush=True)
             det = det_factory()
             det.fit(feats, labs, num_classes)
             fitted_detectors[det_name][rn] = det
@@ -663,7 +663,7 @@ def run_comparison(experiment_name, temp_dir=None, svd_ablation=False):
     # -----------------------------------------------------------------------
     # 5. Score clean test data
     # -----------------------------------------------------------------------
-    print("  Scoring clean test data...")
+    print("  Scoring clean test data...", flush=True)
     # CR-3: Use canonical test set from Step 2b if available, ensuring all
     # representations evaluate on the exact same images.
     canonical_test_path = Path(base) / 'adversarial_examples' / 'test' / 'adversarial_examples.pth'
@@ -732,10 +732,10 @@ def run_comparison(experiment_name, temp_dir=None, svd_ablation=False):
         print("  No adversarial examples found!")
         return None
 
-    print(f"  Found {len(available_attacks)} attacks: {available_attacks}")
+    print(f"  Found {len(available_attacks)} attacks: {available_attacks}", flush=True)
 
     for attack in available_attacks:
-        print(f"  Scoring attack: {attack}...")
+        print(f"  Scoring attack: {attack}...", flush=True)
         adv_data = torch.load(
             Path(base) / 'adversarial_examples' / attack / 'adversarial_examples.pth',
             map_location='cpu', weights_only=True)
@@ -786,6 +786,11 @@ def run_comparison(experiment_name, temp_dir=None, svd_ablation=False):
                 attack_results[det_name][rn] = metrics
 
         results[attack] = attack_results
+        # Free per-attack memory immediately to avoid accumulation
+        del adv_data, adv_feats
+        if km_feats is not None:
+            del km_feats
+        gc.collect()
 
     # Free per-attack memory before SVD ablation
     gc.collect()
@@ -795,7 +800,7 @@ def run_comparison(experiment_name, temp_dir=None, svd_ablation=False):
     # -----------------------------------------------------------------------
     svd_ablation_results = None
     if svd_ablation:
-        print("\n  Running SVD rank ablation (Mahalanobis)...")
+        print("\n  Running SVD rank ablation (Mahalanobis)...", flush=True)
         svd_ranks = [16, 32, 64, 128, 256, 512]
         svd_ablation_results = {}
 
@@ -808,7 +813,7 @@ def run_comparison(experiment_name, temp_dir=None, svd_ablation=False):
                 feats, labs = train_reps[rn]
                 if feats.shape[1] < rank:
                     continue
-                print(f"    rank={rank}, rep={rn}...")
+                print(f"    rank={rank}, rep={rn}...", flush=True)
                 det = MahalanobisDetector(max_components=rank)
                 det.fit(feats, labs, num_classes)
                 # Score clean
@@ -855,7 +860,7 @@ def run_comparison(experiment_name, temp_dir=None, svd_ablation=False):
     # 7b. Lee et al. (2018) multi-layer Mahalanobis baseline
     # -----------------------------------------------------------------------
     lee2018_results = {}
-    print("\n  Running Lee et al. (2018) multi-layer Mahalanobis baseline...")
+    print("\n  Running Lee et al. (2018) multi-layer Mahalanobis baseline...", flush=True)
     try:
         # H3: Split test_data into val (LR training) and eval (final metrics)
         n_test = len(test_data)
@@ -906,6 +911,8 @@ def run_comparison(experiment_name, temp_dir=None, svd_ablation=False):
                 lee2018_results[attack] = compute_detection_metrics(
                     eval_clean_scores, lee_adv_scores
                 )
+                del adv_data, adv_val, adv_eval
+                gc.collect()
 
         if lee2018_results:
             lee_aurocs = [m['auroc'] for m in lee2018_results.values()]

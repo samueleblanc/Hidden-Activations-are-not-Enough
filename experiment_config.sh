@@ -55,7 +55,7 @@ D_MEM="${D_MEM:-280G}"
 E_GPU="${E_GPU:---gpus=h100:1}"
 E_CPUS="${E_CPUS:-8}"
 E_TIME="${E_TIME:-08:00:00}"
-E_MEM="${E_MEM:-64G}"
+E_MEM="${E_MEM:-128G}"
 # Step G (Theorem 4.5 Validation - GPU)
 G_GPU="${G_GPU:---gpus=h100:1}"
 G_CPUS="${G_CPUS:-4}"
