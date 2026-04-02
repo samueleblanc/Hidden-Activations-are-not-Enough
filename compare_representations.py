@@ -804,9 +804,35 @@ def run_comparison(experiment_name, temp_dir=None, svd_ablation=False):
         svd_ranks = [16, 32, 64, 128, 256, 512]
         svd_ablation_results = {}
 
-        # OOM-FIX: Process one (rank, representation) at a time instead of
-        # preloading all attack features. Extracts adversarial features on
-        # the fly to keep memory bounded (~10 GB peak vs 64+ GB before).
+        # Phase A: Extract and cache adversarial features ONCE for all ranks.
+        # Features are invariant across SVD ranks — only the detector changes.
+        # Memory cost: ~16 attacks × 3 reps × 800 × 256 × 8 bytes ≈ 100 MB.
+        cached_adv_feats = {}  # (rep_name, attack) -> numpy array
+        print("    Caching adversarial features for SVD ablation...", flush=True)
+        for attack in available_attacks:
+            adv_path = Path(base) / 'adversarial_examples' / attack / 'adversarial_examples.pth'
+            if not adv_path.exists():
+                continue
+            adv_data_svd = torch.load(adv_path, map_location='cpu', weights_only=True)
+            if len(adv_data_svd) > 2000:
+                adv_data_svd = adv_data_svd[:2000]
+            # Load KM features and use for alignment (once per attack)
+            km_feats_svd = None
+            if 'knowledge_matrix' in rep_names:
+                km_feats_svd = load_matrices_as_features(base, attack, max_samples=2000)
+                if km_feats_svd is not None and len(km_feats_svd) > 0:
+                    adv_data_svd = adv_data_svd[:len(km_feats_svd)]
+                    cached_adv_feats[('knowledge_matrix', attack)] = km_feats_svd
+            # Extract penultimate and all-layer features once
+            if 'penultimate' in rep_names:
+                cached_adv_feats[('penultimate', attack)] = extract_penultimate_features(model, adv_data_svd)
+            if 'all_layer' in rep_names:
+                cached_adv_feats[('all_layer', attack)] = extract_all_layer_features(model, adv_data_svd)
+            del adv_data_svd, km_feats_svd
+            gc.collect()
+        print(f"    Cached features for {len(available_attacks)} attacks", flush=True)
+
+        # Phase B: Sweep SVD ranks using cached features (CPU-only, fast).
         for rank in svd_ranks:
             svd_ablation_results[rank] = {}
             for rn in rep_names:
@@ -816,45 +842,23 @@ def run_comparison(experiment_name, temp_dir=None, svd_ablation=False):
                 print(f"    rank={rank}, rep={rn}...", flush=True)
                 det = MahalanobisDetector(max_components=rank)
                 det.fit(feats, labs, num_classes)
-                # Score clean
                 clean_sc = det.score(test_feats[rn]) if rn in test_feats else None
                 if clean_sc is None:
                     continue
-                # Average AUROC across attacks — extract features on the fly
                 aurocs = []
                 for attack in available_attacks:
-                    adv_path = Path(base) / 'adversarial_examples' / attack / 'adversarial_examples.pth'
-                    if not adv_path.exists():
-                        continue
-                    # Extract features for THIS representation only
-                    if rn == 'knowledge_matrix':
-                        af = load_matrices_as_features(base, attack, max_samples=2000)
-                    else:
-                        adv_data_svd = torch.load(adv_path, map_location='cpu', weights_only=True)
-                        if len(adv_data_svd) > 2000:
-                            adv_data_svd = adv_data_svd[:2000]
-                        # Align with KM count if available
-                        if 'knowledge_matrix' in rep_names:
-                            km_count = load_matrices_as_features(base, attack, max_samples=2000)
-                            if km_count is not None and len(km_count) > 0:
-                                adv_data_svd = adv_data_svd[:len(km_count)]
-                            del km_count
-                        if rn == 'penultimate':
-                            af = extract_penultimate_features(model, adv_data_svd)
-                        else:  # all_layer
-                            af = extract_all_layer_features(model, adv_data_svd)
-                        del adv_data_svd
+                    af = cached_adv_feats.get((rn, attack))
                     if af is None or len(af) == 0:
                         continue
                     adv_sc = det.score(af)
                     m = compute_detection_metrics(clean_sc, adv_sc)
                     aurocs.append(m['auroc'])
-                    del af
-                gc.collect()
                 svd_ablation_results[rank][rn] = {
                     'mean_auroc': float(np.mean(aurocs)) if aurocs else None,
                     'n_attacks': len(aurocs),
                 }
+        del cached_adv_feats
+        gc.collect()
 
     # -----------------------------------------------------------------------
     # 7b. Lee et al. (2018) multi-layer Mahalanobis baseline
