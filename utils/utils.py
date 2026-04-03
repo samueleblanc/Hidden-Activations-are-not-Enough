@@ -375,18 +375,47 @@ def get_architecture(
         cls = arch_map[architecture_index]
 
         if pretrained:
-            # Load pretrained weights from local files to avoid internet access
-            # on compute nodes (knowledgematrix downloads by default).
+            # Load pretrained torchvision model from torch hub cache, then pass
+            # it to the knowledgematrix constructor via pretrained_model to avoid
+            # internet downloads on compute nodes.
+            #
+            # The knowledgematrix constructors have a bug: they check
+            # isinstance(pretrained_model, vgg11) where vgg11 is a function,
+            # not a type, which raises TypeError. We monkey-patch the module
+            # reference to the actual torchvision class so isinstance works.
+            import importlib
             from torchvision.models import alexnet as tv_alexnet, resnet18 as tv_resnet18, vgg11 as tv_vgg11
-            tv_map = {-3: tv_alexnet, -2: tv_resnet18, -1: tv_vgg11}
-            weight_map = {
-                -3: 'experiments/alexnet_imagenet/weights/pretrained-weights.pth',
-                -2: 'experiments/resnet_imagenet/weights/pretrained-weights.pth',
-                -1: 'experiments/vgg_imagenet/weights/pretrained-weights.pth',
+            from torchvision.models.alexnet import AlexNet as _TVAlexNet
+            from torchvision.models.resnet import ResNet as _TVResNet
+            from torchvision.models.vgg import VGG as _TVVGG
+
+            tv_fn_map = {-3: tv_alexnet, -2: tv_resnet18, -1: tv_vgg11}
+            tv_cls_map = {-3: _TVAlexNet, -2: _TVResNet, -1: _TVVGG}
+            km_mod_map = {
+                -3: ('knowledgematrix.models.alexnet', 'alexnet'),
+                -2: ('knowledgematrix.models.resnet18', 'resnet18'),
+                -1: ('knowledgematrix.models.vgg11', 'vgg11'),
             }
-            tv_model = tv_map[architecture_index]()
-            tv_model.load_state_dict(torch.load(weight_map[architecture_index], map_location='cpu', weights_only=True))
-            model = cls(input_shape, num_classes, pretrained=True, pretrained_model=tv_model)
+
+            tv_fn = tv_fn_map[architecture_index]
+            try:
+                tv_model = tv_fn(weights='DEFAULT')
+            except Exception as e:
+                raise RuntimeError(
+                    "Torchvision pretrained weights not cached and download failed.\n"
+                    "Compute nodes have no internet. Pre-cache on a login node:\n"
+                    "  python -c \"import torchvision; torchvision.models.vgg11(weights='DEFAULT')\"\n"
+                    f"Original error: {e}"
+                ) from e
+
+            mod_name, attr_name = km_mod_map[architecture_index]
+            km_mod = importlib.import_module(mod_name)
+            orig_ref = getattr(km_mod, attr_name)
+            setattr(km_mod, attr_name, tv_cls_map[architecture_index])
+            try:
+                model = cls(input_shape, num_classes, pretrained=True, pretrained_model=tv_model)
+            finally:
+                setattr(km_mod, attr_name, orig_ref)
         else:
             model = cls(input_shape, num_classes, pretrained=False)
 
