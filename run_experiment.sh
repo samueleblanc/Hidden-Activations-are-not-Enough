@@ -81,7 +81,6 @@ if [ "$TEST_MODE" = "true" ]; then
     SLURM_OUT_DIR="slurm_out_test"
     SLURM_ERR_DIR="slurm_err_test"
     # Shorter time limits
-    A_GPU="--gpus=h100:1"
     A_TIME="00:10:00"
     A_MEM="8G"
     B_GPU="--gpus=h100:1"
@@ -348,8 +347,7 @@ print(' '.join(e.get('phase','') + ':' + str(e.get('grid_index',''))
     fi
     cat > "$JOB_DIR/step_A.sh" << STEPA_EOF
 #!/bin/bash
-#SBATCH --account=$GPU_ACCOUNT
-#SBATCH $A_GPU
+#SBATCH --account=$CPU_ACCOUNT
 #SBATCH --cpus-per-task=$A_CPUS
 #SBATCH --time=$A_TIME
 #SBATCH --mem=$A_MEM
@@ -362,29 +360,12 @@ source $ENV_NAME/bin/activate
 
 $COPY_DATA
 
-# GPU monitoring
-mkdir -p \$SLURM_SUBMIT_DIR/gpu-monitor/
-GPU_LOGFILE="\$SLURM_SUBMIT_DIR/gpu-monitor/$EXP.A.0.log"
-monitor_gpu() {
-  echo "Timestamp, GPU Util (%), Mem Used (MiB), Mem Total (MiB)" > "\$GPU_LOGFILE"
-  while true; do
-    ts=\$(date +%Y-%m-%dT%H:%M:%S)
-    nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits \
-      | awk -v t="\$ts" '{print t", "\$1", "\$2", "\$3}' >> "\$GPU_LOGFILE"
-    sleep 30
-  done
-}
-monitor_gpu &
-MONITOR_PID=\$!
-
 STEP_START=\$(date +%s)
 python training.py --experiment_name $EXP --temp_dir \$SLURM_TMPDIR
 PY_EXIT=\$?
 STEP_END=\$(date +%s)
 STEP_ELAPSED=\$(( STEP_END - STEP_START ))
 echo "Step A (training) complete for $EXP. Wall-clock: \${STEP_ELAPSED}s"
-
-kill \$MONITOR_PID 2>/dev/null || true
 
 # Write checkpoint
 CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints"
@@ -2048,7 +2029,6 @@ ENV_NAME="__ENV_NAME__"
 MODULES="__MODULES__"
 
 # Resource profiles
-A_GPU="__A_GPU__"
 A_CPUS=__A_CPUS__
 A_TIME="__A_TIME__"
 A_MEM="__A_MEM__"
@@ -2144,8 +2124,7 @@ ALL_JOBS=""
 if [ "$RECOVER_STEP_A" = "true" ]; then
     cat > "$JOB_DIR/step_A.sh" << EOF_A
 #!/bin/bash
-#SBATCH --account=$GPU_ACCOUNT
-#SBATCH $A_GPU
+#SBATCH --account=$CPU_ACCOUNT
 #SBATCH --cpus-per-task=$A_CPUS
 #SBATCH --time=$A_TIME
 #SBATCH --mem=$A_MEM
@@ -2621,7 +2600,6 @@ DISPATCH_BODY
         sed -i "s|__TEST_SIZE__|$TEST_SIZE|g" "$JOB_DIR/dispatch.sh"
         sed -i "s|__ENV_NAME__|$ENV_NAME|g" "$JOB_DIR/dispatch.sh"
         sed -i "s|__MODULES__|$MODULES|g" "$JOB_DIR/dispatch.sh"
-        sed -i "s|__A_GPU__|$A_GPU|g" "$JOB_DIR/dispatch.sh"
         sed -i "s|__A_CPUS__|$A_CPUS|g" "$JOB_DIR/dispatch.sh"
         sed -i "s|__A_TIME__|$A_TIME|g" "$JOB_DIR/dispatch.sh"
         sed -i "s|__A_MEM__|$A_MEM|g" "$JOB_DIR/dispatch.sh"

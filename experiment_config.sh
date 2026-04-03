@@ -31,9 +31,8 @@ SAVE_GRACE_SECONDS="${SAVE_GRACE_SECONDS:-180}" # Seconds before wall time to tr
 MAX_SENTINEL_CYCLES="${MAX_SENTINEL_CYCLES:-5}"  # Max whole-pipeline re-launch cycles
 
 # --- Resource profiles (normal mode, overridable) ---
-# Step A
-A_GPU="${A_GPU:---gpus=h100:1}"
-A_CPUS="${A_CPUS:-2}"
+# Step A (CPU-only — small networks, transfer learning)
+A_CPUS="${A_CPUS:-4}"
 A_TIME="${A_TIME:-06:00:00}"
 A_MEM="${A_MEM:-15G}"
 # Step B

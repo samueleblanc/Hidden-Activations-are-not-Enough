@@ -78,8 +78,7 @@ ALL_JOBS=""
 if [ "$RECOVER_STEP_A" = "true" ]; then
     cat > "$RECOVERY_DIR/step_A.sh" << 'STEPA_EOF'
 #!/bin/bash
-#SBATCH --account=ACCOUNT_PLACEHOLDER
-#SBATCH GPU_PLACEHOLDER
+#SBATCH --account=CPU_ACCOUNT_PLACEHOLDER
 #SBATCH --cpus-per-task=CPUS_PLACEHOLDER
 #SBATCH --time=TIME_PLACEHOLDER
 #SBATCH --mem=MEM_PLACEHOLDER
@@ -105,9 +104,8 @@ python training.py --experiment_name $EXPERIMENT --temp_dir $SLURM_TMPDIR
 echo "Step A (training) complete."
 STEPA_EOF
 
-    sed -i "s/ACCOUNT_PLACEHOLDER/$ACCOUNT/g" "$RECOVERY_DIR/step_A.sh"
+    sed -i "s/CPU_ACCOUNT_PLACEHOLDER/$CPU_ACCOUNT/g" "$RECOVERY_DIR/step_A.sh"
     sed -i "s/EXPERIMENT_PLACEHOLDER/$EXPERIMENT/g" "$RECOVERY_DIR/step_A.sh"
-    sed -i "s|GPU_PLACEHOLDER|$A_GPU|g" "$RECOVERY_DIR/step_A.sh"
     sed -i "s|CPUS_PLACEHOLDER|$A_CPUS|g" "$RECOVERY_DIR/step_A.sh"
     sed -i "s|TIME_PLACEHOLDER|$A_TIME|g" "$RECOVERY_DIR/step_A.sh"
     sed -i "s|MEM_PLACEHOLDER|$A_MEM|g" "$RECOVERY_DIR/step_A.sh"
