@@ -168,7 +168,7 @@ DEFAULT_EXPERIMENTS = {
         'scheduler': None,
     },
     'vgg_cifar10': {
-        'epochs': 100,
+        'epochs': 5,
         'dataset': 'cifar10',
         'batch_size': 32,
         'lr': 0.00012344300494603974,

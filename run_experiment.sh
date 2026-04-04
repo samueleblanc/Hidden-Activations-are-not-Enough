@@ -361,7 +361,7 @@ source $ENV_NAME/bin/activate
 $COPY_DATA
 
 STEP_START=\$(date +%s)
-python training.py --experiment_name $EXP --temp_dir \$SLURM_TMPDIR
+python training.py --experiment_name $EXP --temp_dir \$SLURM_TMPDIR --from_checkpoint
 PY_EXIT=\$?
 STEP_END=\$(date +%s)
 STEP_ELAPSED=\$(( STEP_END - STEP_START ))
@@ -2134,7 +2134,7 @@ mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
 module load $MODULES
 source $ENV_NAME/bin/activate
 $COPY_DATA
-python training.py --experiment_name $EXPERIMENT --temp_dir \$SLURM_TMPDIR
+python training.py --experiment_name $EXPERIMENT --temp_dir \$SLURM_TMPDIR --from_checkpoint
 PY_EXIT=\$?
 CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/checkpoints"
 mkdir -p "\$CKPT_DIR"
