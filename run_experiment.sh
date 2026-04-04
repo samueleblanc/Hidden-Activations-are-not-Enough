@@ -1862,6 +1862,7 @@ python << 'RECOVERY_PLAN_PY_EOF'
 import sys, os, json
 from datetime import datetime
 sys.path.insert(0, os.environ["SLURM_SUBMIT_DIR"])
+from constants.constants import DEFAULT_EXPERIMENTS
 
 experiment = os.environ["EXPERIMENT"]
 total_chunks = int(os.environ["TOTAL_CHUNKS"])
@@ -1880,6 +1881,16 @@ summary = report["summary"]
 weights_status = report["steps"]["weights"]["status"]
 recover_a = weights_status != "OK"
 reason_a = [f"weights: {weights_status}"] if recover_a else []
+
+# Also check that the final epoch weights file exists (not just the directory)
+if not recover_a:
+    _epochs = DEFAULT_EXPERIMENTS.get(experiment, {}).get('epochs', None)
+    _ds = DEFAULT_EXPERIMENTS.get(experiment, {}).get('dataset', 'cifar10')
+    if _epochs is not None and _ds != 'imagenet':
+        expected_file = os.path.join(experiment_dir, "weights", f"epoch_{_epochs}.pth")
+        if not os.path.exists(expected_file):
+            recover_a = True
+            reason_a.append(f"weights/epoch_{_epochs}.pth missing (training incomplete)")
 
 recover_b = False; recover_b_chunks = []; reason_b = []
 for i, entry in enumerate(report["steps"]["matrices_zips"]):
