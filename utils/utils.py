@@ -26,6 +26,39 @@ from torchvision.datasets import CIFAR10
 from typing import Tuple, Optional, Callable
 
 
+def _remap_state_dict_keys(model, state_dict):
+    """Remap state_dict keys when layer indices differ.
+
+    The knowledgematrix VGG11 builds different layer sequences for
+    pretrained=True vs pretrained=False (extra AdaptiveAvgPool2d),
+    causing FC layer indices to shift. This remaps saved keys to
+    match the model by pairing parameters in order by shape.
+    """
+    model_sd = model.state_dict()
+    if set(state_dict.keys()) == set(model_sd.keys()):
+        return state_dict  # Keys already match
+
+    model_keys = list(model_sd.keys())
+    saved_keys = list(state_dict.keys())
+
+    if len(model_keys) != len(saved_keys):
+        raise RuntimeError(
+            f"Cannot remap state_dict: model has {len(model_keys)} params, "
+            f"saved has {len(saved_keys)}"
+        )
+
+    remapped = {}
+    for mk, sk in zip(model_keys, saved_keys):
+        if model_sd[mk].shape != state_dict[sk].shape:
+            raise RuntimeError(
+                f"Shape mismatch during remap: model {mk} {model_sd[mk].shape} "
+                f"vs saved {sk} {state_dict[sk].shape}"
+            )
+        remapped[mk] = state_dict[sk]
+
+    return remapped
+
+
 class ImageNetVal(Dataset):
     """
     Custom Dataset for ImageNet validation set, loading images and ground truth labels.
@@ -468,6 +501,7 @@ def get_model(
                 pretrained = False,
                 freeze_features = False,
             ).to(device)
+    state_dict = _remap_state_dict_keys(model, state_dict)
     model.load_state_dict(state_dict)
     return model
 

@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader, Subset
 from typing import Union
 
 from matrix_construction.matrix_computation import MlpRepresentation, ConvRepresentation_2D
-from utils.utils import get_architecture, get_dataset, get_num_classes, get_device
+from utils.utils import get_architecture, get_dataset, get_num_classes, get_device, _remap_state_dict_keys
 from knowledgematrix.matrix_computer import KnowledgeMatrixComputer
 from utils.atomic_io import atomic_torch_save
 from knowledgematrix.models.alexnet import AlexNet
@@ -150,6 +150,7 @@ class ParallelMatrixConstruction:
             freeze_features=False,
         )
         model.to(self.device)
+        state_dict = _remap_state_dict_keys(model, state_dict)
         model.load_state_dict(state_dict)
 
         return self.compute_matrices_on_dataset(model, chunk_id=chunk_id)
