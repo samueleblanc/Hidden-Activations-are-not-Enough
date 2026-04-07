@@ -252,3 +252,75 @@ class TestVerifyEquivalence:
         data = torch.randn(8, 3, 224, 224)
         result = verify_equivalence(m1, m2, data)
         assert result['max_logit_diff'] > 0.01
+
+
+class TestIntegration:
+    """End-to-end integration test with a small model."""
+
+    def test_full_pipeline_resnet18(self, tmp_path):
+        """Run 2 teleportations on resnet18 with random data only."""
+        from teleportation_experiment import (
+            create_model, PenultimateExtractor, generate_random_inputs,
+            run_single_teleportation,
+        )
+
+        arch_name = 'resnet18'
+        input_shape = (1, 3, 224, 224)
+        model = create_model(arch_name, 10)
+        model.eval()
+
+        # Save and reload weights (test the loading path)
+        weights_path = tmp_path / 'weights.pth'
+        torch.save(model.state_dict(), weights_path)
+        model2 = create_model(arch_name, 10)
+        model2.load_state_dict(torch.load(weights_path, weights_only=True))
+        model2.eval()
+
+        data = generate_random_inputs(16, shape=(3, 224, 224), seed=42)
+        splits = {'random': data}
+
+        extractor = PenultimateExtractor(model2, arch_name)
+        orig_feats = {'random': extractor.extract(model2, data, batch_size=8)}
+        extractor.remove()
+        assert orig_feats['random'].shape == (16, 512)
+
+        results = []
+        for seed in [42, 43]:
+            result = run_single_teleportation(
+                model2, arch_name, input_shape, splits, orig_feats,
+                tp_seed=seed, device=torch.device('cpu'),
+            )
+            results.append(result)
+
+            assert result['output_equivalence']['all_predictions_match']
+            assert result['output_equivalence']['max_logit_diff'] < 1e-3
+            assert result['random']['mean'] > 0
+
+        # Two seeds should give different distances
+        assert results[0]['random']['mean'] != results[1]['random']['mean']
+
+    def test_full_pipeline_vgg11_bn(self, tmp_path):
+        """Run 1 teleportation on vgg11_bn with random data only."""
+        from teleportation_experiment import (
+            create_model, PenultimateExtractor, generate_random_inputs,
+            run_single_teleportation,
+        )
+
+        model = create_model('vgg11_bn', 10)
+        model.eval()
+
+        data = generate_random_inputs(8, shape=(3, 224, 224), seed=42)
+        splits = {'random': data}
+
+        extractor = PenultimateExtractor(model, 'vgg11_bn')
+        orig_feats = {'random': extractor.extract(model, data, batch_size=4)}
+        extractor.remove()
+        assert orig_feats['random'].shape == (8, 4096)
+
+        result = run_single_teleportation(
+            model, 'vgg11_bn', (1, 3, 224, 224), splits, orig_feats,
+            tp_seed=42, device=torch.device('cpu'),
+        )
+
+        assert result['output_equivalence']['all_predictions_match']
+        assert result['random']['mean'] > 0

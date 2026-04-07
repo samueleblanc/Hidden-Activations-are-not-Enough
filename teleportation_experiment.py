@@ -268,5 +268,204 @@ def verify_equivalence(model_orig, model_teleported, data, batch_size=64):
     return {'max_logit_diff': float(max_diff), 'all_predictions_match': all_match}
 
 
+# ---------------------------------------------------------------------------
+# Single teleportation run
+# ---------------------------------------------------------------------------
+
+def run_single_teleportation(model, arch_name, input_shape, splits,
+                             orig_feats, tp_seed, device):
+    """Run one teleportation and measure penultimate activation distances.
+
+    Args:
+        model: original nn.Module (not modified).
+        arch_name: architecture name string.
+        input_shape: (1, 3, 224, 224) for JIT tracing.
+        splits: dict of {split_name: (N, C, H, W) tensor on device}.
+        orig_feats: dict of {split_name: (N, D) CPU tensor} pre-extracted features.
+        tp_seed: random seed for this teleportation.
+        device: torch device.
+
+    Returns:
+        dict with per-split distance statistics.
+    """
+    model_tp = teleport_model(model, input_shape, tp_seed)
+    model_tp = model_tp.to(device)
+    model_tp.eval()
+
+    # Sanity check: outputs should match
+    first_split_data = next(iter(splits.values()))
+    equiv = verify_equivalence(model, model_tp, first_split_data[:64], batch_size=64)
+
+    extractor = PenultimateExtractor(model_tp, arch_name)
+    result = {
+        'teleportation_seed': tp_seed,
+        'output_equivalence': equiv,
+    }
+
+    for split_name, data in splits.items():
+        feats_tp = extractor.extract(model_tp, data)
+        distances = compute_normalized_distances(orig_feats[split_name], feats_tp)
+        result[split_name] = {
+            'mean': float(np.mean(distances)),
+            'std': float(np.std(distances)),
+            'min': float(np.min(distances)),
+            'max': float(np.max(distances)),
+            'per_sample': distances.tolist(),
+        }
+
+    extractor.remove()
+    del model_tp
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Full experiment
+# ---------------------------------------------------------------------------
+
+def run_experiment(args):
+    """Run the full teleportation experiment."""
+    arch_name = args.architecture
+    dataset = args.dataset
+    num_classes = NUM_CLASSES[dataset]
+    penultimate_dim = ARCHITECTURES[arch_name]['penultimate_dim']
+    input_shape = (1, 3, 224, 224)
+
+    print(f"Teleportation Experiment: {arch_name} / {dataset}", flush=True)
+    print(f"  Penultimate dim: {penultimate_dim}", flush=True)
+    print(f"  Teleportations: {args.num_teleportations}", flush=True)
+    print(f"  Samples per split: {args.num_samples}", flush=True)
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"  Device: {device}", flush=True)
+
+    # Load model
+    model = create_model(arch_name, num_classes)
+    state_dict = torch.load(args.weights_path, map_location='cpu', weights_only=True)
+    model.load_state_dict(state_dict)
+    model = model.to(device)
+    model.eval()
+    print(f"  Weights loaded from: {args.weights_path}", flush=True)
+
+    # Load data
+    print("Loading datasets...", flush=True)
+    train_data = load_dataset(dataset, 'train', args.num_samples,
+                              data_dir=args.data_dir, seed=args.seed)
+    test_data = load_dataset(dataset, 'test', args.num_samples,
+                             data_dir=args.data_dir, seed=args.seed)
+    random_data = generate_random_inputs(args.num_samples, seed=args.seed)
+
+    splits = {
+        'train': train_data.to(device),
+        'test': test_data.to(device),
+        'random': random_data.to(device),
+    }
+
+    # Extract original features (done once)
+    print("Extracting original penultimate features...", flush=True)
+    extractor = PenultimateExtractor(model, arch_name)
+    orig_feats = {}
+    for split_name, data in splits.items():
+        orig_feats[split_name] = extractor.extract(model, data)
+    extractor.remove()
+
+    # Run teleportations
+    print(f"\nRunning {args.num_teleportations} teleportations...", flush=True)
+    per_teleportation = []
+
+    for t in range(args.num_teleportations):
+        tp_seed = args.seed + t
+        t0 = time.perf_counter()
+
+        result = run_single_teleportation(
+            model, arch_name, input_shape, splits, orig_feats, tp_seed, device
+        )
+        per_teleportation.append(result)
+
+        elapsed = time.perf_counter() - t0
+        equiv_ok = "OK" if result['output_equivalence']['all_predictions_match'] else "MISMATCH"
+        print(
+            f"  [{t+1:3d}/{args.num_teleportations}] seed={tp_seed} "
+            f"train={result['train']['mean']:.4f} "
+            f"test={result['test']['mean']:.4f} "
+            f"random={result['random']['mean']:.4f} "
+            f"equiv={equiv_ok} [{elapsed:.1f}s]",
+            flush=True,
+        )
+
+    # Aggregate
+    aggregate = {}
+    for split_name in ['train', 'test', 'random']:
+        means = [r[split_name]['mean'] for r in per_teleportation]
+        all_samples = []
+        for r in per_teleportation:
+            all_samples.extend(r[split_name]['per_sample'])
+        aggregate[split_name] = {
+            'mean_of_means': float(np.mean(means)),
+            'std_of_means': float(np.std(means)),
+            'overall_mean': float(np.mean(all_samples)),
+            'overall_std': float(np.std(all_samples)),
+        }
+
+    # Print summary
+    print(f"\n{'=' * 60}", flush=True)
+    print(f"SUMMARY: {arch_name} / {dataset}", flush=True)
+    print(f"{'=' * 60}", flush=True)
+    for split_name in ['train', 'test', 'random']:
+        agg = aggregate[split_name]
+        print(
+            f"  {split_name:8s}: mean={agg['mean_of_means']:.4f} "
+            f"+/- {agg['std_of_means']:.4f}  "
+            f"(overall std={agg['overall_std']:.4f})",
+            flush=True,
+        )
+
+    # Save results
+    results = {
+        'architecture': arch_name,
+        'dataset': dataset,
+        'penultimate_dim': penultimate_dim,
+        'num_teleportations': args.num_teleportations,
+        'num_samples_per_split': args.num_samples,
+        'seed': args.seed,
+        'metric': 'l2_norm_divided_by_sqrt_dim',
+        'per_teleportation': per_teleportation,
+        'aggregate': aggregate,
+    }
+
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_file = output_dir / f'{arch_name}_{dataset}_teleportation.json'
+    with open(output_file, 'w') as f:
+        json.dump(results, f, indent=2)
+    print(f"\nResults saved to {output_file}", flush=True)
+
+    return results
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Pillar 1: Penultimate activation instability under teleportation."
+    )
+    parser.add_argument('--architecture', required=True,
+                        choices=sorted(ARCHITECTURES.keys()))
+    parser.add_argument('--dataset', required=True,
+                        choices=sorted(NUM_CLASSES.keys()))
+    parser.add_argument('--weights_path', required=True, type=str)
+    parser.add_argument('--num_teleportations', type=int, default=100)
+    parser.add_argument('--num_samples', type=int, default=500)
+    parser.add_argument('--seed', type=int, default=42)
+    parser.add_argument('--output_dir', type=str, default='results/teleportation')
+    parser.add_argument('--data_dir', type=str, default='data')
+    return parser.parse_args()
+
+
 if __name__ == '__main__':
-    print("teleportation_experiment.py loaded successfully")
+    args = parse_args()
+    run_experiment(args)
