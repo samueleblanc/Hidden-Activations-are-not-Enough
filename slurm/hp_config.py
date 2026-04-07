@@ -69,21 +69,21 @@ def arch_dataset_from_config(config_name):
 MIG_TIERS = [
     {
         "name": "H100-1g.10gb",
-        "gres": "gpu:h100:1g.10gb:1",
+        "gres": "gpu:h100_1g.10gb:1",
         "gpu_mem_gb": 10,
         "cpus": 2,
         "mem": "15G",
     },
     {
         "name": "H100-2g.20gb",
-        "gres": "gpu:h100:2g.20gb:1",
+        "gres": "gpu:h100_2g.20gb:1",
         "gpu_mem_gb": 20,
         "cpus": 4,
         "mem": "31G",
     },
     {
         "name": "H100-3g.40gb",
-        "gres": "gpu:h100:3g.40gb:1",
+        "gres": "gpu:h100_3g.40gb:1",
         "gpu_mem_gb": 40,
         "cpus": 8,
         "mem": "62G",
