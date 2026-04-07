@@ -1,0 +1,151 @@
+--- /tmp/nt_extracted/neuralteleportation/neuralteleportation/network_graph.py	2026-04-06 22:01:00
++++ /Users/marco/Desktop/Experiments - NNs/Hidden-Activations-are-not-Enough/env/lib/python3.11/site-packages/neuralteleportation/network_graph.py	2026-04-06 21:54:36
+@@ -74,7 +74,101 @@
+             return trace.graph
+         else:
+             return trace.inlined_graph
++
++    def _get_named_ordered_layers(self):
++        """
++            Get named layers from self.network in forward-pass order.
++            Used to match JIT scope names to forward-hook ordering.
++
++        Returns:
++            List of (name, nn.Module) tuples in forward execution order.
++        """
++
++        def get_named_layers(model, prefix=''):
++            layers = []
++            for name, layer in model.named_children():
++                full_name = f"{prefix}.{name}" if prefix else name
++                if len(list(layer.children())) > 0:
++                    layers.extend(get_named_layers(layer, full_name))
++                else:
++                    layers.append((full_name, layer))
++            return layers
++
++        all_named = get_named_layers(self.network)
++        ordered_names = []
++
++        def add_hook(name):
++            def hook(self, inp, out):
++                ordered_names.append(name)
++            return hook
++
++        handles = [layer.register_forward_hook(add_hook(name)) for name, layer in all_named]
++        _ = self.network(self.sample_input)
++        for h in handles:
++            h.remove()
++
++        return ordered_names
++
++    @staticmethod
++    def _reorder_graph_to_match_forward(graph, forward_order):
++        """
++            Reorder a JIT-derived graph dict so its keys match forward-hook order.
++
++            PyTorch >= 2.0 can reorder nodes in the inlined JIT graph (e.g.,
++            placing downsample.1/BatchNorm before downsample.0/Conv in ResNet),
++            which breaks the positional module assignment in reformat_layers().
++            This method detects and corrects such ordering mismatches by matching
++            JIT scope name suffixes to forward-hook module names.
++
++        Args:
++            graph (Dict): graph dict keyed by JIT scope names (after cleanup).
++            forward_order (List[str]): module names in forward execution order.
++
++        Returns:
++            Dict with keys reordered to match forward_order.
++        """
++        graph_keys = list(graph.keys())
++
++        if len(graph_keys) != len(forward_order):
++            return graph  # Cannot reorder if lengths differ; fall through to error
++
++        # Extract the leaf module name from each JIT scope name
++        # e.g. "__module.layer2/__module.layer2.0/__module.layer2.0.downsample/__module.layer2.0.downsample.1"
++        #   -> "layer2.0.downsample.1"
++        def scope_to_name(scope):
++            last = scope.split('/')[-1]
++            return last.replace('__module.', '')
++
++        jit_names = [scope_to_name(k) for k in graph_keys]
++
++        # Check if reordering is needed
++        if jit_names == forward_order:
++            return graph
++
++        # Build reordered graph by matching forward_order names to JIT scope keys
++        # We greedily match: for each forward_order name, find the corresponding
++        # JIT key. Handle adjacent swaps (the common PyTorch 2.x pattern).
++        reordered = {}
++        used = set()
+ 
++        for fwd_name in forward_order:
++            # Find the matching JIT key
++            matched = None
++            for idx, (jit_key, jit_name) in enumerate(zip(graph_keys, jit_names)):
++                if idx not in used and jit_name == fwd_name:
++                    matched = idx
++                    break
++
++            if matched is not None:
++                used.add(matched)
++                reordered[graph_keys[matched]] = graph[graph_keys[matched]]
++            else:
++                # No match found; this shouldn't happen if counts match
++                # Fall back to original ordering to let the length check catch it
++                return graph
++
++        return reordered
++
+     def get_graph(self):
+         """
+             Use torch.jit to get the graph of the network.
+@@ -96,6 +190,10 @@
+         # remove extra outputs
+         graph = self.remove_outputs(graph)
+ 
++        # Reorder graph keys to match forward-hook ordering (PyTorch 2.x compat)
++        forward_order = self._get_named_ordered_layers()
++        graph = self._reorder_graph_to_match_forward(graph, forward_order)
++
+         # correct indexes
+         graph = self.correct_indexes(graph)
+ 
+--- /tmp/nt_extracted/neuralteleportation/neuralteleportation/changeofbasisutils.py	2026-04-06 22:01:00
++++ /Users/marco/Desktop/Experiments - NNs/Hidden-Activations-are-not-Enough/env/lib/python3.11/site-packages/neuralteleportation/changeofbasisutils.py	2026-04-06 21:54:59
+@@ -37,12 +37,12 @@
+         if center != 1:
+             print('Warning: The change of basis sampling is not centered at 1. But no negative change of basis'
+                   ' will be produced.')
+-        cob = np.random.uniform(low=-range_cob, high=range_cob, size=size).astype(np.float) + 1
++        cob = np.random.uniform(low=-range_cob, high=range_cob, size=size).astype(np.float64) + 1
+ 
+     # Change of basis equally in intervals [-1-range_cob, -1+range_cob] and [1-range_cob, 1+range_cob]
+     elif sampling_type == 'inter_landscape':
+         samples = np.random.randint(0, 2, size=size)
+-        cob = np.zeros_like(samples, dtype=np.float)
++        cob = np.zeros_like(samples, dtype=np.float64)
+         cob[samples == 1] = np.random.uniform(low=-1-range_cob, high=-1+range_cob, size=samples.sum())
+         cob[samples == 0] = np.random.uniform(low=1-range_cob, high=1+range_cob, size=(len(samples) - samples.sum()))
+ 
+@@ -50,15 +50,15 @@
+     elif sampling_type == 'centered':
+         assert not (range_cob > center or center <= 0), 'This range for change of basis sampling allows for negative ' \
+                                                         'changes of basis.'
+-        cob = np.random.uniform(low=center - range_cob, high=center + range_cob, size=size).astype(np.float)
++        cob = np.random.uniform(low=center - range_cob, high=center + range_cob, size=size).astype(np.float64)
+ 
+     # Change of basis in interval [0, range_cob]
+     elif sampling_type == 'positive':
+-        cob = np.random.uniform(low=0, high=range_cob, size=size).astype(np.float)
++        cob = np.random.uniform(low=0, high=range_cob, size=size).astype(np.float64)
+ 
+     # Change of basis in interval [-range_cob, 0]
+     elif sampling_type == 'negative':
+-        cob = np.random.uniform(low=-range_cob, high=0, size=size).astype(np.float)
++        cob = np.random.uniform(low=-range_cob, high=0, size=size).astype(np.float64)
+ 
+     else:
+         raise ValueError("Invalid sampling type. Sampling types allowed: "
