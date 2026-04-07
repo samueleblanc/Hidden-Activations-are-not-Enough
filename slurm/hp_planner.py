@@ -7,7 +7,11 @@ executor. Called by the sentinel between pipeline cycles.
 
 import argparse
 import json
+import sys
 from pathlib import Path
+
+# Add project root to path for direct execution (python slurm/hp_planner.py)
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from slurm.hp_config import ALL_CONFIGS, arch_dataset_from_config, next_mig_tier, mig_resources
 from utils.atomic_io import atomic_json_dump

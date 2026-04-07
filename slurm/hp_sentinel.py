@@ -9,8 +9,12 @@ import argparse
 import json
 import os
 import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
+
+# Add project root to path for direct execution (python slurm/hp_sentinel.py)
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from utils.atomic_io import atomic_json_dump
 

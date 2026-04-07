@@ -13,6 +13,9 @@ import sys
 import time
 from pathlib import Path
 
+# Add project root to path for direct execution (python slurm/train_trial.py)
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import numpy as np
 import torch
 import torch.nn as nn

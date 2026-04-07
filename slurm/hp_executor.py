@@ -9,7 +9,11 @@ import argparse
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
+
+# Add project root to path for direct execution (python slurm/hp_executor.py)
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 try:
     import optuna
