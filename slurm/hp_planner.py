@@ -7,7 +7,6 @@ executor. Called by the sentinel between pipeline cycles.
 
 import argparse
 import json
-import os
 from pathlib import Path
 
 from slurm.hp_config import ALL_CONFIGS, arch_dataset_from_config, next_mig_tier, mig_resources
