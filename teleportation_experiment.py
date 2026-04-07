@@ -152,6 +152,7 @@ def teleport_model(model, input_shape, seed):
     """
     model_copy = copy.deepcopy(model)
     torch.manual_seed(seed)
+    np.random.seed(seed)  # COB generation uses np.random
     tp = NeuralTeleportationModel(model_copy, input_shape=input_shape)
     tp.random_teleport(cob_range=1)
     return model_copy
@@ -385,7 +386,10 @@ def run_experiment(args):
         per_teleportation.append(result)
 
         elapsed = time.perf_counter() - t0
-        equiv_ok = "OK" if result['output_equivalence']['all_predictions_match'] else "MISMATCH"
+        equiv = result['output_equivalence']
+        equiv_ok = "OK" if equiv['all_predictions_match'] else "MISMATCH"
+        if equiv['max_logit_diff'] > 1e-3:
+            equiv_ok = f"WARN(diff={equiv['max_logit_diff']:.2e})"
         print(
             f"  [{t+1:3d}/{args.num_teleportations}] seed={tp_seed} "
             f"train={result['train']['mean']:.4f} "
