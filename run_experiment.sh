@@ -29,7 +29,7 @@ set -euo pipefail
 # ========== USER CONFIGURATION ==========
 # Edit these values to configure the pipeline.
 # These override defaults in experiment_config.sh.
-ACCOUNT="def-assem"
+ACCOUNT=""
 #GPU_ACCOUNT=""             # Override account for GPU jobs (defaults to ACCOUNT)
 #CPU_ACCOUNT=""             # Override account for CPU jobs (defaults to ACCOUNT)
 EXPERIMENTS=("alexnet_cifar10")
@@ -81,25 +81,26 @@ if [ "$TEST_MODE" = "true" ]; then
     SLURM_OUT_DIR="slurm_out_test"
     SLURM_ERR_DIR="slurm_err_test"
     # Shorter time limits
+    A_GPU="--gres=gpu:1"
     A_TIME="00:10:00"
-    A_MEM="8G"
-    B_GPU="--gpus=h100:1"
+    A_MEM="16G"
+    B_GPU="--gres=gpu:1"
     B_CPUS=4
     B_TIME="00:15:00"
     B_MEM="32G"
-    C_GPU="--gpus=h100:1"
+    C_GPU="--gres=gpu:1"
     C_CPUS=4
     C_TIME="00:30:00"
     C_MEM="32G"
-    D_GPU="--gpus=h100:1"
+    D_GPU="--gres=gpu:1"
     D_CPUS=4
     D_TIME="00:30:00"
     D_MEM="32G"
-    E_GPU="--gpus=h100:1"
+    E_GPU="--gres=gpu:1"
     E_CPUS=4
     E_TIME="01:00:00"
     E_MEM="16G"
-    G_GPU="--gpus=h100:1"
+    G_GPU="--gres=gpu:1"
     G_TIME="00:30:00"
     G_MEM="16G"
     F_CPUS=2
@@ -279,7 +280,19 @@ submit_full_pipeline() {
     local EPOCH NUM_CLASSES B_CHUNK_TOTAL NUM_ATTACKS
     EPOCH=$(get_experiment_epochs "$EXP")
     NUM_CLASSES=$(get_experiment_num_classes "$EXP")
-    B_CHUNK_TOTAL=$((NUM_CLASSES * (NUM_SAMPLES_PER_CLASS / TOTAL_CHUNKS)))
+    if [ "$NUM_SAMPLES_PER_CLASS" -le 0 ]; then
+        # -1 = all samples; use known per-class counts
+        local ACTUAL_PER_CLASS
+        ACTUAL_PER_CLASS=$(python3 -c "
+ds = '$(get_experiment_dataset "$EXP")'
+# Known training samples per class for standard datasets
+counts = {'cifar10': 5000, 'cifar100': 500, 'mnist': 6000, 'fashion': 6000}
+print(counts.get(ds, 5000))
+")
+        B_CHUNK_TOTAL=$((NUM_CLASSES * (ACTUAL_PER_CLASS / TOTAL_CHUNKS)))
+    else
+        B_CHUNK_TOTAL=$((NUM_CLASSES * (NUM_SAMPLES_PER_CLASS / TOTAL_CHUNKS)))
+    fi
     NUM_ATTACKS=$(python3 -c "
 from constants.constants import ATTACKS, IMAGENET_ATTACKS, DEFAULT_EXPERIMENTS
 ds = DEFAULT_EXPERIMENTS.get('$EXP', {}).get('dataset', 'cifar10')
@@ -347,7 +360,10 @@ print(' '.join(e.get('phase','') + ':' + str(e.get('grid_index',''))
     fi
     cat > "$JOB_DIR/step_A.sh" << STEPA_EOF
 #!/bin/bash
-#SBATCH --account=$CPU_ACCOUNT
+$ACCOUNT_LINE_GPU
+$PARTITION_LINE
+$CHDIR_LINE
+#SBATCH $A_GPU
 #SBATCH --cpus-per-task=$A_CPUS
 #SBATCH --time=$A_TIME
 #SBATCH --mem=$A_MEM
@@ -355,8 +371,10 @@ print(' '.join(e.get('phase','') + ':' + str(e.get('grid_index',''))
 #SBATCH --error=$SLURM_ERR_DIR/PIPE_A_${EXP}_%A.err
 
 mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
-module load $MODULES
-source $ENV_NAME/bin/activate
+$ENV_SETUP
+SLURM_TMPDIR="\${SLURM_TMPDIR:-/tmp/slurm-\$SLURM_JOB_ID}"
+mkdir -p "\$SLURM_TMPDIR"
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 $COPY_DATA
 
@@ -446,7 +464,9 @@ STEPA_EOF
         fi
         cat > "$JOB_DIR/step_B_chunk_${CHUNK}.sh" << STEPB_EOF
 #!/bin/bash
-#SBATCH --account=$GPU_ACCOUNT
+$ACCOUNT_LINE_GPU
+$PARTITION_LINE
+$CHDIR_LINE
 #SBATCH $B_GPU
 #SBATCH --cpus-per-task=$B_CPUS
 #SBATCH --time=$B_TIME
@@ -456,8 +476,9 @@ STEPA_EOF
 #SBATCH --signal=B:USR1@$SAVE_GRACE_SECONDS
 
 mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
-module load $MODULES
-source $ENV_NAME/bin/activate
+$ENV_SETUP
+SLURM_TMPDIR="\${SLURM_TMPDIR:-/tmp/slurm-\$SLURM_JOB_ID}"
+mkdir -p "\$SLURM_TMPDIR"
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 EXPERIMENT="$EXP"
@@ -771,7 +792,9 @@ print(pa.get('mem', ''))" 2>/dev/null || echo "")
 
             cat > "$JOB_DIR/step_C_attack_${ATTACK_NAME}.sh" << STEPC_EOF
 #!/bin/bash
-#SBATCH --account=$GPU_ACCOUNT
+$ACCOUNT_LINE_GPU
+$PARTITION_LINE
+$CHDIR_LINE
 #SBATCH $C_GPU
 #SBATCH --cpus-per-task=$C_CPUS
 #SBATCH --time=$C_ATK_TIME
@@ -780,8 +803,9 @@ print(pa.get('mem', ''))" 2>/dev/null || echo "")
 #SBATCH --error=$SLURM_ERR_DIR/PIPE_C_${EXP}_${ATTACK_NAME}_%A.err
 
 mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
-module load $MODULES
-source $ENV_NAME/bin/activate
+$ENV_SETUP
+SLURM_TMPDIR="\${SLURM_TMPDIR:-/tmp/slurm-\$SLURM_JOB_ID}"
+mkdir -p "\$SLURM_TMPDIR"
 
 EXPERIMENT="$EXP"
 ATTACK_NAME="$ATTACK_NAME"
@@ -868,7 +892,9 @@ STEPC_EOF
         fi
         cat > "$JOB_DIR/step_D_chunk_${CHUNK}.sh" << STEPD_EOF
 #!/bin/bash
-#SBATCH --account=$GPU_ACCOUNT
+$ACCOUNT_LINE_GPU
+$PARTITION_LINE
+$CHDIR_LINE
 #SBATCH $D_GPU
 #SBATCH --cpus-per-task=$D_CPUS
 #SBATCH --time=$D_TIME
@@ -878,8 +904,9 @@ STEPC_EOF
 #SBATCH --signal=B:USR1@$SAVE_GRACE_SECONDS
 
 mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
-module load $MODULES
-source $ENV_NAME/bin/activate
+$ENV_SETUP
+SLURM_TMPDIR="\${SLURM_TMPDIR:-/tmp/slurm-\$SLURM_JOB_ID}"
+mkdir -p "\$SLURM_TMPDIR"
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 EXPERIMENT="$EXP"
@@ -1083,7 +1110,9 @@ STEPD_EOF
     fi
     cat > "$JOB_DIR/step_E.sh" << STEPE_EOF
 #!/bin/bash
-#SBATCH --account=$GPU_ACCOUNT
+$ACCOUNT_LINE_GPU
+$PARTITION_LINE
+$CHDIR_LINE
 #SBATCH $E_GPU
 #SBATCH --cpus-per-task=$E_CPUS
 #SBATCH --time=$E_TIME
@@ -1092,8 +1121,9 @@ STEPD_EOF
 #SBATCH --error=$SLURM_ERR_DIR/PIPE_E_${EXP}_%A.err
 
 mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
-module load $MODULES
-source $ENV_NAME/bin/activate
+$ENV_SETUP
+SLURM_TMPDIR="\${SLURM_TMPDIR:-/tmp/slurm-\$SLURM_JOB_ID}"
+mkdir -p "\$SLURM_TMPDIR"
 
 EXPERIMENT="$EXP"
 
@@ -1178,7 +1208,7 @@ monitor_gpu &
 MONITOR_PID=\$!
 
 STEP_START=\$(date +%s)
-python compare_representations.py --experiment \$EXPERIMENT --temp_dir \$SLURM_TMPDIR --svd_ablation
+python compare_representations.py --experiment \$EXPERIMENT --temp_dir \$SLURM_TMPDIR --svd_ablation --km_per_class $NUM_SAMPLES_PER_CLASS
 PY_EXIT=\$?
 STEP_END=\$(date +%s)
 STEP_ELAPSED=\$(( STEP_END - STEP_START ))
@@ -1300,7 +1330,9 @@ sys.exit(0 if 'knowledge_matrix' in d.get('representations', []) and 'svd_ablati
     fi
     cat > "$JOB_DIR/step_G.sh" << STEPG_EOF
 #!/bin/bash
-#SBATCH --account=$GPU_ACCOUNT
+$ACCOUNT_LINE_GPU
+$PARTITION_LINE
+$CHDIR_LINE
 #SBATCH $G_GPU
 #SBATCH --cpus-per-task=$G_CPUS
 #SBATCH --time=$G_TIME
@@ -1309,8 +1341,9 @@ sys.exit(0 if 'knowledge_matrix' in d.get('representations', []) and 'svd_ablati
 #SBATCH --error=$SLURM_ERR_DIR/PIPE_G_${EXP}_%A.err
 
 mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
-module load $MODULES
-source $ENV_NAME/bin/activate
+$ENV_SETUP
+SLURM_TMPDIR="\${SLURM_TMPDIR:-/tmp/slurm-\$SLURM_JOB_ID}"
+mkdir -p "\$SLURM_TMPDIR"
 $COPY_DATA
 
 EXPERIMENT="$EXP"
@@ -1430,7 +1463,9 @@ STEPG_EOF
     fi
     cat > "$JOB_DIR/step_F.sh" << STEPF_EOF
 #!/bin/bash
-#SBATCH --account=$CPU_ACCOUNT
+$ACCOUNT_LINE_CPU
+$PARTITION_LINE
+$CHDIR_LINE
 #SBATCH --cpus-per-task=$F_CPUS
 #SBATCH --time=$F_TIME
 #SBATCH --mem=$F_MEM
@@ -1438,8 +1473,7 @@ STEPG_EOF
 #SBATCH --error=$SLURM_ERR_DIR/PIPE_F_${EXP}_%A.err
 
 mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
-module load $MODULES
-source $ENV_NAME/bin/activate
+$ENV_SETUP
 
 cd \$SLURM_SUBMIT_DIR
 mkdir -p tables
@@ -1529,7 +1563,9 @@ STEPF_EOF
     # ==========================================================
     cat > "$JOB_DIR/final_audit.sh" << FINALAUDIT_EOF
 #!/bin/bash
-#SBATCH --account=$CPU_ACCOUNT
+$ACCOUNT_LINE_CPU
+$PARTITION_LINE
+$CHDIR_LINE
 #SBATCH --cpus-per-task=$AUDIT_CPUS
 #SBATCH --time=$AUDIT_TIME
 #SBATCH --mem=$AUDIT_MEM
@@ -1537,8 +1573,7 @@ STEPF_EOF
 #SBATCH --error=$SLURM_ERR_DIR/PIPE_AUDIT_${EXP}_%A.err
 
 mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
-module load $MODULES
-source $ENV_NAME/bin/activate
+$ENV_SETUP
 
 export EXPERIMENT="$EXP"
 export TOTAL_CHUNKS=$TOTAL_CHUNKS
@@ -1609,15 +1644,16 @@ FINALAUDIT_EOF
 
         cat > "$JOB_DIR/error_scan.sh" << ERRSCAN_EOF
 #!/bin/bash
-#SBATCH --account=$CPU_ACCOUNT
+$ACCOUNT_LINE_CPU
+$PARTITION_LINE
+$CHDIR_LINE
 #SBATCH --cpus-per-task=1
 #SBATCH --time=01:00:00
 #SBATCH --mem=2G
 #SBATCH --output=$SLURM_OUT_DIR/PIPE_ERRSCAN_${EXP}_%A.out
 #SBATCH --error=$SLURM_ERR_DIR/PIPE_ERRSCAN_${EXP}_%A.err
 
-module load $MODULES
-source $ENV_NAME/bin/activate
+$ENV_SETUP
 cd \$SLURM_SUBMIT_DIR
 
 python collect_errors.py --experiment $EXP $ERRSCAN_TEST_FLAG --include-audit-report || {
@@ -1652,15 +1688,16 @@ ERRSCAN_EOF
 
         cat > "$JOB_DIR/sentinel.sh" << SENTINEL_EOF
 #!/bin/bash
-#SBATCH --account=$CPU_ACCOUNT
+$ACCOUNT_LINE_CPU
+$PARTITION_LINE
+$CHDIR_LINE
 #SBATCH --cpus-per-task=1
 #SBATCH --time=00:20:00
 #SBATCH --mem=2G
 #SBATCH --output=$SLURM_OUT_DIR/PIPE_SENTINEL_${EXP}_%A.out
 #SBATCH --error=$SLURM_ERR_DIR/PIPE_SENTINEL_${EXP}_%A.err
 
-module load $MODULES
-source $ENV_NAME/bin/activate
+$ENV_SETUP
 cd \$SLURM_SUBMIT_DIR
 
 python relaunch_sentinel.py --experiment $EXP $SENTINEL_FLAGS || {
@@ -1792,7 +1829,9 @@ print(' '.join(e.get('phase','') + ':' + str(e.get('grid_index',''))
         # --- Generate audit script ---
         cat > "$JOB_DIR/audit.sh" << AUDIT_EOF
 #!/bin/bash
-#SBATCH --account=$CPU_ACCOUNT
+$ACCOUNT_LINE_CPU
+$PARTITION_LINE
+$CHDIR_LINE
 #SBATCH --cpus-per-task=$AUDIT_CPUS
 #SBATCH --time=$AUDIT_TIME
 #SBATCH --mem=$AUDIT_MEM
@@ -1804,16 +1843,8 @@ echo "=== Audit starting on \$(hostname) at \$(date) ==="
 
 mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
 
-echo "Loading modules..."
-module load $MODULES || true
-
-echo "Activating venv ($ENV_NAME)..."
-if [ -d "\$SLURM_SUBMIT_DIR/$ENV_NAME" ]; then
-    source \$SLURM_SUBMIT_DIR/$ENV_NAME/bin/activate
-else
-    echo "ERROR: venv '$ENV_NAME' not found at \$SLURM_SUBMIT_DIR/$ENV_NAME" >&2
-    exit 1
-fi
+echo "Setting up environment..."
+$ENV_SETUP
 
 # Prevent torch from probing GPUs on CPU-only nodes
 export CUDA_VISIBLE_DEVICES=""
@@ -2016,7 +2047,9 @@ AUDIT_EOF
         # --- Generate dispatcher script ---
         cat > "$JOB_DIR/dispatch.sh" << 'DISPATCH_HEADER'
 #!/bin/bash
-#SBATCH --account=__CPU_ACCOUNT__
+__ACCOUNT_LINE_CPU__
+__PARTITION_LINE__
+__CHDIR_LINE__
 #SBATCH --cpus-per-task=1
 #SBATCH --time=00:15:00
 #SBATCH --mem=1G
@@ -2038,6 +2071,13 @@ SAMPLES_PER_ATTACK=__SAMPLES_PER_ATTACK__
 TEST_SIZE="__TEST_SIZE__"
 ENV_NAME="__ENV_NAME__"
 MODULES="__MODULES__"
+PARTITION="__PARTITION__"
+PROJECT_DIR="__PROJECT_DIR__"
+ENV_SETUP="__ENV_SETUP__"
+ACCOUNT_LINE_GPU="__ACCOUNT_LINE_GPU__"
+ACCOUNT_LINE_CPU="__ACCOUNT_LINE_CPU__"
+PARTITION_LINE="__PARTITION_LINE__"
+CHDIR_LINE="__CHDIR_LINE__"
 
 # Resource profiles
 A_CPUS=__A_CPUS__
@@ -2135,15 +2175,16 @@ ALL_JOBS=""
 if [ "$RECOVER_STEP_A" = "true" ]; then
     cat > "$JOB_DIR/step_A.sh" << EOF_A
 #!/bin/bash
-#SBATCH --account=$CPU_ACCOUNT
+$ACCOUNT_LINE_CPU
+$PARTITION_LINE
+$CHDIR_LINE
 #SBATCH --cpus-per-task=$A_CPUS
 #SBATCH --time=$A_TIME
 #SBATCH --mem=$A_MEM
 #SBATCH --output=$SLURM_OUT_DIR/REC_A_${EXPERIMENT}_%A.out
 #SBATCH --error=$SLURM_ERR_DIR/REC_A_${EXPERIMENT}_%A.err
 mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
-module load $MODULES
-source $ENV_NAME/bin/activate
+$ENV_SETUP
 $COPY_DATA
 python training.py --experiment_name $EXPERIMENT --temp_dir \$SLURM_TMPDIR --from_checkpoint
 PY_EXIT=\$?
@@ -2165,7 +2206,9 @@ if [ "$RECOVER_STEP_B" = "true" ]; then
     for CHUNK in $RECOVER_STEP_B_CHUNKS; do
         cat > "$JOB_DIR/step_B_c${CHUNK}.sh" << EOF_B
 #!/bin/bash
-#SBATCH --account=$GPU_ACCOUNT
+$ACCOUNT_LINE_GPU
+$PARTITION_LINE
+$CHDIR_LINE
 #SBATCH $B_GPU
 #SBATCH --cpus-per-task=$B_CPUS
 #SBATCH --time=$B_TIME
@@ -2173,8 +2216,9 @@ if [ "$RECOVER_STEP_B" = "true" ]; then
 #SBATCH --output=$SLURM_OUT_DIR/REC_B_${EXPERIMENT}_c${CHUNK}_%A.out
 #SBATCH --error=$SLURM_ERR_DIR/REC_B_${EXPERIMENT}_c${CHUNK}_%A.err
 mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
-module load $MODULES
-source $ENV_NAME/bin/activate
+$ENV_SETUP
+SLURM_TMPDIR="${SLURM_TMPDIR:-/tmp/slurm-$SLURM_JOB_ID}"
+mkdir -p "$SLURM_TMPDIR"
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 $COPY_DATA
 mkdir -p \$SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
@@ -2232,7 +2276,9 @@ if [ "$RECOVER_STEP_C" = "true" ]; then
     for ATTACK_NAME in $RECOVER_STEP_C_CHUNKS; do
         cat > "$JOB_DIR/step_C_attack_${ATTACK_NAME}.sh" << EOF_C
 #!/bin/bash
-#SBATCH --account=$GPU_ACCOUNT
+$ACCOUNT_LINE_GPU
+$PARTITION_LINE
+$CHDIR_LINE
 #SBATCH $C_GPU
 #SBATCH --cpus-per-task=$C_CPUS
 #SBATCH --time=$C_TIME
@@ -2240,8 +2286,9 @@ if [ "$RECOVER_STEP_C" = "true" ]; then
 #SBATCH --output=$SLURM_OUT_DIR/REC_C_${EXPERIMENT}_${ATTACK_NAME}_%A.out
 #SBATCH --error=$SLURM_ERR_DIR/REC_C_${EXPERIMENT}_${ATTACK_NAME}_%A.err
 mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
-module load $MODULES
-source $ENV_NAME/bin/activate
+$ENV_SETUP
+SLURM_TMPDIR="${SLURM_TMPDIR:-/tmp/slurm-$SLURM_JOB_ID}"
+mkdir -p "$SLURM_TMPDIR"
 $COPY_DATA
 mkdir -p \$SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
 cp \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/weights/* \$SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
@@ -2281,7 +2328,9 @@ if [ "$RECOVER_STEP_D" = "true" ]; then
     for CHUNK in $RECOVER_STEP_D_CHUNKS; do
         cat > "$JOB_DIR/step_D_c${CHUNK}.sh" << EOF_D
 #!/bin/bash
-#SBATCH --account=$GPU_ACCOUNT
+$ACCOUNT_LINE_GPU
+$PARTITION_LINE
+$CHDIR_LINE
 #SBATCH $D_GPU
 #SBATCH --cpus-per-task=$D_CPUS
 #SBATCH --time=$D_TIME
@@ -2289,8 +2338,9 @@ if [ "$RECOVER_STEP_D" = "true" ]; then
 #SBATCH --output=$SLURM_OUT_DIR/REC_D_${EXPERIMENT}_c${CHUNK}_%A.out
 #SBATCH --error=$SLURM_ERR_DIR/REC_D_${EXPERIMENT}_c${CHUNK}_%A.err
 mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
-module load $MODULES
-source $ENV_NAME/bin/activate
+$ENV_SETUP
+SLURM_TMPDIR="${SLURM_TMPDIR:-/tmp/slurm-$SLURM_JOB_ID}"
+mkdir -p "$SLURM_TMPDIR"
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 $COPY_DATA
 mkdir -p \$SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
@@ -2351,7 +2401,9 @@ fi
 if [ "${RECOVER_STEP_E:-false}" = "true" ]; then
     cat > "$JOB_DIR/step_E.sh" << EOF_E
 #!/bin/bash
-#SBATCH --account=$GPU_ACCOUNT
+$ACCOUNT_LINE_GPU
+$PARTITION_LINE
+$CHDIR_LINE
 #SBATCH $E_GPU
 #SBATCH --cpus-per-task=$E_CPUS
 #SBATCH --time=$E_TIME
@@ -2359,8 +2411,9 @@ if [ "${RECOVER_STEP_E:-false}" = "true" ]; then
 #SBATCH --output=$SLURM_OUT_DIR/REC_E_${EXPERIMENT}_%A.out
 #SBATCH --error=$SLURM_ERR_DIR/REC_E_${EXPERIMENT}_%A.err
 mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
-module load $MODULES
-source $ENV_NAME/bin/activate
+$ENV_SETUP
+SLURM_TMPDIR="${SLURM_TMPDIR:-/tmp/slurm-$SLURM_JOB_ID}"
+mkdir -p "$SLURM_TMPDIR"
 $COPY_DATA
 mkdir -p \$SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
 cp \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/weights/* \$SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
@@ -2411,7 +2464,7 @@ if [ "\$TEST_MAT_COUNT" -eq 0 ]; then
 fi
 
 echo "All data ready. Starting representation comparison..."
-python compare_representations.py --experiment $EXPERIMENT --temp_dir \$SLURM_TMPDIR --svd_ablation
+python compare_representations.py --experiment $EXPERIMENT --temp_dir \$SLURM_TMPDIR --svd_ablation --km_per_class $NUM_SAMPLES_PER_CLASS
 PY_EXIT=\$?
 
 # Write checkpoint
@@ -2448,7 +2501,9 @@ fi
 if [ "${RECOVER_STEP_G:-false}" = "true" ]; then
     cat > "$JOB_DIR/step_G.sh" << EOF_G
 #!/bin/bash
-#SBATCH --account=$GPU_ACCOUNT
+$ACCOUNT_LINE_GPU
+$PARTITION_LINE
+$CHDIR_LINE
 #SBATCH $G_GPU
 #SBATCH --cpus-per-task=$G_CPUS
 #SBATCH --time=$G_TIME
@@ -2456,8 +2511,9 @@ if [ "${RECOVER_STEP_G:-false}" = "true" ]; then
 #SBATCH --output=$SLURM_OUT_DIR/REC_G_${EXPERIMENT}_%A.out
 #SBATCH --error=$SLURM_ERR_DIR/REC_G_${EXPERIMENT}_%A.err
 mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
-module load $MODULES
-source $ENV_NAME/bin/activate
+$ENV_SETUP
+SLURM_TMPDIR="${SLURM_TMPDIR:-/tmp/slurm-$SLURM_JOB_ID}"
+mkdir -p "$SLURM_TMPDIR"
 $COPY_DATA
 mkdir -p \$SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
 cp \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/weights/* \$SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
@@ -2493,15 +2549,16 @@ fi
 if [ "$RECOVER_STEP_F" = "true" ]; then
     cat > "$JOB_DIR/step_F.sh" << EOF_F_LATEX
 #!/bin/bash
-#SBATCH --account=$CPU_ACCOUNT
+$ACCOUNT_LINE_CPU
+$PARTITION_LINE
+$CHDIR_LINE
 #SBATCH --cpus-per-task=$F_CPUS
 #SBATCH --time=$F_TIME
 #SBATCH --mem=$F_MEM
 #SBATCH --output=$SLURM_OUT_DIR/REC_F_${EXPERIMENT}_%A.out
 #SBATCH --error=$SLURM_ERR_DIR/REC_F_${EXPERIMENT}_%A.err
 mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
-module load $MODULES
-source $ENV_NAME/bin/activate
+$ENV_SETUP
 cd \$SLURM_SUBMIT_DIR
 mkdir -p tables
 python generate_latex_tables.py --output tables/
@@ -2541,15 +2598,16 @@ if [ -n "$ALL_JOBS" ]; then
 
     cat > "$JOB_DIR/error_scan.sh" << EOF_ERRSCAN
 #!/bin/bash
-#SBATCH --account=$CPU_ACCOUNT
+$ACCOUNT_LINE_CPU
+$PARTITION_LINE
+$CHDIR_LINE
 #SBATCH --cpus-per-task=1
 #SBATCH --time=01:00:00
 #SBATCH --mem=2G
 #SBATCH --output=$SLURM_OUT_DIR/REC_ERRSCAN_${EXPERIMENT}_%A.out
 #SBATCH --error=$SLURM_ERR_DIR/REC_ERRSCAN_${EXPERIMENT}_%A.err
 
-module load $MODULES
-source $ENV_NAME/bin/activate
+$ENV_SETUP
 cd \$SLURM_SUBMIT_DIR
 
 python collect_errors.py --experiment $EXPERIMENT $ERRSCAN_TEST_FLAG --include-audit-report || {
@@ -2575,15 +2633,16 @@ EOF_ERRSCAN
 
     cat > "$JOB_DIR/sentinel.sh" << EOF_SENTINEL
 #!/bin/bash
-#SBATCH --account=$CPU_ACCOUNT
+$ACCOUNT_LINE_CPU
+$PARTITION_LINE
+$CHDIR_LINE
 #SBATCH --cpus-per-task=1
 #SBATCH --time=00:20:00
 #SBATCH --mem=2G
 #SBATCH --output=$SLURM_OUT_DIR/REC_SENTINEL_${EXPERIMENT}_%A.out
 #SBATCH --error=$SLURM_ERR_DIR/REC_SENTINEL_${EXPERIMENT}_%A.err
 
-module load $MODULES
-source $ENV_NAME/bin/activate
+$ENV_SETUP
 cd \$SLURM_SUBMIT_DIR
 
 python relaunch_sentinel.py --experiment $EXPERIMENT $SENTINEL_FLAGS --skip-audit || {
@@ -2603,6 +2662,9 @@ DISPATCH_BODY
         sed -i "s|__ACCOUNT__|$ACCOUNT|g" "$JOB_DIR/dispatch.sh"
         sed -i "s|__GPU_ACCOUNT__|$GPU_ACCOUNT|g" "$JOB_DIR/dispatch.sh"
         sed -i "s|__CPU_ACCOUNT__|$CPU_ACCOUNT|g" "$JOB_DIR/dispatch.sh"
+        sed -i "s|__ACCOUNT_LINE_CPU__|$ACCOUNT_LINE_CPU|g" "$JOB_DIR/dispatch.sh"
+        sed -i "s|__PARTITION_LINE__|$PARTITION_LINE|g" "$JOB_DIR/dispatch.sh"
+        sed -i "s|__CHDIR_LINE__|$CHDIR_LINE|g" "$JOB_DIR/dispatch.sh"
         sed -i "s|__EXP__|$EXP|g" "$JOB_DIR/dispatch.sh"
         sed -i "s|__TOTAL_CHUNKS__|$TOTAL_CHUNKS|g" "$JOB_DIR/dispatch.sh"
         sed -i "s|__BATCH_SIZE__|$BATCH_SIZE|g" "$JOB_DIR/dispatch.sh"
@@ -2611,6 +2673,10 @@ DISPATCH_BODY
         sed -i "s|__TEST_SIZE__|$TEST_SIZE|g" "$JOB_DIR/dispatch.sh"
         sed -i "s|__ENV_NAME__|$ENV_NAME|g" "$JOB_DIR/dispatch.sh"
         sed -i "s|__MODULES__|$MODULES|g" "$JOB_DIR/dispatch.sh"
+        sed -i "s|__PARTITION__|$PARTITION|g" "$JOB_DIR/dispatch.sh"
+        sed -i "s|__PROJECT_DIR__|$PROJECT_DIR|g" "$JOB_DIR/dispatch.sh"
+        sed -i "s|__ENV_SETUP__|$ENV_SETUP|g" "$JOB_DIR/dispatch.sh"
+        sed -i "s|__ACCOUNT_LINE_GPU__|$ACCOUNT_LINE_GPU|g" "$JOB_DIR/dispatch.sh"
         sed -i "s|__A_CPUS__|$A_CPUS|g" "$JOB_DIR/dispatch.sh"
         sed -i "s|__A_TIME__|$A_TIME|g" "$JOB_DIR/dispatch.sh"
         sed -i "s|__A_MEM__|$A_MEM|g" "$JOB_DIR/dispatch.sh"
@@ -2665,8 +2731,8 @@ echo "  Pipeline Orchestrator — Summary"
 echo "=============================================================="
 echo ""
 echo "  Experiments: ${EXPERIMENTS[*]}"
-echo "  GPU account: $GPU_ACCOUNT"
-echo "  CPU account: $CPU_ACCOUNT"
+echo "  Partition: $PARTITION"
+echo "  Project dir: $PROJECT_DIR"
 echo "  Mode: $([ "$SKIP_AUDIT" = "true" ] && echo "skip-audit" || echo "audit+dispatch")"
 echo "  Test mode: $TEST_MODE"
 echo "  Dry run: $DRY_RUN"

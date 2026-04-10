@@ -11,16 +11,21 @@
 # ==============================================================
 
 # --- Default configuration (overridable) ---
-ACCOUNT="${ACCOUNT:-def-assem}"
+# GH200 / IQ HPC (gh-aria) configuration
+ACCOUNT="${ACCOUNT:-}"                      # No billing account on gh-aria (set if needed)
 GPU_ACCOUNT="${GPU_ACCOUNT:-}"              # Account for GPU jobs (defaults to ACCOUNT if empty)
 CPU_ACCOUNT="${CPU_ACCOUNT:-}"              # Account for CPU jobs (defaults to ACCOUNT if empty)
+PARTITION="${PARTITION:-gh-aria}"            # SLURM partition
+PROJECT_DIR="${PROJECT_DIR:-/net/nfs-iq/home-gh/armenta/Hidden-Activations-are-not-Enough}"
 TOTAL_CHUNKS="${TOTAL_CHUNKS:-8}"
 BATCH_SIZE="${BATCH_SIZE:-1800}"
-NUM_SAMPLES_PER_CLASS="${NUM_SAMPLES_PER_CLASS:-500}"
+NUM_SAMPLES_PER_CLASS="${NUM_SAMPLES_PER_CLASS:--1}"      # -1 = use all available samples per class
 SAMPLES_PER_ATTACK="${SAMPLES_PER_ATTACK:-500}"
 TEST_SIZE="${TEST_SIZE:--1}"
-ENV_NAME="${ENV_NAME:-env}"
-MODULES="${MODULES:-StdEnv/2023 python/3.11.5 scipy-stack/2025a}"
+ENV_NAME="${ENV_NAME:-gh_env}"
+MODULES="${MODULES:-}"                      # No module system on gh-aria (set for Compute Canada)
+# Environment setup command (replaces module load + venv activation)
+ENV_SETUP="${ENV_SETUP:-source $PROJECT_DIR/$ENV_NAME/bin/activate}"
 SLURM_OUT_DIR="${SLURM_OUT_DIR:-slurm_out}"
 SLURM_ERR_DIR="${SLURM_ERR_DIR:-slurm_err}"
 # --- Incremental save settings ---
@@ -31,32 +36,33 @@ SAVE_GRACE_SECONDS="${SAVE_GRACE_SECONDS:-180}" # Seconds before wall time to tr
 MAX_SENTINEL_CYCLES="${MAX_SENTINEL_CYCLES:-5}"  # Max whole-pipeline re-launch cycles
 
 # --- Resource profiles (normal mode, overridable) ---
-# Step A (CPU-only — small networks, transfer learning)
+# Step A (GPU training)
+A_GPU="${A_GPU:---gres=gpu:1}"
 A_CPUS="${A_CPUS:-4}"
-A_TIME="${A_TIME:-06:00:00}"
-A_MEM="${A_MEM:-15G}"
+A_TIME="${A_TIME:-02:00:00}"
+A_MEM="${A_MEM:-32G}"
 # Step B
-B_GPU="${B_GPU:---gpus=h100:1}"
+B_GPU="${B_GPU:---gres=gpu:1}"
 B_CPUS="${B_CPUS:-12}"
 B_TIME="${B_TIME:-00:20:00}"
-B_MEM="${B_MEM:-280G}"
+B_MEM="${B_MEM:-128G}"
 # Step C (per-attack defaults — each attack runs as a separate Slurm job)
-C_GPU="${C_GPU:---gpus=h100:1}"
+C_GPU="${C_GPU:---gres=gpu:1}"
 C_CPUS="${C_CPUS:-4}"
 C_TIME="${C_TIME:-03:00:00}"
 C_MEM="${C_MEM:-32G}"
 # Step D (Adv Matrices)
-D_GPU="${D_GPU:---gpus=h100:1}"
+D_GPU="${D_GPU:---gres=gpu:1}"
 D_CPUS="${D_CPUS:-12}"
 D_TIME="${D_TIME:-12:00:00}"
-D_MEM="${D_MEM:-280G}"
+D_MEM="${D_MEM:-128G}"
 # Step E (Representation Comparison - GPU)
-E_GPU="${E_GPU:---gpus=h100:1}"
+E_GPU="${E_GPU:---gres=gpu:1}"
 E_CPUS="${E_CPUS:-8}"
 E_TIME="${E_TIME:-08:00:00}"
 E_MEM="${E_MEM:-128G}"
 # Step G (Theorem 4.5 Validation - GPU)
-G_GPU="${G_GPU:---gpus=h100:1}"
+G_GPU="${G_GPU:---gres=gpu:1}"
 G_CPUS="${G_CPUS:-4}"
 G_TIME="${G_TIME:-06:00:00}"
 G_MEM="${G_MEM:-64G}"
@@ -69,7 +75,7 @@ AUDIT_CPUS="${AUDIT_CPUS:-4}"
 AUDIT_TIME="${AUDIT_TIME:-00:30:00}"
 AUDIT_MEM="${AUDIT_MEM:-32G}"
 # Calibration
-CALIB_GPU="${CALIB_GPU:---gpus=h100:1}"
+CALIB_GPU="${CALIB_GPU:---gres=gpu:1}"
 CALIB_CPUS="${CALIB_CPUS:-4}"
 CALIB_TIME="${CALIB_TIME:-01:00:00}"
 CALIB_MEM="${CALIB_MEM:-32G}"
@@ -85,10 +91,18 @@ fi
 GPU_ACCOUNT="${GPU_ACCOUNT:-$ACCOUNT}"
 CPU_ACCOUNT="${CPU_ACCOUNT:-$ACCOUNT}"
 
+# --- Derived SBATCH directives ---
+ACCOUNT_LINE_GPU="${GPU_ACCOUNT:+#SBATCH --account=$GPU_ACCOUNT}"
+ACCOUNT_LINE_CPU="${CPU_ACCOUNT:+#SBATCH --account=$CPU_ACCOUNT}"
+PARTITION_LINE="#SBATCH --partition=$PARTITION"
+CHDIR_LINE="#SBATCH --chdir=$PROJECT_DIR"
+
 # --- Load environment (needed for pre-flight Python calls) ---
-module load $MODULES 2>/dev/null || true
+if [ -n "$MODULES" ]; then module load $MODULES 2>/dev/null || true; fi
 if [ -d "$ENV_NAME" ]; then
     source $ENV_NAME/bin/activate
+elif [ -d "$PROJECT_DIR/$ENV_NAME" ]; then
+    source "$PROJECT_DIR/$ENV_NAME/bin/activate"
 fi
 
 # ==============================================================

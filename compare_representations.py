@@ -148,9 +148,10 @@ def load_matrices_as_features(base_path, attack_name, max_samples=None):
     return np.array(mats) if mats else None
 
 
-def load_train_matrices(base_path, num_classes, per_class=1000):
+def load_train_matrices(base_path, num_classes, per_class=None):
     """Load training matrices and flatten.
-    Uses glob-based discovery to handle gaps in index numbering."""
+    Uses glob-based discovery to handle gaps in index numbering.
+    per_class=None loads all available matrices per class."""
     mat_dir = Path(base_path) / 'matrices'
     mats = []
     labels = []
@@ -161,7 +162,9 @@ def load_train_matrices(base_path, num_classes, per_class=1000):
         # Discover all matrix files, sorted by index (filter non-numeric dirs)
         mat_paths = [p for p in class_dir.glob('*/matrix.pt') if p.parent.name.isdigit()]
         mat_paths = sorted(mat_paths, key=lambda p: int(p.parent.name))
-        for mp in mat_paths[:per_class]:
+        if per_class is not None and per_class > 0:
+            mat_paths = mat_paths[:per_class]
+        for mp in mat_paths:
             m = torch.load(mp, map_location='cpu', weights_only=True)
             mats.append(m.numpy().ravel())
             labels.append(c)
@@ -483,13 +486,15 @@ def compute_detection_metrics(clean_scores, adv_scores):
 # Main comparison logic
 # ---------------------------------------------------------------------------
 
-def run_comparison(experiment_name, temp_dir=None, svd_ablation=False):
+def run_comparison(experiment_name, temp_dir=None, svd_ablation=False,
+                   km_per_class=-1):
     """Run fair comparison for one experiment.
 
     Fits all 6 detectors on each of 3 representations and evaluates on
     every available adversarial attack, producing AUROC/AUPR/FPR@95TPR.
 
     If svd_ablation=True, additionally sweeps SVD rank for Mahalanobis.
+    km_per_class: number of KMs to load per class (-1 = all available).
     """
     # NEW-H13: Global random seed for reproducibility
     random.seed(42)
@@ -600,7 +605,8 @@ def run_comparison(experiment_name, temp_dir=None, svd_ablation=False):
         torch.cuda.reset_peak_memory_stats()
     t0 = time.perf_counter()
     print("  Loading training KNOWLEDGE MATRICES...", flush=True)
-    train_matrices, train_mat_labels = load_train_matrices(base, num_classes, per_class=500)
+    km_load_per_class = None if km_per_class <= 0 else km_per_class
+    train_matrices, train_mat_labels = load_train_matrices(base, num_classes, per_class=km_load_per_class)
     cost_matrix_time = time.perf_counter() - t0
     cost_matrix_mem = torch.cuda.max_memory_allocated() / 1e9 if torch.cuda.is_available() else 0
     if train_matrices is None or len(train_matrices) == 0:
@@ -1124,6 +1130,8 @@ def parse_args():
                         help="Temporary directory for cluster")
     parser.add_argument("--svd_ablation", action="store_true",
                         help="Run SVD rank ablation for Mahalanobis detector")
+    parser.add_argument("--km_per_class", type=int, default=-1,
+                        help="KMs to load per class (-1 = all available)")
     return parser.parse_args()
 
 
@@ -1132,7 +1140,8 @@ def main():
     all_results = []
     for exp in args.experiment:
         result = run_comparison(exp, args.temp_dir,
-                                svd_ablation=args.svd_ablation)
+                                svd_ablation=args.svd_ablation,
+                                km_per_class=args.km_per_class)
         if result:
             all_results.append(result)
 

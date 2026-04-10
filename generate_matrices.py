@@ -6,9 +6,10 @@ import time
 import torch
 from argparse import ArgumentParser, Namespace
 
+from collections import Counter
 from matrix_construction.parallel import ParallelMatrixConstruction
 from constants.constants import DEFAULT_EXPERIMENTS
-from utils.utils import get_device
+from utils.utils import get_device, get_dataset, get_input_shape
 
 
 def parse_args() -> Namespace:
@@ -33,6 +34,18 @@ def main() -> None:
     epochs = DEFAULT_EXPERIMENTS[experiment]['epochs'] if dataset != 'imagenet' else None
     architecture_index = DEFAULT_EXPERIMENTS[experiment]['architecture_index']
     num_samples = args.num_samples_per_class
+
+    # Resolve -1 to actual per-class count from the dataset
+    if num_samples <= 0:
+        train_set = get_dataset(dataset, data_loader=False, data_path=args.temp_dir)[0]
+        if hasattr(train_set, 'targets'):
+            targets = train_set.targets
+        else:
+            targets = [train_set[i][1] for i in range(len(train_set))]
+        counts = Counter(targets if isinstance(targets, list) else list(targets))
+        num_samples = min(counts.values())
+        print(f"Using all samples: {num_samples} per class "
+              f"({len(counts)} classes, {sum(counts.values())} total)", flush=True)
 
     chunk_id = int(os.getenv('SLURM_ARRAY_TASK_ID', args.chunk_id))
     if chunk_id is None:
