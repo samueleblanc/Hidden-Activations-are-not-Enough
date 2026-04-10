@@ -29,7 +29,13 @@ def init_unified_memory():
         from rmm.allocators.torch import rmm_torch_allocator
         import torch
 
-        rmm.mr.set_current_device_resource(rmm.mr.ManagedMemoryResource())
+        managed = rmm.mr.ManagedMemoryResource()
+        pool = rmm.mr.PoolMemoryResource(
+            managed,
+            initial_pool_size=2**30,   # 1 GB initial
+            maximum_pool_size=2**40,   # 1 TB max (covers full unified pool)
+        )
+        rmm.mr.set_current_device_resource(pool)
         torch.cuda.memory.change_current_allocator(rmm_torch_allocator)
         global _unified_memory_initialized
         _unified_memory_initialized = True

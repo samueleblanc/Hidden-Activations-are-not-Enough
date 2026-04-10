@@ -46,6 +46,8 @@ def parse_args():
     parser.add_argument("--total_chunks", type=int, default=8)
     parser.add_argument("--num_samples_per_class", type=int, default=100)
     parser.add_argument("--samples_per_attack", type=int, default=500)
+    parser.add_argument("--max_batch_size", type=int, default=8192,
+                        help="Upper bound for batch_size search (default: 8192)")
     parser.add_argument("--force", action="store_true", help="Force re-calibration even if calibration.json exists")
     return parser.parse_args()
 
@@ -128,13 +130,17 @@ def probe_batch_size(model, sample_input, batch_size, device):
         raise
 
 
-def find_optimal_batch_size(model, sample_input, device, target_utilization=0.85):
+def find_optimal_batch_size(model, sample_input, device, target_utilization=0.85,
+                            max_batch_size=8192):
     """
     Binary search for the largest batch_size that doesn't OOM.
 
     With RMM unified memory (GH200), torch.cuda.max_memory_allocated() is
     unreliable, so the search is purely OOM-based: success = no crash.
     Without RMM, the original peak-memory check is also applied.
+
+    A per-probe timeout detects performance cliffs (e.g., unified memory
+    page migration storms) and stops the search early.
     """
     from utils.unified_memory import is_unified_memory_active, get_total_memory_bytes
 
@@ -164,17 +170,36 @@ def find_optimal_batch_size(model, sample_input, device, target_utilization=0.85
     best_bs = 64
     best_peak = 0
     test_bs = 256
+    prev_probe_time = None
+    PROBE_SLOWDOWN_FACTOR = 3.0  # stop if probe takes >3x longer than previous
 
-    print("Phase 1: Finding upper bound...", flush=True)
-    while test_bs <= total_positions:
+    upper_limit = min(total_positions, max_batch_size)
+    # Large-input models (e.g. VGG 224x224, 150K positions) at high batch sizes
+    # trigger unified memory page migration storms that can crash the node.
+    if total_positions > 50000:
+        upper_limit = min(upper_limit, 4096)
+    print(f"Phase 1: Finding upper bound (cap={upper_limit})...", flush=True)
+    while test_bs <= upper_limit:
+        probe_start = time.time()
         success, peak = probe_batch_size(model, sample_input, test_bs, device)
+        probe_elapsed = time.time() - probe_start
+
         if is_acceptable(success, peak):
+            # Check for performance cliff (unified memory page migration storms)
+            if prev_probe_time is not None and probe_elapsed > prev_probe_time * PROBE_SLOWDOWN_FACTOR:
+                print(f"  batch_size={test_bs}: OK but {probe_elapsed:.1f}s "
+                      f"(>{PROBE_SLOWDOWN_FACTOR}x previous {prev_probe_time:.1f}s) — "
+                      f"performance cliff detected, stopping", flush=True)
+                break
+
             best_bs = test_bs
             best_peak = peak
             if unified:
-                print(f"  batch_size={test_bs}: OK", flush=True)
+                print(f"  batch_size={test_bs}: OK ({probe_elapsed:.1f}s)", flush=True)
             else:
-                print(f"  batch_size={test_bs}: OK (peak={peak/1e9:.2f} GB, {peak/hbm_memory*100:.1f}%)", flush=True)
+                print(f"  batch_size={test_bs}: OK (peak={peak/1e9:.2f} GB, "
+                      f"{peak/hbm_memory*100:.1f}%, {probe_elapsed:.1f}s)", flush=True)
+            prev_probe_time = probe_elapsed
             test_bs *= 2
         else:
             if success:
@@ -185,7 +210,7 @@ def find_optimal_batch_size(model, sample_input, device, target_utilization=0.85
 
     # Phase 2: binary search between best_bs and test_bs
     low = best_bs
-    high = min(test_bs, total_positions)
+    high = min(test_bs, upper_limit)
 
     print(f"Phase 2: Binary search [{low}, {high}]...", flush=True)
     while low <= high:
@@ -409,13 +434,22 @@ def main():
     model.eval()
     sample_input = sample_data[0].to(device)
     batch_size, peak_matrix_mem = find_optimal_batch_size(
-        model, sample_input, device, args.target_utilization
+        model, sample_input, device, args.target_utilization,
+        max_batch_size=args.max_batch_size
     )
 
     # --- Step 3: Time matrix computation ---
-    print("\n--- Step 3: Matrix computation timing ---", flush=True)
+    C, H, W = input_shape
+    total_positions = C * H * W
+    effective_timing_samples = args.timing_samples
+    if total_positions > 50000:
+        effective_timing_samples = min(args.timing_samples, 20)
+        print(f"\n--- Step 3: Matrix computation timing (reduced to {effective_timing_samples} "
+              f"samples for {total_positions} positions) ---", flush=True)
+    else:
+        print("\n--- Step 3: Matrix computation timing ---", flush=True)
     avg_time = time_matrix_computation(
-        model, sample_data, batch_size, device, args.timing_samples
+        model, sample_data, batch_size, device, effective_timing_samples
     )
 
     # --- Step 4: Calibrate adversarial attack timing ---

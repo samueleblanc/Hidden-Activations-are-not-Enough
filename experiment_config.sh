@@ -77,7 +77,7 @@ AUDIT_MEM="${AUDIT_MEM:-32G}"
 # Calibration
 CALIB_GPU="${CALIB_GPU:---gres=gpu:1}"
 CALIB_CPUS="${CALIB_CPUS:-4}"
-CALIB_TIME="${CALIB_TIME:-01:00:00}"
+CALIB_TIME="${CALIB_TIME:-03:00:00}"
 CALIB_MEM="${CALIB_MEM:-480G}"
 
 # ==============================================================
