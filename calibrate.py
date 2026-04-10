@@ -173,6 +173,7 @@ def find_optimal_batch_size(model, sample_input, device, target_utilization=0.85
     prev_probe_time = None
     cliff_detected = False
     PROBE_SLOWDOWN_FACTOR = 3.0  # stop if probe takes >3x longer than previous
+    probes = []  # (batch_size, time, peak_mem) for all successful probes
 
     upper_limit = min(total_positions, max_batch_size)
     # Large-input models (e.g. VGG 224x224, 150K positions) at high batch sizes
@@ -196,6 +197,7 @@ def find_optimal_batch_size(model, sample_input, device, target_utilization=0.85
 
             best_bs = test_bs
             best_peak = peak
+            probes.append((test_bs, probe_elapsed, peak))
             if unified:
                 print(f"  batch_size={test_bs}: OK ({probe_elapsed:.1f}s)", flush=True)
             else:
@@ -211,51 +213,75 @@ def find_optimal_batch_size(model, sample_input, device, target_utilization=0.85
             break
 
     # Phase 2: binary search between best_bs and test_bs
-    # When Phase 1 detected a cliff, also check timing to avoid selecting
-    # batch sizes above the HBM spill boundary.
-    reference_time = prev_probe_time  # last fast probe time from Phase 1
     low = best_bs
     high = min(test_bs, upper_limit)
 
-    print(f"Phase 2: Binary search [{low}, {high}]...", flush=True)
-    while low <= high:
-        mid = (low + high) // 2
-        if mid == best_bs:
-            break
+    if cliff_detected:
+        # Throughput-optimized search: find the fastest batch_size (min time/sample).
+        # Use Phase 1's best time as reference; reject probes that are too slow.
+        best_probe_time = min(t for _, t, _ in probes)
+        print(f"Phase 2: Throughput search [{low}, {high}] "
+              f"(best so far: {best_probe_time:.1f}s)...", flush=True)
+        while low <= high:
+            mid = (low + high) // 2
+            if mid == best_bs:
+                break
 
-        probe_start = time.time()
-        success, peak = probe_batch_size(model, sample_input, mid, device)
-        probe_elapsed = time.time() - probe_start
+            probe_start = time.time()
+            success, peak = probe_batch_size(model, sample_input, mid, device)
+            probe_elapsed = time.time() - probe_start
 
-        if is_acceptable(success, peak):
-            # Reject batch sizes that hit the performance cliff
-            if cliff_detected and reference_time and probe_elapsed > reference_time * PROBE_SLOWDOWN_FACTOR:
-                print(f"  batch_size={mid}: OK but {probe_elapsed:.1f}s "
-                      f"(>{PROBE_SLOWDOWN_FACTOR}x ref {reference_time:.1f}s) — "
-                      f"cliff, rejected", flush=True)
+            if not success:
+                print(f"  batch_size={mid}: OOM", flush=True)
                 high = mid - 1
                 continue
 
-            best_bs = mid
-            best_peak = peak
-            reference_time = probe_elapsed
-            if unified:
+            if probe_elapsed <= best_probe_time * PROBE_SLOWDOWN_FACTOR:
+                probes.append((mid, probe_elapsed, peak))
                 print(f"  batch_size={mid}: OK ({probe_elapsed:.1f}s)", flush=True)
+                low = mid + 1
             else:
-                print(f"  batch_size={mid}: OK (peak={peak/1e9:.2f} GB, "
-                      f"{peak/hbm_memory*100:.1f}%, {probe_elapsed:.1f}s)", flush=True)
-            low = mid + 1
-        else:
-            if success:
-                print(f"  batch_size={mid}: Over target (peak={peak/1e9:.2f} GB)", flush=True)
-            else:
-                print(f"  batch_size={mid}: OOM", flush=True)
-            high = mid - 1
+                print(f"  batch_size={mid}: {probe_elapsed:.1f}s "
+                      f"(>{PROBE_SLOWDOWN_FACTOR}x best {best_probe_time:.1f}s) — "
+                      f"rejected", flush=True)
+                high = mid - 1
 
-    if unified:
-        print(f"Optimal batch_size: {best_bs} (unified memory, OOM-based)", flush=True)
+        # Select the batch_size with the minimum probe time
+        fastest_bs, fastest_time, fastest_peak = min(probes, key=lambda x: x[1])
+        best_bs = fastest_bs
+        best_peak = fastest_peak
+        print(f"Optimal batch_size: {best_bs} (fastest: {fastest_time:.1f}s/sample)", flush=True)
+        print(f"  All probes: {[(bs, f'{t:.1f}s') for bs, t, _ in sorted(probes)]}", flush=True)
     else:
-        print(f"Optimal batch_size: {best_bs} (peak={best_peak/1e9:.2f} GB, {best_peak/hbm_memory*100:.1f}%)", flush=True)
+        # No cliff: find largest batch_size that doesn't OOM / exceed target
+        print(f"Phase 2: Binary search [{low}, {high}]...", flush=True)
+        while low <= high:
+            mid = (low + high) // 2
+            if mid == best_bs:
+                break
+
+            success, peak = probe_batch_size(model, sample_input, mid, device)
+            if is_acceptable(success, peak):
+                best_bs = mid
+                best_peak = peak
+                if unified:
+                    print(f"  batch_size={mid}: OK", flush=True)
+                else:
+                    print(f"  batch_size={mid}: OK (peak={peak/1e9:.2f} GB, "
+                          f"{peak/hbm_memory*100:.1f}%)", flush=True)
+                low = mid + 1
+            else:
+                if success:
+                    print(f"  batch_size={mid}: Over target (peak={peak/1e9:.2f} GB)", flush=True)
+                else:
+                    print(f"  batch_size={mid}: OOM", flush=True)
+                high = mid - 1
+
+        if unified:
+            print(f"Optimal batch_size: {best_bs} (unified memory, OOM-based)", flush=True)
+        else:
+            print(f"Optimal batch_size: {best_bs} (peak={best_peak/1e9:.2f} GB, "
+                  f"{best_peak/hbm_memory*100:.1f}%)", flush=True)
     return best_bs, best_peak
 
 
