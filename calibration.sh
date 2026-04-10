@@ -184,7 +184,7 @@ python calibrate.py \\
     --temp_dir \$SLURM_TMPDIR \\
     --target_utilization 0.93 \\
     --timing_samples 50 \\
-    --total_chunks 8 \\
+    --total_chunks 1 \\
     --num_samples_per_class 100 \\
     --samples_per_attack 500
 

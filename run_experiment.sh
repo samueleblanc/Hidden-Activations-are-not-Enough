@@ -32,8 +32,8 @@ set -euo pipefail
 ACCOUNT=""
 #GPU_ACCOUNT=""             # Override account for GPU jobs (defaults to ACCOUNT)
 #CPU_ACCOUNT=""             # Override account for CPU jobs (defaults to ACCOUNT)
-EXPERIMENTS=("alexnet_cifar10")
-TOTAL_CHUNKS=8
+EXPERIMENTS=("vgg_cifar10")
+TOTAL_CHUNKS=1
 BATCH_SIZE=1800
 NUM_SAMPLES_PER_CLASS=500
 SAMPLES_PER_ATTACK=500

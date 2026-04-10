@@ -14,8 +14,8 @@
 # ==============================================================
 
 # --- User-configurable variables ---
-export EXPERIMENT="alexnet_cifar10"
-export TOTAL_CHUNKS=8
+export EXPERIMENT="vgg_cifar10"
+export TOTAL_CHUNKS=1
 ENV_NAME="env"
 
 set -euo pipefail

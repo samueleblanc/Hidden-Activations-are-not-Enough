@@ -17,7 +17,7 @@ GPU_ACCOUNT="${GPU_ACCOUNT:-}"              # Account for GPU jobs (defaults to 
 CPU_ACCOUNT="${CPU_ACCOUNT:-}"              # Account for CPU jobs (defaults to ACCOUNT if empty)
 PARTITION="${PARTITION:-gh-aria}"            # SLURM partition
 PROJECT_DIR="${PROJECT_DIR:-/net/nfs-iq/home-gh/armenta/Hidden-Activations-are-not-Enough}"
-TOTAL_CHUNKS="${TOTAL_CHUNKS:-8}"
+TOTAL_CHUNKS="${TOTAL_CHUNKS:-1}"
 BATCH_SIZE="${BATCH_SIZE:-1800}"
 NUM_SAMPLES_PER_CLASS="${NUM_SAMPLES_PER_CLASS:--1}"      # -1 = use all available samples per class
 SAMPLES_PER_ATTACK="${SAMPLES_PER_ATTACK:-500}"
@@ -84,7 +84,7 @@ CALIB_MEM="${CALIB_MEM:-32G}"
 # Experiments to process (overridable)
 # ==============================================================
 if [ -z "${EXPERIMENTS+x}" ]; then
-    EXPERIMENTS=("alexnet_cifar10")
+    EXPERIMENTS=("vgg_cifar10")
 fi
 
 # --- Resolve per-type accounts (default to ACCOUNT) ---

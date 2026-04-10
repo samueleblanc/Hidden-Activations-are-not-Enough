@@ -36,7 +36,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Generate a pipeline run report.")
     parser.add_argument("--experiment", type=str, required=True)
     parser.add_argument("--test", action="store_true", default=False)
-    parser.add_argument("--total-chunks", type=int, default=8)
+    parser.add_argument("--total-chunks", type=int, default=1)
     return parser.parse_args()
 
 
