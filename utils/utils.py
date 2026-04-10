@@ -851,26 +851,28 @@ def subset(
     return exp_dataset, exp_labels
 
 
-def zip_and_cleanup(
+def tar_and_cleanup(
         src_directory: str,
-        zip_filename: str,
+        tar_filename: str,
         clean:bool = True
     ) -> None:
     """
         Args:
             src_directory: the source directory.
-            zip_filename: the filename of the zip file.
+            tar_filename: the filename of the tar file.
             clean: whether to clean the source directory.
     """
-    from utils.data_integrity import zip_and_verify
+    from utils.data_integrity import tar_and_verify
 
-    print("Zipping and verifying...", flush=True)
-    result = zip_and_verify(src_directory, zip_filename, cleanup=clean)
+    print("Archiving and verifying...", flush=True)
+    result = tar_and_verify(src_directory, tar_filename, cleanup=clean)
     if not result["success"]:
-        print(f"WARNING: zip_and_verify failed: {result['errors']}", flush=True)
+        print(f"WARNING: tar_and_verify failed: {result['errors']}", flush=True)
         # Fallback to old behavior
-        print("Falling back to shutil.make_archive...", flush=True)
-        shutil.make_archive(zip_filename, 'zip', src_directory)
+        print("Falling back to tarfile.open...", flush=True)
+        import tarfile
+        with tarfile.open(tar_filename, 'w') as tf:
+            tf.add(src_directory, arcname=os.path.basename(src_directory))
         if clean:
             for root, dirs, files in os.walk(src_directory, topdown=False):
                 for name in files:
@@ -878,7 +880,7 @@ def zip_and_cleanup(
                 for name in dirs:
                     os.rmdir(os.path.join(root, name))
     else:
-        print(f"Zip verified: {result['file_count']} files in {result['zip_path']}", flush=True)
+        print(f"Tar verified: {result['file_count']} files in {result['tar_path']}", flush=True)
 
 def get_parameters_baseline(dataset):
     param_sets = {

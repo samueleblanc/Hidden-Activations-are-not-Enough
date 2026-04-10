@@ -612,8 +612,8 @@ def run_comparison(experiment_name, temp_dir=None, svd_ablation=False,
     if train_matrices is None or len(train_matrices) == 0:
         raise RuntimeError(
             f"FATAL: No training matrices found at {Path(base) / 'matrices'}. "
-            f"Step 2a output is missing or zip extraction failed. "
-            f"Check that matrices_task_*.zip files exist and were extracted."
+            f"Step 2a output is missing or tar extraction failed. "
+            f"Check that matrices_task_*.tar files exist and were extracted."
         )
     else:
         print(f"    Shape: {train_matrices.shape}  ({cost_matrix_time:.1f}s)", flush=True)

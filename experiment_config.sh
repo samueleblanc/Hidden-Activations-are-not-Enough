@@ -18,7 +18,7 @@ CPU_ACCOUNT="${CPU_ACCOUNT:-}"              # Account for CPU jobs (defaults to 
 PARTITION="${PARTITION:-gh-aria}"            # SLURM partition
 PROJECT_DIR="${PROJECT_DIR:-/net/nfs-iq/home-gh/armenta/Hidden-Activations-are-not-Enough}"
 TOTAL_CHUNKS="${TOTAL_CHUNKS:-1}"
-BATCH_SIZE="${BATCH_SIZE:-1800}"
+BATCH_SIZE="${BATCH_SIZE:-8192}"
 NUM_SAMPLES_PER_CLASS="${NUM_SAMPLES_PER_CLASS:--1}"      # -1 = use all available samples per class
 SAMPLES_PER_ATTACK="${SAMPLES_PER_ATTACK:-500}"
 TEST_SIZE="${TEST_SIZE:--1}"
@@ -39,32 +39,32 @@ MAX_SENTINEL_CYCLES="${MAX_SENTINEL_CYCLES:-5}"  # Max whole-pipeline re-launch 
 # Step A (GPU training)
 A_GPU="${A_GPU:---gres=gpu:1}"
 A_CPUS="${A_CPUS:-4}"
-A_TIME="${A_TIME:-02:00:00}"
+A_TIME="${A_TIME:-06:00:00}"
 A_MEM="${A_MEM:-32G}"
 # Step B
 B_GPU="${B_GPU:---gres=gpu:1}"
 B_CPUS="${B_CPUS:-12}"
-B_TIME="${B_TIME:-02:00:00}"
+B_TIME="${B_TIME:-16:00:00}"
 B_MEM="${B_MEM:-128G}"
 # Step C (all attacks run sequentially in a single job)
 C_GPU="${C_GPU:---gres=gpu:1}"
 C_CPUS="${C_CPUS:-4}"
-C_TIME="${C_TIME:-08:00:00}"
+C_TIME="${C_TIME:-12:00:00}"
 C_MEM="${C_MEM:-32G}"
 # Step D (Adv Matrices)
 D_GPU="${D_GPU:---gres=gpu:1}"
 D_CPUS="${D_CPUS:-12}"
-D_TIME="${D_TIME:-12:00:00}"
+D_TIME="${D_TIME:-48:00:00}"
 D_MEM="${D_MEM:-128G}"
 # Step E (Representation Comparison - GPU)
 E_GPU="${E_GPU:---gres=gpu:1}"
 E_CPUS="${E_CPUS:-8}"
-E_TIME="${E_TIME:-08:00:00}"
+E_TIME="${E_TIME:-12:00:00}"
 E_MEM="${E_MEM:-128G}"
 # Step G (Theorem 4.5 Validation - GPU)
 G_GPU="${G_GPU:---gres=gpu:1}"
 G_CPUS="${G_CPUS:-4}"
-G_TIME="${G_TIME:-06:00:00}"
+G_TIME="${G_TIME:-12:00:00}"
 G_MEM="${G_MEM:-64G}"
 # Step F (LaTeX Tables - CPU-only, lightweight)
 F_CPUS="${F_CPUS:-2}"

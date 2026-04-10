@@ -2,7 +2,7 @@
 
 #SBATCH --account=def-assem #account to charge the calculation
 #SBATCH --time=09:00:00 #hour:minutes:seconds
-#SBATCH --array=0-7
+#SBATCH --array=0-0
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=180G #memory requested
@@ -10,7 +10,7 @@
 #SBATCH --error=slurm_err/D_rej_lev_%A_%a.err
 
 EXPERIMENT="vgg_cifar100"
-ZIP_OUTPUT_FILE="matrices_task_$SLURM_ARRAY_TASK_ID.zip"
+TAR_OUTPUT_FILE="matrices_task_$SLURM_ARRAY_TASK_ID.tar"
 # Create output and error directories if they don't exist
 mkdir -p $SLURM_SUBMIT_DIR/slurm_out
 mkdir -p $SLURM_SUBMIT_DIR/slurm_err
@@ -45,14 +45,14 @@ if [ -f "$EXPERIMENT_DATA_LABELS" ]; then
     cp "$EXPERIMENT_DATA_LABELS" "$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/exp_dataset_labels.pth" || { echo "Failed to copy file"; exit 1; }
 fi
 
-# If matrices.zip exists on permanent storage, copy and unzip into tmp
-ZIP_FILE="$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/rejection_levels/matrices_task_$SLURM_ARRAY_TASK_ID.zip"
-if [ -f "$ZIP_FILE" ]; then
-    echo "Found existing zip file: $ZIP_FILE"
-    cp "$ZIP_FILE" "$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/"
+# If matrices.tar exists on permanent storage, copy and extract into tmp
+TAR_FILE="$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/rejection_levels/matrices_task_$SLURM_ARRAY_TASK_ID.tar"
+if [ -f "$TAR_FILE" ]; then
+    echo "Found existing tar file: $TAR_FILE"
+    cp "$TAR_FILE" "$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/"
     cd "$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/"
-    unzip -o $ZIP_OUTPUT_FILE
-    echo "Unzipped existing matrices"
+    tar xf $TAR_OUTPUT_FILE
+    echo "Extracted existing matrices"
     cd -
 fi
 
@@ -81,37 +81,37 @@ echo "Starting worker for chunk $SLURM_ARRAY_TASK_ID on CUDA_VISIBLE_DEVICES=$CU
 timeout 8h python compute_matrices_for_rejection_level.py \
     --experiment_name $EXPERIMENT \
     --temp_dir $SLURM_TMPDIR \
-    --batch_size 1800 \
+    --batch_size 8192 \
     --chunk_id $SLURM_ARRAY_TASK_ID \
-    --total_chunks 8 \
+    --total_chunks 1 \
 
-# Zip matrices directory
+# Create tar archive of matrices directory
 MATRICES_DIR="$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/matrices"
-ZIP_OUTPUT_DIR="$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels"
+TAR_OUTPUT_DIR="$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels"
 
 if [ -d "$MATRICES_DIR" ]; then
-    echo "Zipping matrices from $MATRICES_DIR ..."
-    cd "$ZIP_OUTPUT_DIR" || { echo "Failed to cd to $ZIP_OUTPUT_DIR"; }
-    zip -r $ZIP_OUTPUT_FILE matrices || echo "Zip failed"
+    echo "Creating tar archive from $MATRICES_DIR ..."
+    cd "$TAR_OUTPUT_DIR" || { echo "Failed to cd to $TAR_OUTPUT_DIR"; }
+    tar cf $TAR_OUTPUT_FILE matrices || echo "Tar failed"
 
-    # Verify the zip
+    # Verify the tar
     cd $SLURM_SUBMIT_DIR
-    python -m utils.data_integrity --verify-zip $ZIP_OUTPUT_DIR/$ZIP_OUTPUT_FILE || echo "Zip verification failed"
+    python -m utils.data_integrity --verify-tar $TAR_OUTPUT_DIR/$TAR_OUTPUT_FILE || echo "Tar verification failed"
     cd - >/dev/null || true
 else
-    echo "No matrices directory found at $MATRICES_DIR, skipping zipping"
+    echo "No matrices directory found at $MATRICES_DIR, skipping tar"
 fi
 
-# Copy the zip file back to HOME_DIR (permanent storage)
-TEMP_ZIP="$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/$ZIP_OUTPUT_FILE"
+# Copy the tar file back to HOME_DIR (permanent storage)
+TEMP_TAR="$SLURM_TMPDIR/experiments/$EXPERIMENT/rejection_levels/$TAR_OUTPUT_FILE"
 DEST_DIR="$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/rejection_levels/"
 mkdir -p $DEST_DIR
-if [ -f "$TEMP_ZIP" ]; then
-    echo "Copying zip file $TEMP_ZIP to $DEST_DIR"
+if [ -f "$TEMP_TAR" ]; then
+    echo "Copying tar file $TEMP_TAR to $DEST_DIR"
     mkdir -p "$DEST_DIR"
-    cp "$TEMP_ZIP" "$DEST_DIR" || { echo "Failed to copy zip file"; exit 1; }
+    cp "$TEMP_TAR" "$DEST_DIR" || { echo "Failed to copy tar file"; exit 1; }
 else
-    echo "No zip file to copy from temp dir ($TEMP_ZIP)"
+    echo "No tar file to copy from temp dir ($TEMP_TAR)"
 fi
 
 echo "Job completed"

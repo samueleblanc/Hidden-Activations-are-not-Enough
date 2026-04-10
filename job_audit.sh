@@ -122,15 +122,15 @@ reason_a = []
 if recover_a:
     reason_a.append(f"weights: {weights_status}")
 
-# Step B: matrices_task_*.zip
+# Step B: matrices_task_*.tar
 recover_b = False
 recover_b_chunks = []
 reason_b = []
-for i, entry in enumerate(report["steps"]["matrices_zips"]):
+for i, entry in enumerate(report["steps"]["matrices_tars"]):
     if entry["status"] != "OK":
         recover_b = True
         recover_b_chunks.append(str(i))
-        reason_b.append(f"matrices_task_{i}.zip: {entry['status']}")
+        reason_b.append(f"matrices_task_{i}.tar: {entry['status']}")
 
 # Step C: adversarial_examples
 recover_c = False
@@ -141,15 +141,15 @@ for entry in report["steps"]["adversarial_examples"]:
         fname = os.path.basename(os.path.dirname(entry["path"]))
         reason_c.append(f"adversarial_examples/{fname}: {entry['status']}")
 
-# Step D: adv_matrices_task_*.zip
+# Step D: adv_matrices_task_*.tar
 recover_d = False
 recover_d_chunks = []
 reason_d = []
-for i, entry in enumerate(report["steps"]["adv_matrices_zips"]):
+for i, entry in enumerate(report["steps"]["adv_matrices_tars"]):
     if entry["status"] != "OK":
         recover_d = True
         recover_d_chunks.append(str(i))
-        reason_d.append(f"adv_matrices_task_{i}.zip: {entry['status']}")
+        reason_d.append(f"adv_matrices_task_{i}.tar: {entry['status']}")
 
 # Step E: representation comparison
 comparison_path = os.path.join(experiment_dir, "comparison", "representation_comparison.json")

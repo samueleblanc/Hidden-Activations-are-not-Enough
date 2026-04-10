@@ -33,8 +33,8 @@ ACCOUNT=""
 #GPU_ACCOUNT=""             # Override account for GPU jobs (defaults to ACCOUNT)
 #CPU_ACCOUNT=""             # Override account for CPU jobs (defaults to ACCOUNT)
 EXPERIMENTS=("vgg_cifar10")
-TOTAL_CHUNKS=8
-BATCH_SIZE=1800
+TOTAL_CHUNKS=1
+BATCH_SIZE=8192
 NUM_SAMPLES_PER_CLASS=500
 SAMPLES_PER_ATTACK=500
 #TEST_SIZE=-1               # -1 = use full data
@@ -73,7 +73,7 @@ fi
 if [ "$TEST_MODE" = "true" ]; then
     echo "[TEST MODE] Using small sample sizes and short time limits."
     TOTAL_CHUNKS=1
-    BATCH_SIZE=1800
+    BATCH_SIZE=8192
     NUM_SAMPLES_PER_CLASS=10
     SAMPLES_PER_ATTACK=10
     TEST_SIZE=100
@@ -490,10 +490,10 @@ $COPY_DATA
 mkdir -p \$TEMP_DIR/experiments/\$EXPERIMENT/weights/
 cp \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/weights/* \$TEMP_DIR/experiments/\$EXPERIMENT/weights/
 
-ZIP_FILE=\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/matrices_task_\$TASK_ID.zip
-if [ -f "\$ZIP_FILE" ]; then
-    cp "\$ZIP_FILE" "\$TEMP_DIR/experiments/\$EXPERIMENT/"
-    unzip -o "\$TEMP_DIR/experiments/\$EXPERIMENT/matrices_task_\$TASK_ID.zip" -d "\$TEMP_DIR/experiments/\$EXPERIMENT/"
+TAR_FILE=\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/matrices_task_\$TASK_ID.tar
+if [ -f "\$TAR_FILE" ]; then
+    cp "\$TAR_FILE" "\$TEMP_DIR/experiments/\$EXPERIMENT/"
+    tar xf "\$TEMP_DIR/experiments/\$EXPERIMENT/matrices_task_\$TASK_ID.tar" -C "\$TEMP_DIR/experiments/\$EXPERIMENT/"
 fi
 
 BATCH_SIZE=$BATCH_SIZE
@@ -527,9 +527,9 @@ incremental_save() {
             echo "[INCREMENTAL] \$CURRENT matrices (\$((CURRENT - LAST_SAVED_COUNT)) new). Saving..."
             sleep 2
             cd "\$TEMP_DIR/experiments/\$EXPERIMENT"
-            zip -rq "matrices_task_\$TASK_ID.zip" matrices 2>/dev/null || { echo "[INCREMENTAL] zip failed"; cd -; continue; }
-            cp "matrices_task_\$TASK_ID.zip" "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/matrices_task_\$TASK_ID.zip.tmp" 2>/dev/null && \
-            mv "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/matrices_task_\$TASK_ID.zip.tmp" "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/matrices_task_\$TASK_ID.zip" 2>/dev/null || \
+            tar cf "matrices_task_\$TASK_ID.tar" matrices 2>/dev/null || { echo "[INCREMENTAL] tar failed"; cd -; continue; }
+            cp "matrices_task_\$TASK_ID.tar" "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/matrices_task_\$TASK_ID.tar.tmp" 2>/dev/null && \
+            mv "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/matrices_task_\$TASK_ID.tar.tmp" "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/matrices_task_\$TASK_ID.tar" 2>/dev/null || \
             { echo "[INCREMENTAL] copy failed"; cd -; continue; }
             printf '{"status":"partial","completed":%d,"total":%d,"timestamp":"%s"}\n' \
                 "\$CURRENT" "$B_CHUNK_TOTAL" "\$(date -Iseconds)" > "\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints/step_B_chunk_${CHUNK}.json"
@@ -548,9 +548,9 @@ emergency_save() {
     kill \$MONITOR_PID 2>/dev/null || true
     sleep 2
     cd "\$TEMP_DIR/experiments/\$EXPERIMENT"
-    zip -rq "matrices_task_\$TASK_ID.zip" matrices 2>/dev/null || true
-    cp "matrices_task_\$TASK_ID.zip" "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/matrices_task_\$TASK_ID.zip.tmp" 2>/dev/null && \
-    mv "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/matrices_task_\$TASK_ID.zip.tmp" "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/matrices_task_\$TASK_ID.zip" 2>/dev/null || true
+    tar cf "matrices_task_\$TASK_ID.tar" matrices 2>/dev/null || true
+    cp "matrices_task_\$TASK_ID.tar" "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/matrices_task_\$TASK_ID.tar.tmp" 2>/dev/null && \
+    mv "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/matrices_task_\$TASK_ID.tar.tmp" "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/matrices_task_\$TASK_ID.tar" 2>/dev/null || true
     COMPLETED=\$(find "\$TEMP_DIR/experiments/\$EXPERIMENT/matrices" -name "matrix.pt" 2>/dev/null | wc -l)
     printf '{"status":"partial","completed":%d,"total":%d,"timestamp":"%s"}\n' \
         "\$COMPLETED" "$B_CHUNK_TOTAL" "\$(date -Iseconds)" > "\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints/step_B_chunk_${CHUNK}.json"
@@ -577,12 +577,12 @@ kill \$MONITOR_PID 2>/dev/null || true
 trap - USR1
 
 cd \$TEMP_DIR/experiments/\$EXPERIMENT
-zip -r matrices_task_\$TASK_ID.zip matrices || { echo "Zipping failed"; exit 1; }
+tar cf matrices_task_\$TASK_ID.tar matrices || { echo "Creating tar archive failed"; exit 1; }
 
 cd \$SLURM_SUBMIT_DIR
-python -m utils.data_integrity --verify-zip \$TEMP_DIR/experiments/\$EXPERIMENT/matrices_task_\$TASK_ID.zip || { echo "Zip verification failed"; exit 1; }
+python -m utils.data_integrity --verify-tar \$TEMP_DIR/experiments/\$EXPERIMENT/matrices_task_\$TASK_ID.tar || { echo "Tar verification failed"; exit 1; }
 
-cp \$TEMP_DIR/experiments/\$EXPERIMENT/matrices_task_\$TASK_ID.zip \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/ || { echo "Copy failed"; exit 1; }
+cp \$TEMP_DIR/experiments/\$EXPERIMENT/matrices_task_\$TASK_ID.tar \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/ || { echo "Copy failed"; exit 1; }
 echo "Step B chunk $CHUNK complete for $EXP."
 
 # Write checkpoint
@@ -619,11 +619,11 @@ STEPB_EOF
             sed -i "s|#SBATCH --time=.*|#SBATCH --time=$B_TIME|" "$JOB_DIR/step_B_chunk_${CHUNK}.sh"
             rm -f "$CKPT_B"
         fi
-        if [ "$B_STATUS" = "complete" ] && [ -f "experiments/$EXP/matrices_task_${CHUNK}.zip" ]; then
+        if [ "$B_STATUS" = "complete" ] && [ -f "experiments/$EXP/matrices_task_${CHUNK}.tar" ]; then
             echo "  [B] Matrices chunk $CHUNK: SKIPPED (complete)"
             continue
         elif [ "$B_STATUS" = "complete" ]; then
-            echo "  [B] WARNING: Checkpoint complete but matrices_task_${CHUNK}.zip missing. Invalidating."
+            echo "  [B] WARNING: Checkpoint complete but matrices_task_${CHUNK}.tar missing. Invalidating."
             rm -f "$CKPT_B"
             B_STATUS="missing"
         fi
@@ -826,10 +826,10 @@ cp \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/weights/* \$SLURM_TMPDIR/experime
 mkdir -p \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adversarial_examples/
 tar cf - -C \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adversarial_examples . | tar xf - -C \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adversarial_examples
 
-ZIP_FILE="\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adv_matrices_task_\$TASK_ID.zip"
-if [ -f "\$ZIP_FILE" ]; then
-    cp "\$ZIP_FILE" "\$SLURM_TMPDIR/experiments/\$EXPERIMENT/"
-    unzip -o "\$SLURM_TMPDIR/experiments/\$EXPERIMENT/adv_matrices_task_\$TASK_ID.zip" -d "\$SLURM_TMPDIR/experiments/\$EXPERIMENT/"
+TAR_FILE="\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adv_matrices_task_\$TASK_ID.tar"
+if [ -f "\$TAR_FILE" ]; then
+    cp "\$TAR_FILE" "\$SLURM_TMPDIR/experiments/\$EXPERIMENT/"
+    tar xf "\$SLURM_TMPDIR/experiments/\$EXPERIMENT/adv_matrices_task_\$TASK_ID.tar" -C "\$SLURM_TMPDIR/experiments/\$EXPERIMENT/"
 fi
 
 BATCH_SIZE=$BATCH_SIZE
@@ -863,9 +863,9 @@ incremental_save() {
             echo "[INCREMENTAL] \$CURRENT matrices (\$((CURRENT - LAST_SAVED_COUNT)) new). Saving..."
             sleep 2
             cd "\$SLURM_TMPDIR/experiments/\$EXPERIMENT"
-            zip -rq "adv_matrices_task_\$TASK_ID.zip" adversarial_matrices 2>/dev/null || { echo "[INCREMENTAL] zip failed"; cd -; continue; }
-            cp "adv_matrices_task_\$TASK_ID.zip" "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adv_matrices_task_\$TASK_ID.zip.tmp" 2>/dev/null && \
-            mv "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adv_matrices_task_\$TASK_ID.zip.tmp" "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adv_matrices_task_\$TASK_ID.zip" 2>/dev/null || \
+            tar cf "adv_matrices_task_\$TASK_ID.tar" adversarial_matrices 2>/dev/null || { echo "[INCREMENTAL] tar failed"; cd -; continue; }
+            cp "adv_matrices_task_\$TASK_ID.tar" "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adv_matrices_task_\$TASK_ID.tar.tmp" 2>/dev/null && \
+            mv "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adv_matrices_task_\$TASK_ID.tar.tmp" "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adv_matrices_task_\$TASK_ID.tar" 2>/dev/null || \
             { echo "[INCREMENTAL] copy failed"; cd -; continue; }
             printf '{"status":"partial","completed":%d,"total":%d,"timestamp":"%s"}\n' \
                 "\$CURRENT" "$D_CHUNK_TOTAL" "\$(date -Iseconds)" > "\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints/step_D_chunk_${CHUNK}.json"
@@ -884,9 +884,9 @@ emergency_save() {
     kill \$MONITOR_PID 2>/dev/null || true
     sleep 2
     cd "\$SLURM_TMPDIR/experiments/\$EXPERIMENT"
-    zip -rq "adv_matrices_task_\$TASK_ID.zip" adversarial_matrices 2>/dev/null || true
-    cp "adv_matrices_task_\$TASK_ID.zip" "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adv_matrices_task_\$TASK_ID.zip.tmp" 2>/dev/null && \
-    mv "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adv_matrices_task_\$TASK_ID.zip.tmp" "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adv_matrices_task_\$TASK_ID.zip" 2>/dev/null || true
+    tar cf "adv_matrices_task_\$TASK_ID.tar" adversarial_matrices 2>/dev/null || true
+    cp "adv_matrices_task_\$TASK_ID.tar" "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adv_matrices_task_\$TASK_ID.tar.tmp" 2>/dev/null && \
+    mv "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adv_matrices_task_\$TASK_ID.tar.tmp" "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adv_matrices_task_\$TASK_ID.tar" 2>/dev/null || true
     COMPLETED=\$(find "\$SLURM_TMPDIR/experiments/\$EXPERIMENT/adversarial_matrices" -name "matrix.pth" 2>/dev/null | wc -l)
     printf '{"status":"partial","completed":%d,"total":%d,"timestamp":"%s"}\n' \
         "\$COMPLETED" "$D_CHUNK_TOTAL" "\$(date -Iseconds)" > "\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints/step_D_chunk_${CHUNK}.json"
@@ -919,12 +919,12 @@ kill \$MONITOR_PID 2>/dev/null || true
 trap - USR1
 
 cd \$SLURM_TMPDIR/experiments/\$EXPERIMENT/
-zip -r adv_matrices_task_\$TASK_ID.zip adversarial_matrices/ || { echo "Zipping failed"; exit 1; }
+tar cf adv_matrices_task_\$TASK_ID.tar adversarial_matrices/ || { echo "Creating tar archive failed"; exit 1; }
 
 cd \$SLURM_SUBMIT_DIR
-python -m utils.data_integrity --verify-zip \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adv_matrices_task_\$TASK_ID.zip || { echo "Zip verification failed"; exit 1; }
+python -m utils.data_integrity --verify-tar \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adv_matrices_task_\$TASK_ID.tar || { echo "Tar verification failed"; exit 1; }
 
-cp \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adv_matrices_task_\$TASK_ID.zip \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/ || { echo "Copy failed"; exit 1; }
+cp \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adv_matrices_task_\$TASK_ID.tar \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/ || { echo "Copy failed"; exit 1; }
 echo "Step D chunk $CHUNK complete for $EXP."
 
 # Write checkpoint
@@ -961,11 +961,11 @@ STEPD_EOF
             sed -i "s|#SBATCH --time=.*|#SBATCH --time=$D_TIME|" "$JOB_DIR/step_D_chunk_${CHUNK}.sh"
             rm -f "$CKPT_D"
         fi
-        if [ "$D_STATUS" = "complete" ] && [ -f "experiments/$EXP/adv_matrices_task_${CHUNK}.zip" ]; then
+        if [ "$D_STATUS" = "complete" ] && [ -f "experiments/$EXP/adv_matrices_task_${CHUNK}.tar" ]; then
             echo "  [D] Adv matrices chunk $CHUNK: SKIPPED (complete)"
             continue
         elif [ "$D_STATUS" = "complete" ]; then
-            echo "  [D] WARNING: Checkpoint complete but adv_matrices_task_${CHUNK}.zip missing. Invalidating."
+            echo "  [D] WARNING: Checkpoint complete but adv_matrices_task_${CHUNK}.tar missing. Invalidating."
             rm -f "$CKPT_D"
             D_STATUS="missing"
         fi
@@ -1039,12 +1039,12 @@ $COPY_DATA
 mkdir -p \$SLURM_TMPDIR/experiments/\$EXPERIMENT/weights/
 cp \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/weights/* \$SLURM_TMPDIR/experiments/\$EXPERIMENT/weights/
 
-# Unzip training matrices (all B chunks)
+# Extract training matrices (all B chunks)
 mkdir -p \$SLURM_TMPDIR/experiments/\$EXPERIMENT/matrices/
 for i in \$(seq 0 $((TOTAL_CHUNKS - 1))); do
-    if [ -f "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/matrices_task_\$i.zip" ]; then
-        cp \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/matrices_task_\$i.zip \$SLURM_TMPDIR/experiments/\$EXPERIMENT/
-        unzip -o \$SLURM_TMPDIR/experiments/\$EXPERIMENT/matrices_task_\$i.zip -d \$SLURM_TMPDIR/experiments/\$EXPERIMENT/
+    if [ -f "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/matrices_task_\$i.tar" ]; then
+        cp \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/matrices_task_\$i.tar \$SLURM_TMPDIR/experiments/\$EXPERIMENT/
+        tar xf \$SLURM_TMPDIR/experiments/\$EXPERIMENT/matrices_task_\$i.tar -C \$SLURM_TMPDIR/experiments/\$EXPERIMENT/
     fi
 done
 
@@ -1052,12 +1052,12 @@ done
 mkdir -p \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adversarial_examples/
 cp -r \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adversarial_examples/* \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adversarial_examples/ 2>/dev/null || true
 
-# Unzip adversarial matrices (all D chunks)
+# Extract adversarial matrices (all D chunks)
 mkdir -p \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adversarial_matrices/
 for i in \$(seq 0 $((TOTAL_CHUNKS - 1))); do
-    if [ -f "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adv_matrices_task_\$i.zip" ]; then
-        cp \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adv_matrices_task_\$i.zip \$SLURM_TMPDIR/experiments/\$EXPERIMENT/
-        unzip -o \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adv_matrices_task_\$i.zip -d \$SLURM_TMPDIR/experiments/\$EXPERIMENT/
+    if [ -f "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adv_matrices_task_\$i.tar" ]; then
+        cp \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adv_matrices_task_\$i.tar \$SLURM_TMPDIR/experiments/\$EXPERIMENT/
+        tar xf \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adv_matrices_task_\$i.tar -C \$SLURM_TMPDIR/experiments/\$EXPERIMENT/
     fi
 done
 
@@ -1065,18 +1065,18 @@ done
 TRAIN_MAT_COUNT=\$(find \$SLURM_TMPDIR/experiments/\$EXPERIMENT/matrices/ -name "matrix.pt" 2>/dev/null | wc -l)
 echo "Training matrices found: \$TRAIN_MAT_COUNT"
 if [ "\$TRAIN_MAT_COUNT" -eq 0 ]; then
-    echo "ERROR: No training matrices found after zip extraction!"
-    echo "Check that matrices_task_*.zip files exist in experiments/\$EXPERIMENT/"
-    ls -la \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/matrices_task_*.zip 2>/dev/null || echo "  No zip files found!"
+    echo "ERROR: No training matrices found after tar extraction!"
+    echo "Check that matrices_task_*.tar files exist in experiments/\$EXPERIMENT/"
+    ls -la \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/matrices_task_*.tar 2>/dev/null || echo "  No tar files found!"
     exit 1
 fi
 
 ADV_MAT_COUNT=\$(find \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adversarial_matrices/ -name "matrix.pth" 2>/dev/null | wc -l)
 echo "Adversarial matrices found: \$ADV_MAT_COUNT"
 if [ "\$ADV_MAT_COUNT" -eq 0 ]; then
-    echo "ERROR: No adversarial matrices found after zip extraction!"
-    echo "Check that adv_matrices_task_*.zip files exist in experiments/\$EXPERIMENT/"
-    ls -la \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adv_matrices_task_*.zip 2>/dev/null || echo "  No zip files found!"
+    echo "ERROR: No adversarial matrices found after tar extraction!"
+    echo "Check that adv_matrices_task_*.tar files exist in experiments/\$EXPERIMENT/"
+    ls -la \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adv_matrices_task_*.tar 2>/dev/null || echo "  No tar files found!"
     exit 1
 fi
 
@@ -1830,11 +1830,11 @@ if not recover_a:
             reason_a.append(f"weights/epoch_{_epochs}.pth missing (training incomplete)")
 
 recover_b = False; recover_b_chunks = []; reason_b = []
-for i, entry in enumerate(report["steps"]["matrices_zips"]):
+for i, entry in enumerate(report["steps"]["matrices_tars"]):
     if entry["status"] != "OK":
         recover_b = True
         recover_b_chunks.append(str(i))
-        reason_b.append(f"matrices_task_{i}.zip: {entry['status']}")
+        reason_b.append(f"matrices_task_{i}.tar: {entry['status']}")
 
 recover_c = False; recover_c_attacks = []; reason_c = []
 for entry in report["steps"]["adversarial_examples"]:
@@ -1845,11 +1845,11 @@ for entry in report["steps"]["adversarial_examples"]:
         reason_c.append(f"adversarial_examples/{fname}: {entry['status']}")
 
 recover_d = False; recover_d_chunks = []; reason_d = []
-for i, entry in enumerate(report["steps"]["adv_matrices_zips"]):
+for i, entry in enumerate(report["steps"]["adv_matrices_tars"]):
     if entry["status"] != "OK":
         recover_d = True
         recover_d_chunks.append(str(i))
-        reason_d.append(f"adv_matrices_task_{i}.zip: {entry['status']}")
+        reason_d.append(f"adv_matrices_task_{i}.tar: {entry['status']}")
 
 # --- Propagate dependencies ---
 if recover_a:
@@ -2129,10 +2129,10 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 $COPY_DATA
 mkdir -p \$SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
 cp \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/weights/* \$SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
-ZIP_FILE=\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/matrices_task_${CHUNK}.zip
-if [ -f "\$ZIP_FILE" ]; then
-    cp "\$ZIP_FILE" "\$SLURM_TMPDIR/experiments/$EXPERIMENT/"
-    unzip -o "\$SLURM_TMPDIR/experiments/$EXPERIMENT/matrices_task_${CHUNK}.zip" -d "\$SLURM_TMPDIR/experiments/$EXPERIMENT/"
+TAR_FILE=\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/matrices_task_${CHUNK}.tar
+if [ -f "\$TAR_FILE" ]; then
+    cp "\$TAR_FILE" "\$SLURM_TMPDIR/experiments/$EXPERIMENT/"
+    tar xf "\$SLURM_TMPDIR/experiments/$EXPERIMENT/matrices_task_${CHUNK}.tar" -C "\$SLURM_TMPDIR/experiments/$EXPERIMENT/"
 fi
 BATCH_SIZE=$BATCH_SIZE
 CALIB_FILE="\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/calibration.json"
@@ -2163,10 +2163,10 @@ if [ \$PY_EXIT -ne 0 ]; then
     exit 1
 fi
 cd \$SLURM_TMPDIR/experiments/$EXPERIMENT
-zip -r matrices_task_${CHUNK}.zip matrices || { echo "Zip failed"; exit 1; }
+tar cf matrices_task_${CHUNK}.tar matrices || { echo "Tar failed"; exit 1; }
 cd \$SLURM_SUBMIT_DIR
-python -m utils.data_integrity --verify-zip \$SLURM_TMPDIR/experiments/$EXPERIMENT/matrices_task_${CHUNK}.zip || { echo "Verify failed"; exit 1; }
-cp \$SLURM_TMPDIR/experiments/$EXPERIMENT/matrices_task_${CHUNK}.zip \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/
+python -m utils.data_integrity --verify-tar \$SLURM_TMPDIR/experiments/$EXPERIMENT/matrices_task_${CHUNK}.tar || { echo "Verify failed"; exit 1; }
+cp \$SLURM_TMPDIR/experiments/$EXPERIMENT/matrices_task_${CHUNK}.tar \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/
 echo "Step B chunk $CHUNK complete."
 EOF_B
         DEP="${JOB_A:-}"
@@ -2255,10 +2255,10 @@ mkdir -p \$SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
 cp \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/weights/* \$SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
 mkdir -p \$SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_examples/
 tar cf - -C \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adversarial_examples . | tar xf - -C \$SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_examples
-ZIP_FILE="\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adv_matrices_task_${CHUNK}.zip"
-if [ -f "\$ZIP_FILE" ]; then
-    cp "\$ZIP_FILE" "\$SLURM_TMPDIR/experiments/$EXPERIMENT/"
-    unzip -o "\$SLURM_TMPDIR/experiments/$EXPERIMENT/adv_matrices_task_${CHUNK}.zip" -d "\$SLURM_TMPDIR/experiments/$EXPERIMENT/"
+TAR_FILE="\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adv_matrices_task_${CHUNK}.tar"
+if [ -f "\$TAR_FILE" ]; then
+    cp "\$TAR_FILE" "\$SLURM_TMPDIR/experiments/$EXPERIMENT/"
+    tar xf "\$SLURM_TMPDIR/experiments/$EXPERIMENT/adv_matrices_task_${CHUNK}.tar" -C "\$SLURM_TMPDIR/experiments/$EXPERIMENT/"
 fi
 BATCH_SIZE=$BATCH_SIZE
 CALIB_FILE="\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/calibration.json"
@@ -2289,10 +2289,10 @@ if [ \$PY_EXIT -ne 0 ]; then
     exit 1
 fi
 cd \$SLURM_TMPDIR/experiments/$EXPERIMENT/
-zip -r adv_matrices_task_${CHUNK}.zip adversarial_matrices/ || { echo "Zip failed"; exit 1; }
+tar cf adv_matrices_task_${CHUNK}.tar adversarial_matrices/ || { echo "Tar failed"; exit 1; }
 cd \$SLURM_SUBMIT_DIR
-python -m utils.data_integrity --verify-zip \$SLURM_TMPDIR/experiments/$EXPERIMENT/adv_matrices_task_${CHUNK}.zip || { echo "Verify failed"; exit 1; }
-cp \$SLURM_TMPDIR/experiments/$EXPERIMENT/adv_matrices_task_${CHUNK}.zip \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/
+python -m utils.data_integrity --verify-tar \$SLURM_TMPDIR/experiments/$EXPERIMENT/adv_matrices_task_${CHUNK}.tar || { echo "Verify failed"; exit 1; }
+cp \$SLURM_TMPDIR/experiments/$EXPERIMENT/adv_matrices_task_${CHUNK}.tar \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/
 echo "Step D chunk $CHUNK complete."
 EOF_D
         # D depends on A (needs model weights) + all C (needs adv examples)
@@ -2327,31 +2327,31 @@ mkdir -p \$SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
 cp \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/weights/* \$SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
 mkdir -p \$SLURM_TMPDIR/experiments/$EXPERIMENT/matrices/
 for i in \$(seq 0 $((TOTAL_CHUNKS - 1))); do
-    [ -f "\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/matrices_task_\$i.zip" ] && {
-        cp \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/matrices_task_\$i.zip \$SLURM_TMPDIR/experiments/$EXPERIMENT/
-        unzip -o \$SLURM_TMPDIR/experiments/$EXPERIMENT/matrices_task_\$i.zip -d \$SLURM_TMPDIR/experiments/$EXPERIMENT/
+    [ -f "\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/matrices_task_\$i.tar" ] && {
+        cp \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/matrices_task_\$i.tar \$SLURM_TMPDIR/experiments/$EXPERIMENT/
+        tar xf \$SLURM_TMPDIR/experiments/$EXPERIMENT/matrices_task_\$i.tar -C \$SLURM_TMPDIR/experiments/$EXPERIMENT/
     }
 done
 mkdir -p \$SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_examples/
 cp -r \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adversarial_examples/* \$SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_examples/ 2>/dev/null || true
 mkdir -p \$SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_matrices/
 for i in \$(seq 0 $((TOTAL_CHUNKS - 1))); do
-    [ -f "\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adv_matrices_task_\$i.zip" ] && {
-        cp \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adv_matrices_task_\$i.zip \$SLURM_TMPDIR/experiments/$EXPERIMENT/
-        unzip -o \$SLURM_TMPDIR/experiments/$EXPERIMENT/adv_matrices_task_\$i.zip -d \$SLURM_TMPDIR/experiments/$EXPERIMENT/
+    [ -f "\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adv_matrices_task_\$i.tar" ] && {
+        cp \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adv_matrices_task_\$i.tar \$SLURM_TMPDIR/experiments/$EXPERIMENT/
+        tar xf \$SLURM_TMPDIR/experiments/$EXPERIMENT/adv_matrices_task_\$i.tar -C \$SLURM_TMPDIR/experiments/$EXPERIMENT/
     }
 done
 # A2-SHELL: Verify matrix extraction succeeded
 TRAIN_MAT_COUNT=\$(find \$SLURM_TMPDIR/experiments/$EXPERIMENT/matrices/ -name "matrix.pt" 2>/dev/null | wc -l)
 echo "Training matrices found: \$TRAIN_MAT_COUNT"
 if [ "\$TRAIN_MAT_COUNT" -eq 0 ]; then
-    echo "ERROR: No training matrices after zip extraction!"
+    echo "ERROR: No training matrices after tar extraction!"
     exit 1
 fi
 ADV_MAT_COUNT=\$(find \$SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_matrices/ -name "matrix.pth" 2>/dev/null | wc -l)
 echo "Adversarial matrices found: \$ADV_MAT_COUNT"
 if [ "\$ADV_MAT_COUNT" -eq 0 ]; then
-    echo "ERROR: No adversarial matrices after zip extraction!"
+    echo "ERROR: No adversarial matrices after tar extraction!"
     exit 1
 fi
 

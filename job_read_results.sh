@@ -42,15 +42,15 @@ cp -r experiments/$EXPERIMENT/adversarial_examples/* $SLURM_TMPDIR/experiments/$
 # Adversarial Matrices
 echo "Copying adversarial matrices..."
 mkdir -p $SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_matrices/
-cp experiments/$EXPERIMENT/adv_matrices_task_0.zip $SLURM_TMPDIR/experiments/$EXPERIMENT/
-cp experiments/$EXPERIMENT/adv_matrices_task_1.zip $SLURM_TMPDIR/experiments/$EXPERIMENT/
-cp experiments/$EXPERIMENT/adv_matrices_task_2.zip $SLURM_TMPDIR/experiments/$EXPERIMENT/
-cp experiments/$EXPERIMENT/adv_matrices_task_3.zip $SLURM_TMPDIR/experiments/$EXPERIMENT/
-echo "Decompress..."
-unzip experiments/$EXPERIMENT/adv_matrices_task_0.zip -d $SLURM_TMPDIR/experiments/$EXPERIMENT/
-unzip experiments/$EXPERIMENT/adv_matrices_task_1.zip -d $SLURM_TMPDIR/experiments/$EXPERIMENT/
-unzip experiments/$EXPERIMENT/adv_matrices_task_2.zip -d $SLURM_TMPDIR/experiments/$EXPERIMENT/
-unzip experiments/$EXPERIMENT/adv_matrices_task_3.zip -d $SLURM_TMPDIR/experiments/$EXPERIMENT/
+cp experiments/$EXPERIMENT/adv_matrices_task_0.tar $SLURM_TMPDIR/experiments/$EXPERIMENT/
+cp experiments/$EXPERIMENT/adv_matrices_task_1.tar $SLURM_TMPDIR/experiments/$EXPERIMENT/
+cp experiments/$EXPERIMENT/adv_matrices_task_2.tar $SLURM_TMPDIR/experiments/$EXPERIMENT/
+cp experiments/$EXPERIMENT/adv_matrices_task_3.tar $SLURM_TMPDIR/experiments/$EXPERIMENT/
+echo "Extracting..."
+tar xf experiments/$EXPERIMENT/adv_matrices_task_0.tar -C $SLURM_TMPDIR/experiments/$EXPERIMENT/
+tar xf experiments/$EXPERIMENT/adv_matrices_task_1.tar -C $SLURM_TMPDIR/experiments/$EXPERIMENT/
+tar xf experiments/$EXPERIMENT/adv_matrices_task_2.tar -C $SLURM_TMPDIR/experiments/$EXPERIMENT/
+tar xf experiments/$EXPERIMENT/adv_matrices_task_3.tar -C $SLURM_TMPDIR/experiments/$EXPERIMENT/
 
 # Preprocess Cache
 echo "Geting cache... It is OK if there is no cache files saved."

@@ -140,7 +140,7 @@ source $ENV_NAME/bin/activate
 EXPERIMENT="$EXPERIMENT"
 TASK_ID=$CHUNK
 TEMP_DIR=\$SLURM_TMPDIR
-ZIP_FILE=\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/matrices_task_\$TASK_ID.zip
+TAR_FILE=\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/matrices_task_\$TASK_ID.tar
 
 mkdir -p \$SLURM_TMPDIR/data/cifar-10-batches-py/
 cp -r data/cifar-10-batches-py/* \$SLURM_TMPDIR/data/cifar-10-batches-py/ 2>/dev/null || true
@@ -150,20 +150,20 @@ cp -r data/cifar-100-python/* \$SLURM_TMPDIR/data/cifar-100-python/ 2>/dev/null 
 mkdir -p \$TEMP_DIR/experiments/\$EXPERIMENT/weights/
 cp experiments/\$EXPERIMENT/weights/* \$TEMP_DIR/experiments/\$EXPERIMENT/weights/
 
-if [ -f "\$ZIP_FILE" ]; then
-    cp "\$ZIP_FILE" "\$TEMP_DIR/experiments/\$EXPERIMENT/"
-    unzip -o "\$TEMP_DIR/experiments/\$EXPERIMENT/matrices_task_\$TASK_ID.zip" -d "\$TEMP_DIR/experiments/\$EXPERIMENT/"
+if [ -f "\$TAR_FILE" ]; then
+    cp "\$TAR_FILE" "\$TEMP_DIR/experiments/\$EXPERIMENT/"
+    tar xf "\$TEMP_DIR/experiments/\$EXPERIMENT/matrices_task_\$TASK_ID.tar" -C "\$TEMP_DIR/experiments/\$EXPERIMENT/"
 fi
 
 timeout 20m python generate_matrices.py --temp_dir \$TEMP_DIR --experiment \$EXPERIMENT --chunk_id \$TASK_ID --total_chunks $TOTAL_CHUNKS --batch_size $BATCH_SIZE --num_samples_per_class $NUM_SAMPLES_PER_CLASS
 
 cd \$TEMP_DIR/experiments/\$EXPERIMENT
-zip -r matrices_task_\$TASK_ID.zip matrices || { echo "Zipping failed"; exit 1; }
+tar cf matrices_task_\$TASK_ID.tar matrices || { echo "Creating tar archive failed"; exit 1; }
 
 cd \$SLURM_SUBMIT_DIR
-python -m utils.data_integrity --verify-zip \$TEMP_DIR/experiments/\$EXPERIMENT/matrices_task_\$TASK_ID.zip || { echo "Zip verification failed"; exit 1; }
+python -m utils.data_integrity --verify-tar \$TEMP_DIR/experiments/\$EXPERIMENT/matrices_task_\$TASK_ID.tar || { echo "Tar verification failed"; exit 1; }
 
-cp \$TEMP_DIR/experiments/\$EXPERIMENT/matrices_task_\$TASK_ID.zip \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/ || { echo "Failed to copy zip"; exit 1; }
+cp \$TEMP_DIR/experiments/\$EXPERIMENT/matrices_task_\$TASK_ID.tar \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/ || { echo "Failed to copy tar"; exit 1; }
 echo "Step B chunk $CHUNK complete."
 STEPB_EOF
 
@@ -250,7 +250,7 @@ source $ENV_NAME/bin/activate
 
 EXPERIMENT="$EXPERIMENT"
 TASK_ID=$CHUNK
-ZIP_FILE="\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adv_matrices_task_\$TASK_ID.zip"
+TAR_FILE="\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adv_matrices_task_\$TASK_ID.tar"
 
 mkdir -p \$SLURM_TMPDIR/experiments/\$EXPERIMENT/weights/
 cp \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/weights/* \$SLURM_TMPDIR/experiments/\$EXPERIMENT/weights/
@@ -258,20 +258,20 @@ cp \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/weights/* \$SLURM_TMPDIR/experime
 mkdir -p \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adversarial_examples/
 tar cf - -C \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adversarial_examples . | tar xf - -C \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adversarial_examples
 
-if [ -f "\$ZIP_FILE" ]; then
-    cp "\$ZIP_FILE" "\$SLURM_TMPDIR/experiments/\$EXPERIMENT/"
-    unzip "\$SLURM_TMPDIR/experiments/\$EXPERIMENT/adv_matrices_task_\$TASK_ID.zip" -d "\$SLURM_TMPDIR/experiments/\$EXPERIMENT/"
+if [ -f "\$TAR_FILE" ]; then
+    cp "\$TAR_FILE" "\$SLURM_TMPDIR/experiments/\$EXPERIMENT/"
+    tar xf "\$SLURM_TMPDIR/experiments/\$EXPERIMENT/adv_matrices_task_\$TASK_ID.tar" -C "\$SLURM_TMPDIR/experiments/\$EXPERIMENT/"
 fi
 
 timeout 11h python generate_adversarial_matrices.py --experiment_name \$EXPERIMENT --temp_dir \$SLURM_TMPDIR --chunk_id \$TASK_ID --total_chunks $TOTAL_CHUNKS --batch_size $BATCH_SIZE --samples_per_attack $SAMPLES_PER_ATTACK
 
 cd \$SLURM_TMPDIR/experiments/\$EXPERIMENT/
-zip -r adv_matrices_task_\$TASK_ID.zip adversarial_matrices/ || { echo "Zipping failed"; exit 1; }
+tar cf adv_matrices_task_\$TASK_ID.tar adversarial_matrices/ || { echo "Creating tar archive failed"; exit 1; }
 
 cd \$SLURM_SUBMIT_DIR
-python -m utils.data_integrity --verify-zip \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adv_matrices_task_\$TASK_ID.zip || { echo "Zip verification failed"; exit 1; }
+python -m utils.data_integrity --verify-tar \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adv_matrices_task_\$TASK_ID.tar || { echo "Tar verification failed"; exit 1; }
 
-cp \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adv_matrices_task_\$TASK_ID.zip \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/ || { echo "Failed to copy zip"; exit 1; }
+cp \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adv_matrices_task_\$TASK_ID.tar \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/ || { echo "Failed to copy tar"; exit 1; }
 echo "Step D chunk $CHUNK complete."
 STEPD_EOF
 
@@ -322,9 +322,9 @@ cp experiments/\$EXPERIMENT/weights/* \$SLURM_TMPDIR/experiments/\$EXPERIMENT/we
 
 mkdir -p \$SLURM_TMPDIR/experiments/\$EXPERIMENT/matrices/
 for i in \$(seq 0 $(( TOTAL_CHUNKS - 1 ))); do
-    if [ -f "experiments/\$EXPERIMENT/matrices_task_\$i.zip" ]; then
-        cp experiments/\$EXPERIMENT/matrices_task_\$i.zip \$SLURM_TMPDIR/experiments/\$EXPERIMENT/
-        unzip -o \$SLURM_TMPDIR/experiments/\$EXPERIMENT/matrices_task_\$i.zip -d \$SLURM_TMPDIR/experiments/\$EXPERIMENT/
+    if [ -f "experiments/\$EXPERIMENT/matrices_task_\$i.tar" ]; then
+        cp experiments/\$EXPERIMENT/matrices_task_\$i.tar \$SLURM_TMPDIR/experiments/\$EXPERIMENT/
+        tar xf \$SLURM_TMPDIR/experiments/\$EXPERIMENT/matrices_task_\$i.tar -C \$SLURM_TMPDIR/experiments/\$EXPERIMENT/
     fi
 done
 
@@ -333,9 +333,9 @@ cp -r experiments/\$EXPERIMENT/adversarial_examples/* \$SLURM_TMPDIR/experiments
 
 mkdir -p \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adversarial_matrices/
 for i in \$(seq 0 $(( TOTAL_CHUNKS - 1 ))); do
-    if [ -f "experiments/\$EXPERIMENT/adv_matrices_task_\$i.zip" ]; then
-        cp experiments/\$EXPERIMENT/adv_matrices_task_\$i.zip \$SLURM_TMPDIR/experiments/\$EXPERIMENT/
-        unzip -o \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adv_matrices_task_\$i.zip -d \$SLURM_TMPDIR/experiments/\$EXPERIMENT/
+    if [ -f "experiments/\$EXPERIMENT/adv_matrices_task_\$i.tar" ]; then
+        cp experiments/\$EXPERIMENT/adv_matrices_task_\$i.tar \$SLURM_TMPDIR/experiments/\$EXPERIMENT/
+        tar xf \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adv_matrices_task_\$i.tar -C \$SLURM_TMPDIR/experiments/\$EXPERIMENT/
     fi
 done
 

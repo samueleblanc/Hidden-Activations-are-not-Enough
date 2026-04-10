@@ -65,11 +65,11 @@ class TestClassifyError:
     def test_import_error(self):
         assert classify_error("ImportError: cannot import name 'foo' from 'bar'") == "module_error"
 
-    def test_zip_error(self):
-        assert classify_error("BadZipFile: File is not a zip file") == "zip_error"
+    def test_tar_error(self):
+        assert classify_error("TarError: file is not a tar file") == "tar_error"
 
-    def test_zip_verification_failed(self):
-        assert classify_error("Zip verification failed for matrices_task_0.zip") == "zip_error"
+    def test_tar_verification_failed(self):
+        assert classify_error("Tar verification failed for matrices_task_0.tar") == "tar_error"
 
     def test_assertion_error(self):
         assert classify_error("AssertionError: expected 10 but got 5") == "assertion"
@@ -107,8 +107,8 @@ class TestGetErrorCategory:
     def test_data_missing_file(self):
         assert get_error_category("missing_file") == "data"
 
-    def test_data_zip(self):
-        assert get_error_category("zip_error") == "data"
+    def test_data_tar(self):
+        assert get_error_category("tar_error") == "data"
 
     def test_env_cuda(self):
         assert get_error_category("cuda_error") == "environment"

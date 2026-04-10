@@ -2,7 +2,7 @@
 
 #SBATCH --account=def-bruestle #account to charge the calculation
 #SBATCH --time=12:00:00 #hour:minutes:seconds
-#SBATCH --array=0-15
+#SBATCH --array=0-0
 #SBATCH --gpus=h100:1
 #SBATCH --cpus-per-task=12
 #SBATCH --mem=280G  # Increased to prevent segmentation faults
@@ -12,7 +12,7 @@
 
 
 EXPERIMENT="vgg_cifar100"
-ZIP_FILE="$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adv_matrices_task_$SLURM_ARRAY_TASK_ID.zip"
+TAR_FILE="$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adv_matrices_task_$SLURM_ARRAY_TASK_ID.tar"
 
 module load StdEnv/2023 python/3.11.5 scipy-stack/2025a
 source env_fir/bin/activate
@@ -30,13 +30,13 @@ echo "Adv examples ready."
 
 mkdir -p $SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adversarial_matrices/
 
-if [ -f "$ZIP_FILE" ]; then
-    echo "Found existing experiment data labels file: $ZIP_FILE"
-    cp "$ZIP_FILE" "$SLURM_TMPDIR/experiments/$EXPERIMENT/adv_matrices_task_$SLURM_ARRAY_TASK_ID.zip" || { echo "Failed to copy file"; exit 1; }
-    echo "Unzipping $ZIP_FILE to temporary directory..."
-    unzip "$SLURM_TMPDIR/experiments/$EXPERIMENT/adv_matrices_task_$SLURM_ARRAY_TASK_ID.zip" -d "$SLURM_TMPDIR/experiments/$EXPERIMENT/" || { echo "Failed to unzip file"; exit 1; }
+if [ -f "$TAR_FILE" ]; then
+    echo "Found existing tar file: $TAR_FILE"
+    cp "$TAR_FILE" "$SLURM_TMPDIR/experiments/$EXPERIMENT/adv_matrices_task_$SLURM_ARRAY_TASK_ID.tar" || { echo "Failed to copy file"; exit 1; }
+    echo "Extracting $TAR_FILE to temporary directory..."
+    tar xf "$SLURM_TMPDIR/experiments/$EXPERIMENT/adv_matrices_task_$SLURM_ARRAY_TASK_ID.tar" -C "$SLURM_TMPDIR/experiments/$EXPERIMENT/" || { echo "Failed to extract tar file"; exit 1; }
     ls $SLURM_TMPDIR/experiments/$EXPERIMENT/
-    echo "Unzip completed."
+    echo "Extraction completed."
 fi
 
 mkdir -p gpu-monitor/
@@ -60,21 +60,20 @@ MONITOR_PID=$!
 echo "GPU monitor started in background (PID $MONITOR_PID)"
 
 # Run Python script in background and capture its PID
-timeout 11h python generate_adversarial_matrices.py --experiment_name $EXPERIMENT --temp_dir $SLURM_TMPDIR --chunk_id $SLURM_ARRAY_TASK_ID --total_chunks 16 --batch_size 1800 --samples_per_attack 500
+timeout 11h python generate_adversarial_matrices.py --experiment_name $EXPERIMENT --temp_dir $SLURM_TMPDIR --chunk_id $SLURM_ARRAY_TASK_ID --total_chunks 1 --batch_size 8192 --samples_per_attack 500
 
-# Zip the matrices
-echo "Zipping matrices..."
+# Create tar archive
+echo "Creating tar archive..."
 cd $SLURM_TMPDIR/experiments/$EXPERIMENT/
-zip -r adv_matrices_task_$SLURM_ARRAY_TASK_ID.zip adversarial_matrices/
+tar cf adv_matrices_task_$SLURM_ARRAY_TASK_ID.tar adversarial_matrices/
 
-# Verify the zip
+# Verify the tar
 cd $SLURM_SUBMIT_DIR
-python -m utils.data_integrity --verify-zip $SLURM_TMPDIR/experiments/$EXPERIMENT/adv_matrices_task_$SLURM_ARRAY_TASK_ID.zip || { echo "Zip verification failed"; exit 1; }
+python -m utils.data_integrity --verify-tar $SLURM_TMPDIR/experiments/$EXPERIMENT/adv_matrices_task_$SLURM_ARRAY_TASK_ID.tar || { echo "Tar verification failed"; exit 1; }
 cd -
-# Copy the zip file to the permanent directory
-# echo "Zip file: $SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_matrices.zip"
-echo "Copying zip file $SLURM_TMPDIR/experiments/$EXPERIMENT/matrices_task_$SLURM_ARRAY_TASK_ID.zip to $SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adversarial_matrices/"
+# Copy the tar file to the permanent directory
+echo "Copying tar file $SLURM_TMPDIR/experiments/$EXPERIMENT/adv_matrices_task_$SLURM_ARRAY_TASK_ID.tar to $SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/"
 mkdir -p $SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adversarial_matrices/
-cp $SLURM_TMPDIR/experiments/$EXPERIMENT/adv_matrices_task_$SLURM_ARRAY_TASK_ID.zip $SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/ || { echo "Failed to copy zip file"; exit 1; }
+cp $SLURM_TMPDIR/experiments/$EXPERIMENT/adv_matrices_task_$SLURM_ARRAY_TASK_ID.tar $SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/ || { echo "Failed to copy tar file"; exit 1; }
 ls $SLURM_TMPDIR/experiments/$EXPERIMENT/
 echo "Done!"

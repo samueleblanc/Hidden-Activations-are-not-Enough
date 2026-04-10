@@ -46,7 +46,7 @@ ERROR_PATTERNS = [
     ("network_error", re.compile(r"network.unreachable|ConnectionError|urllib.*Error", re.I)),
     ("missing_file",  re.compile(r"FileNotFoundError|No such file|not found", re.I)),
     ("module_error",  re.compile(r"ModuleNotFoundError|ImportError", re.I)),
-    ("zip_error",     re.compile(r"Zip.*failed|BadZipFile|Zip verification", re.I)),
+    ("tar_error",     re.compile(r"Tar.*failed|TarError|ReadError.*tar|Tar verification", re.I)),
     ("assertion",     re.compile(r"AssertionError", re.I)),
     ("permission",    re.compile(r"PermissionError|Permission denied", re.I)),
 ]
@@ -61,7 +61,7 @@ ERROR_CATEGORY_MAP = {
     "assertion":     "code",
     # data: missing or corrupt files / datasets
     "missing_file":  "data",
-    "zip_error":     "data",
+    "tar_error":     "data",
     # environment: CUDA, network, modules, permissions
     "cuda_oom":      "environment",
     "cuda_error":    "environment",
@@ -82,7 +82,7 @@ NORMALIZED_ERROR_TYPE = {
     "code": "RUNTIME",
     "assertion": "RUNTIME",
     "missing_file": "RUNTIME",
-    "zip_error": "RUNTIME",
+    "tar_error": "RUNTIME",
     "cuda_error": "RUNTIME",
     "network_error": "RUNTIME",
     "module_error": "RUNTIME",

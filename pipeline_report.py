@@ -314,11 +314,11 @@ def generate_recommendations(step_a_ok, integrity_report):
 
     # Step 2a
     bad_b = []
-    for i, e in enumerate(steps.get("matrices_zips", [])):
+    for i, e in enumerate(steps.get("matrices_tars", [])):
         if e["status"] != "OK":
             bad_b.append(str(i))
     if bad_b:
-        recs.append(f"Re-run Step 2a chunks [{', '.join(bad_b)}] -- matrix zips {'/'.join(e['status'] for e in steps['matrices_zips'] if e['status']!='OK')}")
+        recs.append(f"Re-run Step 2a chunks [{', '.join(bad_b)}] -- matrix tars {'/'.join(e['status'] for e in steps['matrices_tars'] if e['status']!='OK')}")
 
     # Step 2b
     bad_c = [os.path.basename(os.path.dirname(e["path"])) for e in steps.get("adversarial_examples", []) if e["status"] != "OK"]
@@ -327,7 +327,7 @@ def generate_recommendations(step_a_ok, integrity_report):
 
     # Step 3 (Adv Matrices)
     bad_d = []
-    for i, e in enumerate(steps.get("adv_matrices_zips", [])):
+    for i, e in enumerate(steps.get("adv_matrices_tars", [])):
         if e["status"] != "OK":
             bad_d.append(str(i))
     if bad_d:
@@ -436,7 +436,7 @@ def write_report(experiment, test_mode, total_chunks, jobs, sacct_data,
             ok = sum(1 for e in entries if e["status"] == "OK")
             return f"{ok}/{len(entries)} OK" + (f"  (MISSING: {', '.join(str(i) for i,e in enumerate(entries) if e['status']!='OK')})" if ok < len(entries) else "")
 
-        w(f"  [2a] Matrix zips:           {count_status(steps.get('matrices_zips', []))}")
+        w(f"  [2a] Matrix tars:           {count_status(steps.get('matrices_tars', []))}")
         adv = steps.get("adversarial_examples", [])
         adv_ok = sum(1 for e in adv if e["status"] == "OK")
         w(f"  [2b] Adversarial examples:  {adv_ok}/{len(adv)} OK")
@@ -444,7 +444,7 @@ def write_report(experiment, test_mode, total_chunks, jobs, sacct_data,
             for e in adv:
                 if e["status"] != "OK":
                     w(f"        MISSING: {os.path.basename(os.path.dirname(e['path']))}")
-        w(f"  [3] Adv matrix zips:        {count_status(steps.get('adv_matrices_zips', []))}")
+        w(f"  [3] Adv matrix tars:        {count_status(steps.get('adv_matrices_tars', []))}")
 
         summary = integrity_report.get("summary", {})
         w(f"\n  Summary: {summary.get('ok',0)} OK, {summary.get('missing',0)} MISSING, {summary.get('corrupt',0)} CORRUPT")

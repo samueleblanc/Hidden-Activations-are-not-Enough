@@ -1,18 +1,18 @@
 """
-Data integrity verification and zip-with-verification utilities.
+Data integrity verification and tar-with-verification utilities.
 
 Usage as CLI:
     python -m utils.data_integrity --experiment_dir experiments/alexnet_cifar10 \
         --experiment_name alexnet_cifar10 --total_chunks 4
 
 Usage as library:
-    from utils.data_integrity import verify_zip, verify_pth_in_zip, zip_and_verify
+    from utils.data_integrity import verify_tar, verify_pth_in_tar, tar_and_verify
 """
 
 import os
 import sys
 import json
-import zipfile
+import tarfile
 import random
 import shutil
 import argparse
@@ -23,36 +23,33 @@ import torch
 
 
 # ---------------------------------------------------------------------------
-# 1. verify_zip
+# 1. verify_tar
 # ---------------------------------------------------------------------------
 
-def verify_zip(zip_path: str) -> dict:
-    """Check that a zip file is not corrupt.
+def verify_tar(tar_path: str) -> dict:
+    """Check that a tar file is not corrupt.
 
     Returns:
         {valid: bool, error: str|None, file_count: int, file_list: [...]}
     """
-    zip_path = str(zip_path)
+    tar_path = str(tar_path)
     result = {"valid": False, "error": None, "file_count": 0, "file_list": []}
 
-    if not os.path.exists(zip_path):
-        result["error"] = f"File does not exist: {zip_path}"
+    if not os.path.exists(tar_path):
+        result["error"] = f"File does not exist: {tar_path}"
         return result
 
-    if not zipfile.is_zipfile(zip_path):
-        result["error"] = f"Not a valid zip file: {zip_path}"
+    if not tarfile.is_tarfile(tar_path):
+        result["error"] = f"Not a valid tar file: {tar_path}"
         return result
 
     try:
-        with zipfile.ZipFile(zip_path, "r") as zf:
-            bad = zf.testzip()
-            if bad is not None:
-                result["error"] = f"Corrupt entry in zip: {bad}"
-                return result
-            result["file_list"] = zf.namelist()
+        with tarfile.open(tar_path, "r") as tf:
+            members = tf.getmembers()
+            result["file_list"] = [m.name for m in members]
             result["file_count"] = len(result["file_list"])
-    except zipfile.BadZipFile as exc:
-        result["error"] = f"BadZipFile: {exc}"
+    except tarfile.TarError as exc:
+        result["error"] = f"TarError: {exc}"
         return result
     except Exception as exc:
         result["error"] = f"Unexpected error: {exc}"
@@ -63,25 +60,26 @@ def verify_zip(zip_path: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# 2. verify_pth_in_zip
+# 2. verify_pth_in_tar
 # ---------------------------------------------------------------------------
 
-def verify_pth_in_zip(zip_path: str, sample_ratio: float = 0.1) -> dict:
-    """Open a zip, sample .pth/.pt files, and try to torch.load each one.
+def verify_pth_in_tar(tar_path: str, sample_ratio: float = 0.1) -> dict:
+    """Open a tar, sample .pth/.pt files, and try to torch.load each one.
 
     Returns:
         {valid: bool, total_pth: int, sampled: int, corrupt: [...], errors: [...]}
     """
-    zip_path = str(zip_path)
+    tar_path = str(tar_path)
     result = {"valid": False, "total_pth": 0, "sampled": 0, "corrupt": [], "errors": []}
 
-    if not os.path.exists(zip_path):
-        result["errors"].append(f"File does not exist: {zip_path}")
+    if not os.path.exists(tar_path):
+        result["errors"].append(f"File does not exist: {tar_path}")
         return result
 
     try:
-        with zipfile.ZipFile(zip_path, "r") as zf:
-            pth_files = [n for n in zf.namelist() if n.endswith((".pth", ".pt"))]
+        with tarfile.open(tar_path, "r") as tf:
+            file_members = [m for m in tf.getmembers() if m.isfile()]
+            pth_files = [m.name for m in file_members if m.name.endswith((".pth", ".pt"))]
             result["total_pth"] = len(pth_files)
 
             if not pth_files:
@@ -94,13 +92,13 @@ def verify_pth_in_zip(zip_path: str, sample_ratio: float = 0.1) -> dict:
 
             for name in sampled:
                 try:
-                    data = zf.read(name)
+                    data = tf.extractfile(name).read()
                     torch.load(BytesIO(data), map_location="cpu", weights_only=False)
                 except Exception as exc:
                     result["corrupt"].append(name)
                     result["errors"].append(f"{name}: {exc}")
     except Exception as exc:
-        result["errors"].append(f"Failed to open zip: {exc}")
+        result["errors"].append(f"Failed to open tar: {exc}")
         return result
 
     result["valid"] = len(result["corrupt"]) == 0
@@ -124,9 +122,9 @@ def verify_experiment(
     """Audit an experiment directory for expected artifacts.
 
     Checks:
-        - matrices_task_{0..total_chunks-1}.zip
-        - adv_matrices_task_{0..total_chunks-1}.zip
-        - rejection_levels/matrices_task_{0..total_chunks-1}.zip
+        - matrices_task_{0..total_chunks-1}.tar
+        - adv_matrices_task_{0..total_chunks-1}.tar
+        - rejection_levels/matrices_task_{0..total_chunks-1}.tar
         - weights/
         - adversarial_examples/{attack}/adversarial_examples.pth
         - matrices/matrix_statistics.json
@@ -141,23 +139,23 @@ def verify_experiment(
         "summary": {"total_checks": 0, "ok": 0, "missing": 0, "corrupt": 0},
     }
 
-    def _check_zip(zip_path, step_name):
-        entry = {"path": zip_path, "status": "OK", "details": {}}
+    def _check_tar(tar_path, step_name):
+        entry = {"path": tar_path, "status": "OK", "details": {}}
         report["summary"]["total_checks"] += 1
 
-        if not os.path.exists(zip_path):
+        if not os.path.exists(tar_path):
             entry["status"] = "MISSING"
             report["summary"]["missing"] += 1
             return entry
 
-        zv = verify_zip(zip_path)
-        entry["details"]["zip_check"] = zv
-        if not zv["valid"]:
+        tv = verify_tar(tar_path)
+        entry["details"]["tar_check"] = tv
+        if not tv["valid"]:
             entry["status"] = "CORRUPT"
             report["summary"]["corrupt"] += 1
             return entry
 
-        pv = verify_pth_in_zip(zip_path, sample_ratio=sample_ratio)
+        pv = verify_pth_in_tar(tar_path, sample_ratio=sample_ratio)
         entry["details"]["pth_check"] = pv
         if not pv["valid"]:
             entry["status"] = "CORRUPT"
@@ -185,26 +183,26 @@ def verify_experiment(
             report["summary"]["missing"] += 1
             return {"path": dir_path, "status": "MISSING"}
 
-    # --- matrices zips ---
-    matrices_zips = []
+    # --- matrices tars ---
+    matrices_tars = []
     for i in range(total_chunks):
-        zp = os.path.join(experiment_dir, f"matrices_task_{i}.zip")
-        matrices_zips.append(_check_zip(zp, f"matrices_task_{i}"))
-    report["steps"]["matrices_zips"] = matrices_zips
+        tp = os.path.join(experiment_dir, f"matrices_task_{i}.tar")
+        matrices_tars.append(_check_tar(tp, f"matrices_task_{i}"))
+    report["steps"]["matrices_tars"] = matrices_tars
 
-    # --- adv_matrices zips ---
-    adv_matrices_zips = []
+    # --- adv_matrices tars ---
+    adv_matrices_tars = []
     for i in range(total_chunks):
-        zp = os.path.join(experiment_dir, f"adv_matrices_task_{i}.zip")
-        adv_matrices_zips.append(_check_zip(zp, f"adv_matrices_task_{i}"))
-    report["steps"]["adv_matrices_zips"] = adv_matrices_zips
+        tp = os.path.join(experiment_dir, f"adv_matrices_task_{i}.tar")
+        adv_matrices_tars.append(_check_tar(tp, f"adv_matrices_task_{i}"))
+    report["steps"]["adv_matrices_tars"] = adv_matrices_tars
 
-    # --- rejection_levels zips ---
-    rej_zips = []
+    # --- rejection_levels tars ---
+    rej_tars = []
     for i in range(total_chunks):
-        zp = os.path.join(experiment_dir, "rejection_levels", f"matrices_task_{i}.zip")
-        rej_zips.append(_check_zip(zp, f"rejection_levels/matrices_task_{i}"))
-    report["steps"]["rejection_level_zips"] = rej_zips
+        tp = os.path.join(experiment_dir, "rejection_levels", f"matrices_task_{i}.tar")
+        rej_tars.append(_check_tar(tp, f"rejection_levels/matrices_task_{i}"))
+    report["steps"]["rejection_level_tars"] = rej_tars
 
     # --- weights ---
     report["steps"]["weights"] = _check_dir(os.path.join(experiment_dir, "weights"))
@@ -244,50 +242,48 @@ def verify_experiment(
 
 
 # ---------------------------------------------------------------------------
-# 4. zip_and_verify
+# 4. tar_and_verify
 # ---------------------------------------------------------------------------
 
-def zip_and_verify(
+def tar_and_verify(
     src_dir: str,
-    zip_path: str,
+    tar_path: str,
     cleanup: bool = False,
     sample_ratio: float = 0.1,
 ) -> dict:
-    """Zip *src_dir* into *zip_path*, then verify the resulting archive.
+    """Tar *src_dir* into *tar_path*, then verify the resulting archive.
 
     Only deletes *src_dir* if verification passes **and** ``cleanup=True``.
 
     Returns:
-        {success: bool, zip_path: str, file_count: int, errors: [...]}
+        {success: bool, tar_path: str, file_count: int, errors: [...]}
     """
     src_dir = str(src_dir)
-    zip_path = str(zip_path)
-    # Ensure zip_path ends with .zip for shutil
-    if zip_path.endswith(".zip"):
-        archive_base = zip_path[:-4]
-    else:
-        archive_base = zip_path
-        zip_path = zip_path + ".zip"
+    tar_path = str(tar_path)
+    # Ensure tar_path ends with .tar
+    if not tar_path.endswith(".tar"):
+        tar_path = tar_path + ".tar"
 
-    result = {"success": False, "zip_path": zip_path, "file_count": 0, "errors": []}
+    result = {"success": False, "tar_path": tar_path, "file_count": 0, "errors": []}
 
     if not os.path.isdir(src_dir):
         result["errors"].append(f"Source directory does not exist: {src_dir}")
         return result
 
     try:
-        shutil.make_archive(archive_base, "zip", src_dir)
+        with tarfile.open(tar_path, "w") as tf:
+            tf.add(src_dir, arcname=os.path.basename(src_dir))
     except Exception as exc:
         result["errors"].append(f"Failed to create archive: {exc}")
         return result
 
-    zv = verify_zip(zip_path)
-    if not zv["valid"]:
-        result["errors"].append(f"Zip verification failed: {zv['error']}")
+    tv = verify_tar(tar_path)
+    if not tv["valid"]:
+        result["errors"].append(f"Tar verification failed: {tv['error']}")
         return result
-    result["file_count"] = zv["file_count"]
+    result["file_count"] = tv["file_count"]
 
-    pv = verify_pth_in_zip(zip_path, sample_ratio=sample_ratio)
+    pv = verify_pth_in_tar(tar_path, sample_ratio=sample_ratio)
     if not pv["valid"]:
         result["errors"].extend(pv["errors"])
         return result
@@ -335,8 +331,8 @@ def _print_report(report: dict) -> None:
                 print(f"    {status}  {path}")
                 if "details" in item:
                     details = item["details"]
-                    if "zip_check" in details and not details["zip_check"]["valid"]:
-                        print(f"         zip error: {details['zip_check']['error']}")
+                    if "tar_check" in details and not details["tar_check"]["valid"]:
+                        print(f"         tar error: {details['tar_check']['error']}")
                     if "pth_check" in details and not details["pth_check"]["valid"]:
                         for err in details["pth_check"]["errors"]:
                             print(f"         pth error: {err}")
@@ -355,19 +351,19 @@ def _print_report(report: dict) -> None:
     print()
 
 
-def _cli_verify_single_zip(args):
-    """Handler for --verify-zip mode."""
-    zv = verify_zip(args.verify_zip)
-    if zv["valid"]:
-        print(f"{_COLOR_GREEN}OK{_COLOR_RESET}  {args.verify_zip}  ({zv['file_count']} files)")
+def _cli_verify_single_tar(args):
+    """Handler for --verify-tar mode."""
+    tv = verify_tar(args.verify_tar)
+    if tv["valid"]:
+        print(f"{_COLOR_GREEN}OK{_COLOR_RESET}  {args.verify_tar}  ({tv['file_count']} files)")
     else:
-        print(f"{_COLOR_RED}FAIL{_COLOR_RESET}  {args.verify_zip}  error: {zv['error']}")
+        print(f"{_COLOR_RED}FAIL{_COLOR_RESET}  {args.verify_tar}  error: {tv['error']}")
         sys.exit(1)
 
     if args.full_check:
-        pv = verify_pth_in_zip(args.verify_zip, sample_ratio=1.0)
+        pv = verify_pth_in_tar(args.verify_tar, sample_ratio=1.0)
     else:
-        pv = verify_pth_in_zip(args.verify_zip)
+        pv = verify_pth_in_tar(args.verify_tar)
 
     if pv["total_pth"] > 0:
         if pv["valid"]:
@@ -425,10 +421,10 @@ def main():
     )
 
     parser.add_argument(
-        "--verify-zip",
+        "--verify-tar",
         type=str,
         default=None,
-        help="Verify a single zip file and exit.",
+        help="Verify a single tar file and exit.",
     )
     parser.add_argument(
         "--experiment_dir",
@@ -457,8 +453,8 @@ def main():
 
     args = parser.parse_args()
 
-    if args.verify_zip:
-        _cli_verify_single_zip(args)
+    if args.verify_tar:
+        _cli_verify_single_tar(args)
     elif args.experiment_dir and args.experiment_name:
         _cli_verify_experiment(args)
     else:

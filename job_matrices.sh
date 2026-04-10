@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --account=def-jcbus
-#SBATCH --array=0-7
+#SBATCH --array=0-0
 #SBATCH --time=00:20:00  # Increased to accommodate potential longer runs
 #SBATCH --gpus=h100:1
 #SBATCH --cpus-per-task=12
@@ -15,7 +15,7 @@ mkdir -p $SLURM_SUBMIT_DIR/slurm_err
 # Set variables
 EXPERIMENT="vgg_cifar100"
 TASK_ID=$SLURM_ARRAY_TASK_ID
-ZIP_FILE=$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/matrices_task_$TASK_ID.zip
+TAR_FILE=$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/matrices_task_$TASK_ID.tar
 
 # Prepare environment
 TEMP_DIR=$SLURM_TMPDIR
@@ -40,13 +40,13 @@ cp experiments/$EXPERIMENT/weights/* $TEMP_DIR/experiments/$EXPERIMENT/weights/
 #cp -r /datashare/imagenet/ILSVRC2012/* $TEMP_DIR/data/ILSVRC2012/
 #echo "imagenet ready!!!"
 
-# Check for existing zip file and unzip if present
-if [ -f "$ZIP_FILE" ]; then
-    echo "Found existing zip file: $ZIP_FILE"
-    cp "$ZIP_FILE" "$TEMP_DIR/experiments/$EXPERIMENT/" || { echo "Failed to copy zip file"; exit 1; }
-    echo "Unzipping existing matrices for task $TASK_ID..."
-    unzip -o "$TEMP_DIR/experiments/$EXPERIMENT/matrices_task_$TASK_ID.zip" -d "$TEMP_DIR/experiments/$EXPERIMENT/" || { echo "Unzipping failed"; exit 1; }
-    echo "Existing matrices unzipped to $TEMP_DIR/experiments/$EXPERIMENT/matrices"
+# Check for existing tar file and extract if present
+if [ -f "$TAR_FILE" ]; then
+    echo "Found existing tar file: $TAR_FILE"
+    cp "$TAR_FILE" "$TEMP_DIR/experiments/$EXPERIMENT/" || { echo "Failed to copy tar file"; exit 1; }
+    echo "Extracting existing matrices for task $TASK_ID..."
+    tar xf "$TEMP_DIR/experiments/$EXPERIMENT/matrices_task_$TASK_ID.tar" -C "$TEMP_DIR/experiments/$EXPERIMENT/" || { echo "Extraction failed"; exit 1; }
+    echo "Existing matrices extracted to $TEMP_DIR/experiments/$EXPERIMENT/matrices"
 fi
 
 mkdir gpu-monitor/
@@ -71,19 +71,19 @@ echo "GPU monitor started in background (PID $MONITOR_PID)"
 
 # Run Python script in the foreground
 echo "Generating matrices for task $TASK_ID..."
-timeout 20m python generate_matrices.py --temp_dir $TEMP_DIR --experiment $EXPERIMENT --chunk_id $TASK_ID --total_chunks 8 --batch_size 1800 --num_samples_per_class 100
+timeout 20m python generate_matrices.py --temp_dir $TEMP_DIR --experiment $EXPERIMENT --chunk_id $TASK_ID --total_chunks 1 --batch_size 8192 --num_samples_per_class 100
 
-# Zip the matrices directory
-echo "Zipping matrices for task $TASK_ID..."
+# Create tar archive for matrices
+echo "Creating tar archive for matrices task $TASK_ID..."
 cd $TEMP_DIR/experiments/$EXPERIMENT
-zip -r matrices_task_$TASK_ID.zip matrices || { echo "Zipping failed"; exit 1; }
+tar cf matrices_task_$TASK_ID.tar matrices || { echo "Tar creation failed"; exit 1; }
 
-# Verify the zip
+# Verify the tar
 cd $SLURM_SUBMIT_DIR
-python -m utils.data_integrity --verify-zip $TEMP_DIR/experiments/$EXPERIMENT/matrices_task_$TASK_ID.zip || { echo "Zip verification failed"; exit 1; }
+python -m utils.data_integrity --verify-tar $TEMP_DIR/experiments/$EXPERIMENT/matrices_task_$TASK_ID.tar || { echo "Tar verification failed"; exit 1; }
 cd $TEMP_DIR/experiments/$EXPERIMENT
 
-# Copy the zip file to $SLURM_SUBMIT_DIR
-echo "Copying zip file to $SLURM_SUBMIT_DIR..."
-cp matrices_task_$TASK_ID.zip $SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/ || { echo "Failed to copy zip file"; exit 1; }
+# Copy the tar file to $SLURM_SUBMIT_DIR
+echo "Copying tar file to $SLURM_SUBMIT_DIR..."
+cp matrices_task_$TASK_ID.tar $SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/ || { echo "Failed to copy tar file"; exit 1; }
 echo "Task $TASK_ID completed successfully"
