@@ -23,6 +23,9 @@ Usage:
     python isomorphism_experiment.py --experiment alexnet_cifar10 --temp_dir $SLURM_TMPDIR
 """
 
+from utils.unified_memory import init_unified_memory
+init_unified_memory()
+
 import os
 import copy
 import json

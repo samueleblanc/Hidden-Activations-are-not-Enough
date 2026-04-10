@@ -1,3 +1,6 @@
+from utils.unified_memory import init_unified_memory
+init_unified_memory()
+
 import os
 import json
 import torch

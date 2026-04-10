@@ -14,6 +14,9 @@ Usage:
     python calibrate.py --experiment_name alexnet_cifar10 --temp_dir $SLURM_TMPDIR
 """
 
+from utils.unified_memory import init_unified_memory
+init_unified_memory()
+
 import os
 import sys
 import json
@@ -90,17 +93,30 @@ def probe_batch_size(model, sample_input, batch_size, device):
     """
     Try computing one matrix with the given batch_size.
     Returns (success, peak_memory_bytes).
+    With RMM unified memory, peak_memory_bytes is unreliable (returns 0).
     """
+    import gc
+    gc.collect()
     torch.cuda.empty_cache()
-    torch.cuda.reset_peak_memory_stats(device)
+    try:
+        torch.cuda.reset_peak_memory_stats(device)
+    except Exception:
+        pass  # RMM may not support this
 
     try:
         mc = KnowledgeMatrixComputer(model, batch_size=batch_size, device=device)
         mc.forward(sample_input.to(device))
-        peak = torch.cuda.max_memory_allocated(device)
+        try:
+            peak = torch.cuda.max_memory_allocated(device)
+        except Exception:
+            peak = 0  # RMM: metric unavailable
+        del mc
+        gc.collect()
+        torch.cuda.empty_cache()
         return True, peak
     except RuntimeError as e:
         if "out of memory" in str(e).lower():
+            gc.collect()
             torch.cuda.empty_cache()
             return False, 0
         raise
@@ -108,18 +124,35 @@ def probe_batch_size(model, sample_input, batch_size, device):
 
 def find_optimal_batch_size(model, sample_input, device, target_utilization=0.85):
     """
-    Binary search for the largest batch_size that keeps GPU memory <= target.
-    Returns (batch_size, peak_memory_bytes).
+    Binary search for the largest batch_size that doesn't OOM.
+
+    With RMM unified memory (GH200), torch.cuda.max_memory_allocated() is
+    unreliable, so the search is purely OOM-based: success = no crash.
+    Without RMM, the original peak-memory check is also applied.
     """
-    total_memory = torch.cuda.get_device_properties(device).total_memory
-    target_mem = int(total_memory * target_utilization)
+    from utils.unified_memory import is_unified_memory_active, get_total_memory_bytes
+
+    unified = is_unified_memory_active()
+    total_memory = get_total_memory_bytes(device)
+    hbm_memory = torch.cuda.get_device_properties(device).total_memory
+    target_mem = int(hbm_memory * target_utilization)  # HBM-based target for non-unified
 
     C, H, W = model.input_shape
     total_positions = C * H * W
 
-    print(f"GPU total memory: {total_memory / 1e9:.1f} GB", flush=True)
-    print(f"Target memory ({target_utilization*100:.0f}%): {target_mem / 1e9:.1f} GB", flush=True)
+    if unified:
+        print(f"Unified memory pool: {total_memory / 1e9:.1f} GB (OOM-based search)", flush=True)
+    else:
+        print(f"GPU total memory: {hbm_memory / 1e9:.1f} GB", flush=True)
+        print(f"Target memory ({target_utilization*100:.0f}%): {target_mem / 1e9:.1f} GB", flush=True)
     print(f"Total input positions: {total_positions}", flush=True)
+
+    def is_acceptable(success, peak):
+        if not success:
+            return False
+        if unified:
+            return True  # OOM-based only: if it didn't crash, it's good
+        return peak <= target_mem
 
     # Phase 1: exponential growth to find upper bound
     best_bs = 64
@@ -129,14 +162,17 @@ def find_optimal_batch_size(model, sample_input, device, target_utilization=0.85
     print("Phase 1: Finding upper bound...", flush=True)
     while test_bs <= total_positions:
         success, peak = probe_batch_size(model, sample_input, test_bs, device)
-        if success and peak <= target_mem:
+        if is_acceptable(success, peak):
             best_bs = test_bs
             best_peak = peak
-            print(f"  batch_size={test_bs}: OK (peak={peak/1e9:.2f} GB, {peak/total_memory*100:.1f}%)", flush=True)
+            if unified:
+                print(f"  batch_size={test_bs}: OK", flush=True)
+            else:
+                print(f"  batch_size={test_bs}: OK (peak={peak/1e9:.2f} GB, {peak/hbm_memory*100:.1f}%)", flush=True)
             test_bs *= 2
         else:
             if success:
-                print(f"  batch_size={test_bs}: Over target (peak={peak/1e9:.2f} GB, {peak/total_memory*100:.1f}%)", flush=True)
+                print(f"  batch_size={test_bs}: Over target (peak={peak/1e9:.2f} GB)", flush=True)
             else:
                 print(f"  batch_size={test_bs}: OOM", flush=True)
             break
@@ -152,10 +188,13 @@ def find_optimal_batch_size(model, sample_input, device, target_utilization=0.85
             break
 
         success, peak = probe_batch_size(model, sample_input, mid, device)
-        if success and peak <= target_mem:
+        if is_acceptable(success, peak):
             best_bs = mid
             best_peak = peak
-            print(f"  batch_size={mid}: OK (peak={peak/1e9:.2f} GB, {peak/total_memory*100:.1f}%)", flush=True)
+            if unified:
+                print(f"  batch_size={mid}: OK", flush=True)
+            else:
+                print(f"  batch_size={mid}: OK (peak={peak/1e9:.2f} GB, {peak/hbm_memory*100:.1f}%)", flush=True)
             low = mid + 1
         else:
             if success:
@@ -164,7 +203,10 @@ def find_optimal_batch_size(model, sample_input, device, target_utilization=0.85
                 print(f"  batch_size={mid}: OOM", flush=True)
             high = mid - 1
 
-    print(f"Optimal batch_size: {best_bs} (peak={best_peak/1e9:.2f} GB, {best_peak/total_memory*100:.1f}%)", flush=True)
+    if unified:
+        print(f"Optimal batch_size: {best_bs} (unified memory, OOM-based)", flush=True)
+    else:
+        print(f"Optimal batch_size: {best_bs} (peak={best_peak/1e9:.2f} GB, {best_peak/hbm_memory*100:.1f}%)", flush=True)
     return best_bs, best_peak
 
 
@@ -400,6 +442,11 @@ def main():
     # --- Step 5: Estimate pipeline durations ---
     print("\n--- Step 5: Estimating pipeline durations ---", flush=True)
 
+    from utils.unified_memory import is_unified_memory_active
+
+    unified = is_unified_memory_active()
+    FULL_POOL_MEM = "480G"  # Full SLURM allocation for unified memory
+
     num_attacks = len(ATTACKS) + 1  # +1 for "test"
     time_padding = 1.15      # +15% for A, B
     time_padding_adv = 3.0   # 3× for D (adversarial examples are much slower)
@@ -408,7 +455,9 @@ def main():
 
     # Training: extrapolate from 2 epochs
     est_train_time = (train_time / 2) * total_epochs * time_padding
-    est_train_mem = int(train_peak_mem * mem_padding)
+    # Under RMM, torch.cuda.max_memory_allocated() returns 0; use 32GB floor
+    MIN_TRAIN_MEM = 32 * (1024 ** 3)  # 32 GB floor for training
+    est_train_mem = max(int(train_peak_mem * mem_padding), MIN_TRAIN_MEM)
 
     # Step B: matrices per chunk
     est_B_per_chunk = avg_time * num_classes * args.num_samples_per_class / args.total_chunks * time_padding
@@ -438,6 +487,10 @@ def main():
     est_D_per_chunk = avg_time * num_attacks * args.samples_per_attack / args.total_chunks * time_padding_adv
     est_D_mem = int(peak_matrix_mem * mem_padding)
 
+    # With unified memory, allocate the full SLURM pool for GPU-heavy steps
+    if unified:
+        print(f"  [unified memory] Setting SLURM mem to {FULL_POOL_MEM} for GPU-heavy steps", flush=True)
+
     slurm_resources = {
         "1": {
             "time": seconds_to_slurm_time(est_train_time),
@@ -447,7 +500,7 @@ def main():
         },
         "2a": {
             "time": seconds_to_slurm_time(est_B_per_chunk),
-            "mem": bytes_to_slurm_mem(est_B_mem),
+            "mem": FULL_POOL_MEM if unified else bytes_to_slurm_mem(est_B_mem),
             "time_seconds": est_B_per_chunk,
             "mem_bytes": est_B_mem,
         },
@@ -462,7 +515,7 @@ def main():
         },
         "3": {
             "time": seconds_to_slurm_time(est_D_per_chunk),
-            "mem": bytes_to_slurm_mem(est_D_mem),
+            "mem": FULL_POOL_MEM if unified else bytes_to_slurm_mem(est_D_mem),
             "time_seconds": est_D_per_chunk,
             "mem_bytes": est_D_mem,
         },
@@ -478,6 +531,7 @@ def main():
         "experiment_name": experiment,
         "gpu_name": gpu_name,
         "gpu_memory_bytes": gpu_mem,
+        "unified_memory": unified,
         "target_utilization": args.target_utilization,
         "batch_size": batch_size,
         "peak_matrix_memory_bytes": peak_matrix_mem,
@@ -506,7 +560,10 @@ def main():
     print(f"\nCalibration saved to: {calib_path}", flush=True)
     print("=" * 60, flush=True)
     print(f"  batch_size = {batch_size}", flush=True)
-    print(f"  GPU utilization = {peak_matrix_mem / gpu_mem * 100:.1f}%", flush=True)
+    if unified:
+        print(f"  unified memory = enabled (RMM ManagedMemoryResource)", flush=True)
+    elif gpu_mem > 0:
+        print(f"  GPU utilization = {peak_matrix_mem / gpu_mem * 100:.1f}%", flush=True)
     print(f"  avg time/matrix = {avg_time:.3f}s", flush=True)
     print("=" * 60, flush=True)
 

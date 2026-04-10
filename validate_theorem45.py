@@ -18,6 +18,9 @@ Usage:
     python validate_theorem45.py --experiment alexnet_cifar10 --attacks FGSM PGD CW DeepFool
 """
 
+from utils.unified_memory import init_unified_memory
+init_unified_memory()
+
 import json
 import time
 import torch

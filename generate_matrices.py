@@ -1,6 +1,9 @@
 """
     This script computes matrices for a subset of a dataset for a neural network trained with specific hyper parameters.
 """
+from utils.unified_memory import init_unified_memory
+init_unified_memory()
+
 import os
 import time
 import torch

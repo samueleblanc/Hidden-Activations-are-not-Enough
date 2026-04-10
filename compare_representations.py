@@ -22,6 +22,9 @@ Usage:
     python compare_representations.py --experiment lenet_cifar10 alexnet_cifar10 resnet_cifar10 vgg_cifar10
 """
 
+from utils.unified_memory import init_unified_memory
+init_unified_memory()
+
 import gc
 import os
 import json

@@ -710,6 +710,7 @@ mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
 $ENV_SETUP
 SLURM_TMPDIR="\${SLURM_TMPDIR:-/tmp/slurm-\$SLURM_JOB_ID}"
 mkdir -p "\$SLURM_TMPDIR"
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 EXPERIMENT="$EXP"
 
@@ -1030,6 +1031,7 @@ mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
 $ENV_SETUP
 SLURM_TMPDIR="\${SLURM_TMPDIR:-/tmp/slurm-\$SLURM_JOB_ID}"
 mkdir -p "\$SLURM_TMPDIR"
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 EXPERIMENT="$EXP"
 
@@ -1250,6 +1252,7 @@ mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
 $ENV_SETUP
 SLURM_TMPDIR="\${SLURM_TMPDIR:-/tmp/slurm-\$SLURM_JOB_ID}"
 mkdir -p "\$SLURM_TMPDIR"
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 $COPY_DATA
 
 EXPERIMENT="$EXP"
@@ -1649,10 +1652,18 @@ for EXP in "${EXPERIMENTS[@]}"; do
         D_TIME=$(python3 -c "import json; d=json.load(open('$CALIB_FILE'))['slurm_resources']; print(d.get('3', {}).get('time', '$D_TIME'))")
         D_MEM=$(python3 -c "import json; d=json.load(open('$CALIB_FILE'))['slurm_resources']; print(d.get('3', {}).get('mem', '$D_MEM'))")
         BATCH_SIZE=$(python3 -c "import json; print(json.load(open('$CALIB_FILE'))['batch_size'])")
+        # If calibrated with unified memory, override E/G mem to full pool
+        CALIB_UNIFIED=$(python3 -c "import json; print(json.load(open('$CALIB_FILE')).get('unified_memory', False))" 2>/dev/null || echo "False")
+        if [ "$CALIB_UNIFIED" = "True" ]; then
+            E_MEM="480G"
+            G_MEM="480G"
+            echo "    [unified memory] E_MEM=$E_MEM G_MEM=$G_MEM"
+        fi
         echo "    A: time=$A_TIME mem=$A_MEM"
         echo "    B: time=$B_TIME mem=$B_MEM  batch_size=$BATCH_SIZE"
         echo "    C: per-attack (calibrated), mem=$C_MEM (fallback)"
         echo "    D: time=$D_TIME mem=$D_MEM"
+        echo "    E: mem=$E_MEM  G: mem=$G_MEM"
 
         # Enforce per-step minimum floors on calibrated times
         A_TIME=$(enforce_min_time "$A_TIME" "01:00:00")   # 1h floor for training

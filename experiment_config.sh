@@ -45,7 +45,7 @@ A_MEM="${A_MEM:-32G}"
 B_GPU="${B_GPU:---gres=gpu:1}"
 B_CPUS="${B_CPUS:-12}"
 B_TIME="${B_TIME:-16:00:00}"
-B_MEM="${B_MEM:-128G}"
+B_MEM="${B_MEM:-480G}"
 # Step C (all attacks run sequentially in a single job)
 C_GPU="${C_GPU:---gres=gpu:1}"
 C_CPUS="${C_CPUS:-4}"
@@ -55,17 +55,17 @@ C_MEM="${C_MEM:-32G}"
 D_GPU="${D_GPU:---gres=gpu:1}"
 D_CPUS="${D_CPUS:-12}"
 D_TIME="${D_TIME:-48:00:00}"
-D_MEM="${D_MEM:-128G}"
+D_MEM="${D_MEM:-480G}"
 # Step E (Representation Comparison - GPU)
 E_GPU="${E_GPU:---gres=gpu:1}"
 E_CPUS="${E_CPUS:-8}"
 E_TIME="${E_TIME:-12:00:00}"
-E_MEM="${E_MEM:-128G}"
+E_MEM="${E_MEM:-480G}"
 # Step G (Theorem 4.5 Validation - GPU)
 G_GPU="${G_GPU:---gres=gpu:1}"
 G_CPUS="${G_CPUS:-4}"
 G_TIME="${G_TIME:-12:00:00}"
-G_MEM="${G_MEM:-64G}"
+G_MEM="${G_MEM:-128G}"
 # Step F (LaTeX Tables - CPU-only, lightweight)
 F_CPUS="${F_CPUS:-2}"
 F_TIME="${F_TIME:-00:30:00}"
@@ -78,7 +78,7 @@ AUDIT_MEM="${AUDIT_MEM:-32G}"
 CALIB_GPU="${CALIB_GPU:---gres=gpu:1}"
 CALIB_CPUS="${CALIB_CPUS:-4}"
 CALIB_TIME="${CALIB_TIME:-01:00:00}"
-CALIB_MEM="${CALIB_MEM:-32G}"
+CALIB_MEM="${CALIB_MEM:-480G}"
 
 # ==============================================================
 # Experiments to process (overridable)
