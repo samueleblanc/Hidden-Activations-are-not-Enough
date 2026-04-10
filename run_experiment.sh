@@ -33,7 +33,7 @@ ACCOUNT=""
 #GPU_ACCOUNT=""             # Override account for GPU jobs (defaults to ACCOUNT)
 #CPU_ACCOUNT=""             # Override account for CPU jobs (defaults to ACCOUNT)
 EXPERIMENTS=("vgg_cifar10")
-TOTAL_CHUNKS=1
+TOTAL_CHUNKS=8
 BATCH_SIZE=1800
 NUM_SAMPLES_PER_CLASS=500
 SAMPLES_PER_ATTACK=500
@@ -73,7 +73,7 @@ fi
 if [ "$TEST_MODE" = "true" ]; then
     echo "[TEST MODE] Using small sample sizes and short time limits."
     TOTAL_CHUNKS=1
-    BATCH_SIZE=100
+    BATCH_SIZE=1800
     NUM_SAMPLES_PER_CLASS=10
     SAMPLES_PER_ATTACK=10
     TEST_SIZE=100

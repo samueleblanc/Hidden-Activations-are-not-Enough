@@ -149,7 +149,9 @@ for EXP in "${EXPERIMENTS[@]}"; do
 
     cat > "$JOB_DIR/calibrate.sh" << CALIB_EOF
 #!/bin/bash
-#SBATCH --account=$GPU_ACCOUNT
+$ACCOUNT_LINE_GPU
+$PARTITION_LINE
+$CHDIR_LINE
 #SBATCH $CALIB_GPU
 #SBATCH --cpus-per-task=$CALIB_CPUS
 #SBATCH --time=$CALIB_TIME
@@ -158,8 +160,7 @@ for EXP in "${EXPERIMENTS[@]}"; do
 #SBATCH --error=$SLURM_ERR_DIR/PIPE_CALIB_${EXP}_%A.err
 
 mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
-module load $MODULES
-source $ENV_NAME/bin/activate
+$ENV_SETUP
 
 $CALIB_COPY_DATA
 

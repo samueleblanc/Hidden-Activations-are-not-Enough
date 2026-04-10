@@ -44,7 +44,7 @@ A_MEM="${A_MEM:-32G}"
 # Step B
 B_GPU="${B_GPU:---gres=gpu:1}"
 B_CPUS="${B_CPUS:-12}"
-B_TIME="${B_TIME:-00:30:00}"
+B_TIME="${B_TIME:-02:00:00}"
 B_MEM="${B_MEM:-128G}"
 # Step C (all attacks run sequentially in a single job)
 C_GPU="${C_GPU:---gres=gpu:1}"
