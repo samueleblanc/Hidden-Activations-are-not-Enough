@@ -72,7 +72,7 @@ fi
 # ==============================================================
 if [ "$TEST_MODE" = "true" ]; then
     echo "[TEST MODE] Using small sample sizes and short time limits."
-    TOTAL_CHUNKS=2
+    TOTAL_CHUNKS=1
     BATCH_SIZE=100
     NUM_SAMPLES_PER_CLASS=10
     SAMPLES_PER_ATTACK=10
@@ -82,15 +82,15 @@ if [ "$TEST_MODE" = "true" ]; then
     SLURM_ERR_DIR="slurm_err_test"
     # Shorter time limits
     A_GPU="--gres=gpu:1"
-    A_TIME="00:10:00"
+    A_TIME="00:30:00"
     A_MEM="16G"
     B_GPU="--gres=gpu:1"
     B_CPUS=4
-    B_TIME="00:15:00"
+    B_TIME="00:30:00"
     B_MEM="32G"
     C_GPU="--gres=gpu:1"
     C_CPUS=4
-    C_TIME="00:30:00"
+    C_TIME="02:00:00"
     C_MEM="32G"
     D_GPU="--gres=gpu:1"
     D_CPUS=4
@@ -104,7 +104,7 @@ if [ "$TEST_MODE" = "true" ]; then
     G_TIME="00:30:00"
     G_MEM="16G"
     F_CPUS=2
-    F_TIME="00:10:00"
+    F_TIME="00:30:00"
     F_MEM="2G"
     AUDIT_CPUS=2
     AUDIT_TIME="00:30:00"
@@ -652,155 +652,59 @@ STEPB_EOF
     done
 
     # ==========================================================
-    # Step C: Adversarial examples (one Slurm job per attack)
+    # Step C: Adversarial examples (single job, all attacks sequential)
     # ==========================================================
     local C_TEST_SIZE_ARG=""
     if [ "$TEST_SIZE" != "-1" ]; then
         C_TEST_SIZE_ARG="--test_size $TEST_SIZE"
     fi
 
-    # Build attack list (includes "test" as first entry)
-    local C_ATTACK_LIST
-    C_ATTACK_LIST=$(python3 -c "
-from constants.constants import ATTACKS, IMAGENET_ATTACKS, DEFAULT_EXPERIMENTS
-ds = DEFAULT_EXPERIMENTS.get('$EXP', {}).get('dataset', 'cifar10')
-attacks = IMAGENET_ATTACKS if ds == 'imagenet' else ATTACKS
-print('test ' + ' '.join(attacks))
-")
-
-    # Legacy compat: if old monolithic step_C.json exists and is complete, skip all C attacks
-    local CKPT_C_LEGACY="$CKPT_BASE/step_C.json"
+    # Check if Step C is already complete
+    local CKPT_C="$CKPT_BASE/step_C.json"
     local C_ADV_COUNT
     C_ADV_COUNT=$(find "experiments/$EXP/adversarial_examples/" -name "*.pth" 2>/dev/null | wc -l) || C_ADV_COUNT=0
-    if [ "$(read_checkpoint_status "$CKPT_C_LEGACY")" = "complete" ] && [ "$C_ADV_COUNT" -gt 0 ]; then
-        echo "  [C] Adv examples:        SKIPPED (legacy step_C.json complete, $C_ADV_COUNT files)"
+    if [ "$(read_checkpoint_status "$CKPT_C")" = "complete" ] && [ "$C_ADV_COUNT" -gt 0 ]; then
+        echo "  [C] Adv examples:        SKIPPED (step_C.json complete, $C_ADV_COUNT files)"
     else
-        for ATTACK_NAME in $C_ATTACK_LIST; do
-            # Per-attack resource adjustment flags (prevent quadrupling)
-            local C_MEM_ADJ=false C_TIME_ADJ=false
-            # Per-attack checkpoint
-            local CKPT_C_ATK="$CKPT_BASE/step_C_attack_${ATTACK_NAME}.json"
-            local ATK_STATUS
-            ATK_STATUS=$(read_checkpoint_status "$CKPT_C_ATK")
-
-            # Check if this attack already has output files
-            local ATK_FILE_COUNT
-            ATK_FILE_COUNT=$(find "experiments/$EXP/adversarial_examples/${ATTACK_NAME}/" -name "*.pth" 2>/dev/null | wc -l) || ATK_FILE_COUNT=0
-
-            if [ "$ATK_STATUS" = "complete" ] && [ "$ATK_FILE_COUNT" -gt 0 ]; then
-                echo "  [C] Attack $ATTACK_NAME:   SKIPPED (complete)"
-                continue
-            elif [ "$ATK_STATUS" = "complete" ] && [ "$ATK_FILE_COUNT" -eq 0 ]; then
-                # Check if marked as no_misclassifications (still valid)
-                local ATK_NOTE
-                ATK_NOTE=$(python3 -c "import json; print(json.load(open('$CKPT_C_ATK')).get('note',''))" 2>/dev/null || echo "")
-                if [ "$ATK_NOTE" = "no_misclassifications" ]; then
-                    echo "  [C] Attack $ATTACK_NAME:   SKIPPED (0 misclassifications)"
-                    continue
-                fi
-                echo "  [C] WARNING: Checkpoint complete but no files for $ATTACK_NAME. Invalidating."
-                rm -f "$CKPT_C_ATK"
-            elif [ "$ATK_STATUS" = "failed" ]; then
-                local FAILED_EXIT=$(read_checkpoint_field "$CKPT_C_ATK" "exit_code")
-                local FAILED_MEM=$(read_checkpoint_field "$CKPT_C_ATK" "mem")
-                if [ "$FAILED_EXIT" = "137" ] && [ -n "$FAILED_MEM" ]; then
-                    local OOM_MEM_OVERRIDE=$(double_mem "$FAILED_MEM")
-                    C_MEM_ADJ=true
-                    echo "  [C] Attack $ATTACK_NAME:   RE-RUNNING (OOM killed, doubling memory: $FAILED_MEM -> $OOM_MEM_OVERRIDE)"
-                elif [ "$FAILED_EXIT" = "140" ] || [ "$FAILED_EXIT" = "" ]; then
-                    local FAILED_TIME=$(read_checkpoint_field "$CKPT_C_ATK" "time")
-                    if [ -n "$FAILED_TIME" ]; then
-                        local TIMEOUT_TIME_OVERRIDE=$(double_time "$FAILED_TIME")
-                        C_TIME_ADJ=true
-                        echo "  [C] Attack $ATTACK_NAME:   RE-RUNNING (possible timeout, doubling time: $FAILED_TIME -> $TIMEOUT_TIME_OVERRIDE)"
-                    else
-                        echo "  [C] Attack $ATTACK_NAME:   RE-RUNNING (previous run failed, exit_code=$FAILED_EXIT)"
-                        local TIMEOUT_TIME_OVERRIDE=""
-                    fi
-                    local OOM_MEM_OVERRIDE=""
-                else
-                    echo "  [C] Attack $ATTACK_NAME:   RE-RUNNING (previous run failed, exit_code=$FAILED_EXIT)"
-                    local OOM_MEM_OVERRIDE=""
-                fi
-                rm -f "$CKPT_C_ATK"
+        # Resource adjustment from previous failures
+        local C_JOB_MEM="$C_MEM"
+        local C_JOB_TIME="$C_TIME"
+        if [ "$(read_checkpoint_status "$CKPT_C")" = "failed" ]; then
+            local FAILED_EXIT=$(read_checkpoint_field "$CKPT_C" "exit_code")
+            local FAILED_MEM=$(read_checkpoint_field "$CKPT_C" "mem")
+            local FAILED_TIME=$(read_checkpoint_field "$CKPT_C" "time")
+            if [ "$FAILED_EXIT" = "137" ] && [ -n "$FAILED_MEM" ]; then
+                C_JOB_MEM=$(double_mem "$FAILED_MEM")
+                echo "  [C] RE-RUNNING (OOM killed, doubling memory: $FAILED_MEM -> $C_JOB_MEM)"
+            elif [ "$FAILED_EXIT" = "140" ] && [ -n "$FAILED_TIME" ]; then
+                C_JOB_TIME=$(double_time "$FAILED_TIME")
+                echo "  [C] RE-RUNNING (timeout, doubling time: $FAILED_TIME -> $C_JOB_TIME)"
             fi
+            rm -f "$CKPT_C"
+        fi
 
-            # Per-attack resource allocation from calibration
-            local C_ATK_TIME="$C_TIME"
-            local C_ATK_MEM="$C_MEM"
-            local CALIB_FILE="experiments/$EXP/calibration.json"
-            if [ -f "$CALIB_FILE" ]; then
-                local CALIB_ATK_TIME
-                CALIB_ATK_TIME=$(python3 -c "
-import json
-c = json.load(open('$CALIB_FILE'))
-pa = c.get('slurm_resources',{}).get('2b',{}).get('per_attack_slurm',{}).get('$ATTACK_NAME',{})
-print(pa.get('time', ''))" 2>/dev/null || echo "")
-                if [ -n "$CALIB_ATK_TIME" ]; then
-                    C_ATK_TIME=$(enforce_min_time "$CALIB_ATK_TIME" "01:00:00")
-                fi
-                # Extract per-attack memory
-                local CALIB_ATK_MEM
-                CALIB_ATK_MEM=$(python3 -c "
-import json
-c = json.load(open('$CALIB_FILE'))
-pa = c.get('slurm_resources',{}).get('2b',{}).get('per_attack_slurm',{}).get('$ATTACK_NAME',{})
-print(pa.get('mem', ''))" 2>/dev/null || echo "")
-                if [ -n "$CALIB_ATK_MEM" ]; then
-                    C_ATK_MEM=$(enforce_min_mem "$CALIB_ATK_MEM" "16G")
-                fi
-            fi
+        # Check sacct for unrecorded failures
+        local SACCT_STATE
+        SACCT_STATE=$(detect_last_job_state "PIPE_C_${EXP}" "$SLURM_OUT_DIR")
+        if [ "$SACCT_STATE" = "OOM_KILLED" ]; then
+            C_JOB_MEM=$(double_mem "$C_JOB_MEM")
+            echo "  [C] sacct: OOM kill detected, doubling memory -> $C_JOB_MEM"
+        elif [ "$SACCT_STATE" = "TIMEOUT" ]; then
+            C_JOB_TIME=$(double_time "$C_JOB_TIME")
+            echo "  [C] sacct: timeout detected, doubling time -> $C_JOB_TIME"
+        fi
 
-            # If previous run was OOM-killed, override with doubled memory
-            if [ -n "${OOM_MEM_OVERRIDE:-}" ]; then
-                C_ATK_MEM="$OOM_MEM_OVERRIDE"
-                unset OOM_MEM_OVERRIDE
-            fi
-
-            # If previous run timed out, override with doubled time
-            if [ -n "${TIMEOUT_TIME_OVERRIDE:-}" ]; then
-                C_ATK_TIME="$TIMEOUT_TIME_OVERRIDE"
-                unset TIMEOUT_TIME_OVERRIDE
-            fi
-
-            # Check sacct for unrecorded failures (SIGKILL scenario — no checkpoint written)
-            if [ "$ATK_STATUS" = "missing" ]; then
-                local SACCT_STATE
-                SACCT_STATE=$(detect_last_job_state "PIPE_C_${EXP}_${ATTACK_NAME}" "$SLURM_OUT_DIR")
-                if [ "$SACCT_STATE" = "OOM_KILLED" ] && [ "$C_MEM_ADJ" = "false" ]; then
-                    C_ATK_MEM=$(double_mem "$C_ATK_MEM")
-                    C_MEM_ADJ=true
-                    echo "  [C] Attack $ATTACK_NAME:   RE-RUNNING (sacct: OOM kill, doubling memory -> $C_ATK_MEM)"
-                elif [ "$SACCT_STATE" = "TIMEOUT" ] && [ "$C_TIME_ADJ" = "false" ]; then
-                    C_ATK_TIME=$(double_time "$C_ATK_TIME")
-                    C_TIME_ADJ=true
-                    echo "  [C] Attack $ATTACK_NAME:   RE-RUNNING (sacct: timeout, doubling time -> $C_ATK_TIME)"
-                fi
-            fi
-
-            # Adjust resources based on previous error report
-            if [ "$HAS_PREV_ERRORS" = "true" ]; then
-                if echo "$PREV_OOM_STEPS" | grep -q "C:$ATTACK_NAME" && [ "$C_MEM_ADJ" = "false" ]; then
-                    C_ATK_MEM=$(double_mem "$C_ATK_MEM")
-                    echo "  [C] Raising memory to $C_ATK_MEM for $ATTACK_NAME (previous OOM in error report)"
-                fi
-                if echo "$PREV_TIMEOUT_STEPS" | grep -q "C:$ATTACK_NAME" && [ "$C_TIME_ADJ" = "false" ]; then
-                    C_ATK_TIME=$(double_time "$C_ATK_TIME")
-                    echo "  [C] Doubling time to $C_ATK_TIME for $ATTACK_NAME (previous timeout in error report)"
-                fi
-            fi
-
-            cat > "$JOB_DIR/step_C_attack_${ATTACK_NAME}.sh" << STEPC_EOF
+        cat > "$JOB_DIR/step_C.sh" << STEPC_EOF
 #!/bin/bash
 $ACCOUNT_LINE_GPU
 $PARTITION_LINE
 $CHDIR_LINE
 #SBATCH $C_GPU
 #SBATCH --cpus-per-task=$C_CPUS
-#SBATCH --time=$C_ATK_TIME
-#SBATCH --mem=$C_ATK_MEM
-#SBATCH --output=$SLURM_OUT_DIR/PIPE_C_${EXP}_${ATTACK_NAME}_%A.out
-#SBATCH --error=$SLURM_ERR_DIR/PIPE_C_${EXP}_${ATTACK_NAME}_%A.err
+#SBATCH --time=$C_JOB_TIME
+#SBATCH --mem=$C_JOB_MEM
+#SBATCH --output=$SLURM_OUT_DIR/PIPE_C_${EXP}_%A.out
+#SBATCH --error=$SLURM_ERR_DIR/PIPE_C_${EXP}_%A.err
 
 mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
 $ENV_SETUP
@@ -808,16 +712,21 @@ SLURM_TMPDIR="\${SLURM_TMPDIR:-/tmp/slurm-\$SLURM_JOB_ID}"
 mkdir -p "\$SLURM_TMPDIR"
 
 EXPERIMENT="$EXP"
-ATTACK_NAME="$ATTACK_NAME"
 
 $COPY_DATA
 
 mkdir -p \$SLURM_TMPDIR/experiments/\$EXPERIMENT/weights/
 cp \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/weights/* \$SLURM_TMPDIR/experiments/\$EXPERIMENT/weights/
 
+# Copy any previously completed attack results so the script can skip them
+if [ -d "\$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adversarial_examples/" ]; then
+    mkdir -p \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adversarial_examples/
+    cp -r \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adversarial_examples/* \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adversarial_examples/ 2>/dev/null || true
+fi
+
 # GPU monitoring
 mkdir -p \$SLURM_SUBMIT_DIR/gpu-monitor/
-GPU_LOGFILE="\$SLURM_SUBMIT_DIR/gpu-monitor/\$EXPERIMENT.C.\$ATTACK_NAME.log"
+GPU_LOGFILE="\$SLURM_SUBMIT_DIR/gpu-monitor/\$EXPERIMENT.C.all.log"
 monitor_gpu() {
   echo "Timestamp, GPU Util (%), Mem Used (MiB), Mem Total (MiB)" > "\$GPU_LOGFILE"
   while true; do
@@ -831,42 +740,39 @@ monitor_gpu &
 MONITOR_PID=\$!
 
 STEP_START=\$(date +%s)
-python generate_adversarial_examples.py --experiment_name \$EXPERIMENT --temp_dir=\$SLURM_TMPDIR --attacks \$ATTACK_NAME --no_auto_test $C_TEST_SIZE_ARG
+python generate_adversarial_examples.py --experiment_name \$EXPERIMENT --temp_dir=\$SLURM_TMPDIR $C_TEST_SIZE_ARG
 PY_EXIT=\$?
 STEP_END=\$(date +%s)
 STEP_ELAPSED=\$(( STEP_END - STEP_START ))
-echo "Step C attack \$ATTACK_NAME wall-clock: \${STEP_ELAPSED}s"
+echo "Step C all attacks wall-clock: \${STEP_ELAPSED}s"
 
 kill \$MONITOR_PID 2>/dev/null || true
 
-# Write per-attack checkpoint
+# Write checkpoint
 CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXP/checkpoints"
 mkdir -p "\$CKPT_DIR"
 if [ \$PY_EXIT -ne 0 ]; then
-    printf '{"status":"failed","exit_code":%d,"mem":"$C_ATK_MEM","time":"$C_ATK_TIME","timestamp":"%s"}\n' "\$PY_EXIT" "\$(date -Iseconds)" > "\$CKPT_DIR/step_C_attack_\${ATTACK_NAME}.json"
+    printf '{"status":"failed","exit_code":%d,"mem":"$C_JOB_MEM","time":"$C_JOB_TIME","timestamp":"%s"}\n' "\$PY_EXIT" "\$(date -Iseconds)" > "\$CKPT_DIR/step_C.json"
+    # Still copy partial results back before exiting
+fi
+
+# Copy all adversarial example results back
+mkdir -p \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adversarial_examples/
+cp -r \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adversarial_examples/* \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adversarial_examples/ 2>/dev/null || true
+echo "Step C complete for $EXP."
+
+if [ \$PY_EXIT -ne 0 ]; then
     exit 1
 fi
 
-# Copy results back (only this attack's subdirectory)
-mkdir -p \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adversarial_examples/\$ATTACK_NAME/
-cp -r \$SLURM_TMPDIR/experiments/\$EXPERIMENT/adversarial_examples/\$ATTACK_NAME/* \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adversarial_examples/\$ATTACK_NAME/ 2>/dev/null || true
-echo "Step C attack \$ATTACK_NAME complete for $EXP."
-
-ADV_COUNT=\$(find \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adversarial_examples/\$ATTACK_NAME/ -name "*.pth" 2>/dev/null | wc -l)
-if [ "\$ADV_COUNT" -gt 0 ]; then
-    printf '{"status":"complete","exit_code":0,"attack":"%s","timestamp":"%s"}\n' "\$ATTACK_NAME" "\$(date -Iseconds)" > "\$CKPT_DIR/step_C_attack_\${ATTACK_NAME}.json"
-else
-    # 0-output attacks are still "complete" (e.g., no misclassifications)
-    printf '{"status":"complete","exit_code":0,"attack":"%s","note":"no_misclassifications","timestamp":"%s"}\n' "\$ATTACK_NAME" "\$(date -Iseconds)" > "\$CKPT_DIR/step_C_attack_\${ATTACK_NAME}.json"
-    echo "NOTE: Attack \$ATTACK_NAME produced 0 adversarial examples (checkpoint marked complete)"
-fi
+ADV_COUNT=\$(find \$SLURM_SUBMIT_DIR/experiments/\$EXPERIMENT/adversarial_examples/ -name "*.pth" 2>/dev/null | wc -l)
+printf '{"status":"complete","exit_code":0,"adv_count":%d,"timestamp":"%s"}\n' "\$ADV_COUNT" "\$(date -Iseconds)" > "\$CKPT_DIR/step_C.json"
 STEPC_EOF
 
-            local JOB_ID
-            JOB_ID=$(submit_job "$JOB_DIR/step_C_attack_${ATTACK_NAME}.sh" "${JOB_A:-}")
-            JOB_C_IDS="${JOB_C_IDS:+$JOB_C_IDS:}$JOB_ID"
-            echo "  [C] Attack $ATTACK_NAME:   $JOB_ID"
-        done
+        local JOB_ID
+        JOB_ID=$(submit_job "$JOB_DIR/step_C.sh" "${JOB_A:-}")
+        JOB_C_IDS="$JOB_ID"
+        echo "  [C] Adv examples (all attacks): $JOB_ID"
     fi
 
     # ==========================================================
@@ -2271,10 +2177,9 @@ EOF_B
     done
 fi
 
-# --- Step C (per-attack parallel jobs) ---
+# --- Step C (all attacks sequential in single job) ---
 if [ "$RECOVER_STEP_C" = "true" ]; then
-    for ATTACK_NAME in $RECOVER_STEP_C_CHUNKS; do
-        cat > "$JOB_DIR/step_C_attack_${ATTACK_NAME}.sh" << EOF_C
+    cat > "$JOB_DIR/step_C.sh" << EOF_C
 #!/bin/bash
 $ACCOUNT_LINE_GPU
 $PARTITION_LINE
@@ -2283,44 +2188,47 @@ $CHDIR_LINE
 #SBATCH --cpus-per-task=$C_CPUS
 #SBATCH --time=$C_TIME
 #SBATCH --mem=$C_MEM
-#SBATCH --output=$SLURM_OUT_DIR/REC_C_${EXPERIMENT}_${ATTACK_NAME}_%A.out
-#SBATCH --error=$SLURM_ERR_DIR/REC_C_${EXPERIMENT}_${ATTACK_NAME}_%A.err
+#SBATCH --output=$SLURM_OUT_DIR/REC_C_${EXPERIMENT}_%A.out
+#SBATCH --error=$SLURM_ERR_DIR/REC_C_${EXPERIMENT}_%A.err
 mkdir -p \$SLURM_SUBMIT_DIR/$SLURM_OUT_DIR \$SLURM_SUBMIT_DIR/$SLURM_ERR_DIR
 $ENV_SETUP
-SLURM_TMPDIR="${SLURM_TMPDIR:-/tmp/slurm-$SLURM_JOB_ID}"
-mkdir -p "$SLURM_TMPDIR"
+SLURM_TMPDIR="\${SLURM_TMPDIR:-/tmp/slurm-\$SLURM_JOB_ID}"
+mkdir -p "\$SLURM_TMPDIR"
 $COPY_DATA
 mkdir -p \$SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
 cp \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/weights/* \$SLURM_TMPDIR/experiments/$EXPERIMENT/weights/
-python generate_adversarial_examples.py --experiment_name $EXPERIMENT --temp_dir=\$SLURM_TMPDIR --attacks $ATTACK_NAME --no_auto_test $C_TEST_SIZE_ARG
+# Copy previously completed attack results so the script can skip them
+if [ -d "\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adversarial_examples/" ]; then
+    mkdir -p \$SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_examples/
+    cp -r \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adversarial_examples/* \$SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_examples/ 2>/dev/null || true
+fi
+python generate_adversarial_examples.py --experiment_name $EXPERIMENT --temp_dir=\$SLURM_TMPDIR $C_TEST_SIZE_ARG
 PY_EXIT=\$?
 
-# Write per-attack checkpoint
+# Write checkpoint
 CKPT_DIR="\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/checkpoints"
 mkdir -p "\$CKPT_DIR"
 if [ \$PY_EXIT -ne 0 ]; then
-    printf '{"status":"failed","exit_code":%d,"mem":"$C_MEM","time":"$C_TIME","timestamp":"%s"}\n' "\$PY_EXIT" "\$(date -Iseconds)" > "\$CKPT_DIR/step_C_attack_${ATTACK_NAME}.json"
+    printf '{"status":"failed","exit_code":%d,"mem":"$C_MEM","time":"$C_TIME","timestamp":"%s"}\n' "\$PY_EXIT" "\$(date -Iseconds)" > "\$CKPT_DIR/step_C.json"
+fi
+
+# Copy all results back
+mkdir -p \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adversarial_examples/
+cp -r \$SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_examples/* \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adversarial_examples/ 2>/dev/null || true
+echo "Step C complete."
+
+if [ \$PY_EXIT -ne 0 ]; then
     exit 1
 fi
 
-mkdir -p \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adversarial_examples/$ATTACK_NAME/
-cp -r \$SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_examples/$ATTACK_NAME/* \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adversarial_examples/$ATTACK_NAME/ 2>/dev/null || true
-echo "Step C attack $ATTACK_NAME complete."
-
-ADV_COUNT=\$(find \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adversarial_examples/$ATTACK_NAME/ -name "*.pth" 2>/dev/null | wc -l)
-if [ "\$ADV_COUNT" -gt 0 ]; then
-    printf '{"status":"complete","exit_code":0,"attack":"$ATTACK_NAME","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_C_attack_${ATTACK_NAME}.json"
-else
-    printf '{"status":"complete","exit_code":0,"attack":"$ATTACK_NAME","note":"no_misclassifications","timestamp":"%s"}\n' "\$(date -Iseconds)" > "\$CKPT_DIR/step_C_attack_${ATTACK_NAME}.json"
-    echo "NOTE: Attack $ATTACK_NAME produced 0 adversarial examples (checkpoint marked complete)"
-fi
+ADV_COUNT=\$(find \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adversarial_examples/ -name "*.pth" 2>/dev/null | wc -l)
+printf '{"status":"complete","exit_code":0,"adv_count":%d,"timestamp":"%s"}\n' "\$ADV_COUNT" "\$(date -Iseconds)" > "\$CKPT_DIR/step_C.json"
 EOF_C
-        DEP="${JOB_A:-}"
-        JOB_ID=$(submit_job "$JOB_DIR/step_C_attack_${ATTACK_NAME}.sh" "$DEP")
-        JOB_C_IDS="${JOB_C_IDS:+$JOB_C_IDS:}$JOB_ID"
-        ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}$JOB_ID"
-        echo "[C] Attack $ATTACK_NAME: $JOB_ID"
-    done
+    DEP="${JOB_A:-}"
+    JOB_ID=$(submit_job "$JOB_DIR/step_C.sh" "$DEP")
+    JOB_C_IDS="$JOB_ID"
+    ALL_JOBS="${ALL_JOBS:+$ALL_JOBS:}$JOB_ID"
+    echo "[C] Adv examples (all attacks): $JOB_ID"
 fi
 
 # --- Step D (per chunk, depends on C) ---

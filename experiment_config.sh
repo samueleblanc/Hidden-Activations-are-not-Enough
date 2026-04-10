@@ -44,12 +44,12 @@ A_MEM="${A_MEM:-32G}"
 # Step B
 B_GPU="${B_GPU:---gres=gpu:1}"
 B_CPUS="${B_CPUS:-12}"
-B_TIME="${B_TIME:-00:20:00}"
+B_TIME="${B_TIME:-00:30:00}"
 B_MEM="${B_MEM:-128G}"
-# Step C (per-attack defaults — each attack runs as a separate Slurm job)
+# Step C (all attacks run sequentially in a single job)
 C_GPU="${C_GPU:---gres=gpu:1}"
 C_CPUS="${C_CPUS:-4}"
-C_TIME="${C_TIME:-03:00:00}"
+C_TIME="${C_TIME:-08:00:00}"
 C_MEM="${C_MEM:-32G}"
 # Step D (Adv Matrices)
 D_GPU="${D_GPU:---gres=gpu:1}"
@@ -68,7 +68,7 @@ G_TIME="${G_TIME:-06:00:00}"
 G_MEM="${G_MEM:-64G}"
 # Step F (LaTeX Tables - CPU-only, lightweight)
 F_CPUS="${F_CPUS:-2}"
-F_TIME="${F_TIME:-00:15:00}"
+F_TIME="${F_TIME:-00:30:00}"
 F_MEM="${F_MEM:-4G}"
 # Audit
 AUDIT_CPUS="${AUDIT_CPUS:-4}"
