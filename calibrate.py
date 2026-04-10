@@ -71,7 +71,10 @@ def train_2_epochs(model, train_loader, device):
     criterion = nn.CrossEntropyLoss().to(device)
     optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=1e-3)
 
-    torch.cuda.reset_peak_memory_stats(device)
+    try:
+        torch.cuda.reset_peak_memory_stats(device)
+    except Exception:
+        pass  # RMM pluggable allocator doesn't support this
     torch.cuda.empty_cache()
 
     start = time.time()
@@ -85,7 +88,10 @@ def train_2_epochs(model, train_loader, device):
             optimizer.step()
     elapsed = time.time() - start
 
-    peak_mem = torch.cuda.max_memory_allocated(device)
+    try:
+        peak_mem = torch.cuda.max_memory_allocated(device)
+    except Exception:
+        peak_mem = 0  # RMM: metric unavailable
     return elapsed, peak_mem
 
 

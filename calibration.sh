@@ -190,7 +190,12 @@ python calibrate.py \\
     --num_samples_per_class 100 \\
     --samples_per_attack 500
 
+PYTHON_EXIT=\$?
 kill \$MONITOR_PID 2>/dev/null || true
+if [ \$PYTHON_EXIT -ne 0 ]; then
+    echo "FATAL: calibrate.py failed with exit code \$PYTHON_EXIT"
+    exit \$PYTHON_EXIT
+fi
 echo "Calibration complete for $EXP."
 CALIB_EOF
 
