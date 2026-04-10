@@ -171,6 +171,7 @@ def find_optimal_batch_size(model, sample_input, device, target_utilization=0.85
     best_peak = 0
     test_bs = 256
     prev_probe_time = None
+    cliff_detected = False
     PROBE_SLOWDOWN_FACTOR = 3.0  # stop if probe takes >3x longer than previous
 
     upper_limit = min(total_positions, max_batch_size)
@@ -190,6 +191,7 @@ def find_optimal_batch_size(model, sample_input, device, target_utilization=0.85
                 print(f"  batch_size={test_bs}: OK but {probe_elapsed:.1f}s "
                       f"(>{PROBE_SLOWDOWN_FACTOR}x previous {prev_probe_time:.1f}s) — "
                       f"performance cliff detected, stopping", flush=True)
+                cliff_detected = True
                 break
 
             best_bs = test_bs
@@ -209,6 +211,9 @@ def find_optimal_batch_size(model, sample_input, device, target_utilization=0.85
             break
 
     # Phase 2: binary search between best_bs and test_bs
+    # When Phase 1 detected a cliff, also check timing to avoid selecting
+    # batch sizes above the HBM spill boundary.
+    reference_time = prev_probe_time  # last fast probe time from Phase 1
     low = best_bs
     high = min(test_bs, upper_limit)
 
@@ -218,14 +223,27 @@ def find_optimal_batch_size(model, sample_input, device, target_utilization=0.85
         if mid == best_bs:
             break
 
+        probe_start = time.time()
         success, peak = probe_batch_size(model, sample_input, mid, device)
+        probe_elapsed = time.time() - probe_start
+
         if is_acceptable(success, peak):
+            # Reject batch sizes that hit the performance cliff
+            if cliff_detected and reference_time and probe_elapsed > reference_time * PROBE_SLOWDOWN_FACTOR:
+                print(f"  batch_size={mid}: OK but {probe_elapsed:.1f}s "
+                      f"(>{PROBE_SLOWDOWN_FACTOR}x ref {reference_time:.1f}s) — "
+                      f"cliff, rejected", flush=True)
+                high = mid - 1
+                continue
+
             best_bs = mid
             best_peak = peak
+            reference_time = probe_elapsed
             if unified:
-                print(f"  batch_size={mid}: OK", flush=True)
+                print(f"  batch_size={mid}: OK ({probe_elapsed:.1f}s)", flush=True)
             else:
-                print(f"  batch_size={mid}: OK (peak={peak/1e9:.2f} GB, {peak/hbm_memory*100:.1f}%)", flush=True)
+                print(f"  batch_size={mid}: OK (peak={peak/1e9:.2f} GB, "
+                      f"{peak/hbm_memory*100:.1f}%, {probe_elapsed:.1f}s)", flush=True)
             low = mid + 1
         else:
             if success:
