@@ -26,6 +26,21 @@ from torchvision.datasets import CIFAR10
 from typing import Tuple, Optional, Callable
 
 
+def move_residuals_to_device(model, device):
+    """Move knowledgematrix NN residual projection layers to the specified device.
+
+    The knowledgematrix library stores residual projections in a plain Python
+    dict (self.residuals) rather than nn.ModuleDict, so nn.Module.to() does
+    not move them. Call this after every .to(device) on a knowledgematrix NN
+    model that may have residual connections (e.g. ResNet18).
+    """
+    if hasattr(model, 'residuals'):
+        for end_idx in model.residuals:
+            for _, proj in model.residuals[end_idx]:
+                for layer in proj:
+                    layer.to(device)
+
+
 def _remap_state_dict_keys(model, state_dict):
     """Remap state_dict keys when layer indices differ.
 
@@ -501,6 +516,7 @@ def get_model(
                 pretrained = False,
                 freeze_features = False,
             ).to(device)
+    move_residuals_to_device(model, device)
     state_dict = _remap_state_dict_keys(model, state_dict)
     model.load_state_dict(state_dict)
     return model

@@ -38,7 +38,7 @@ from datetime import datetime
 import torch
 from knowledgematrix.matrix_computer import KnowledgeMatrixComputer
 from constants.constants import DEFAULT_EXPERIMENTS, ATTACKS
-from utils.utils import get_architecture, get_dataset, get_input_shape, get_num_classes, get_device, subset
+from utils.utils import get_architecture, get_dataset, get_input_shape, get_num_classes, get_device, subset, move_residuals_to_device
 
 
 # ── CLI ──────────────────────────────────────────────────────────
@@ -353,6 +353,7 @@ def benchmark_experiment(experiment_name, num_matrices, max_batch_size, target_u
     print("  Creating model (random weights)...", flush=True)
     model = get_architecture(input_shape, num_classes, architecture_index,
                              pretrained=False, freeze_features=False).to(device)
+    move_residuals_to_device(model, device)
     model.input_shape = input_shape
     model.eval()
 

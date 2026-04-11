@@ -18,7 +18,7 @@ from knowledgematrix.models.vgg11 import VGG11
 from model_zoo.cnn import CNN_2D
 from model_zoo.mlp import MLP
 from constants.constants import DEFAULT_EXPERIMENTS
-from utils.utils import get_dataset, get_device, get_input_shape, get_num_classes, get_architecture
+from utils.utils import get_dataset, get_device, get_input_shape, get_num_classes, get_architecture, move_residuals_to_device
 
 
 def parse_args() -> Namespace:
@@ -143,6 +143,7 @@ def main() -> None:
     input_shape = get_input_shape(dataset)
     num_classes = get_num_classes(dataset)
     model = get_architecture(input_shape, num_classes, architecture_index, pretrained=True, freeze_features=True).to(device)
+    move_residuals_to_device(model, device)
 
     # Track whether pretrained weights were loaded and conv layers frozen.
     # Only architectures -3 (AlexNet), -2 (ResNet18), -1 (VGG11) accept

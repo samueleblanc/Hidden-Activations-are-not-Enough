@@ -26,7 +26,7 @@ from knowledgematrix.matrix_computer import KnowledgeMatrixComputer
 from constants.constants import DEFAULT_EXPERIMENTS
 from utils.utils import (
     get_architecture, get_dataset, get_input_shape,
-    get_num_classes, get_device, subset
+    get_num_classes, get_device, subset, move_residuals_to_device
 )
 
 
@@ -373,6 +373,7 @@ def main():
         input_shape, num_classes, architecture_index,
         pretrained=False, freeze_features=False
     ).to(device)
+    move_residuals_to_device(model, device)
     model.input_shape = input_shape
     model.eval()
     print(f"Model input_shape: {model.input_shape}", flush=True)
