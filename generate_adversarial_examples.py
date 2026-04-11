@@ -17,12 +17,6 @@ from utils.atomic_io import atomic_torch_save
 def parse_args(
         parser:Union[ArgumentParser, None] = None
     ) -> Namespace:
-    """
-        Args:
-            parser: the parser to use.
-        Returns:
-            The parsed arguments.
-    """
     if parser is None:
         parser = ArgumentParser()
     parser.add_argument(
@@ -36,7 +30,7 @@ def parse_args(
         "--test_size",
         type = int,
         default = -1,
-        help = "Size of subset of test data from where to generate adversarial examples."
+        help = "Size of subset of test data from where to generate adversarial examples. "
               "As default -1 takes 10k test samples"
     )
     parser.add_argument(
@@ -58,6 +52,19 @@ def parse_args(
         help = "Skip automatic prepending of 'test' (VANILA) attack. "
                "Use when running individual attacks in parallel Slurm jobs."
     )
+    parser.add_argument(
+        "--num_adv_examples",
+        type = int,
+        default = 500,
+        help = "Number of successful adversarial examples to collect per attack. "
+               "For 'test', collects this many correctly-classified clean samples."
+    )
+    parser.add_argument(
+        "--batch_size",
+        type = int,
+        default = 512,
+        help = "Batch size for processing test samples through attacks."
+    )
     return parser.parse_args()
 
 
@@ -70,12 +77,12 @@ def apply_attack(
         path_adv_examples: Path,
         input_shape,
         num_classes: int,
-        batch_size: int = 8,
+        num_adv_examples: int = 500,
+        batch_size: int = 512,
     ):
     device = get_device()
 
     attack_save_path = path_adv_examples / f'{attack_name}/adversarial_examples.pth'
-    wrong_pred_save_path = path_adv_examples / f'{attack_name}/wrong_predictions.pth'
     attack_save_path.parent.mkdir(parents=True, exist_ok=True)
 
     if attack_save_path.exists():
@@ -91,14 +98,6 @@ def apply_attack(
         device = device
     )
     model.eval()
-
-    # don't move the whole dataset to device (that causes OOM)
-    # data = data.to(device)
-    # labels = labels.to(device)
-
-    # prepare DataLoader to iterate in small batches
-    ds = TensorDataset(data, labels)
-    loader = DataLoader(ds, batch_size=batch_size, shuffle=False, pin_memory=True)
 
     # Build attack instance lazily (handles missing attacks in different torchattacks versions)
     attack_map = {
@@ -118,78 +117,95 @@ def apply_attack(
         return
     attack_instance = attack_cls(model)
 
+    ds = TensorDataset(data, labels)
+    loader = DataLoader(ds, batch_size=batch_size, shuffle=False, pin_memory=True)
+    needed = num_adv_examples
+    total_processed = 0
+
     if attack_name == "test":
-        # run on entire dataset in batches but save everything
-        adv_list = []
-        labels_list = []
+        # Collect correctly-classified clean samples
+        collected = []
+        collected_labels = []
         for xb, yb in loader:
             xb = xb.to(device)
             yb = yb.to(device)
             with torch.no_grad():
-                attacked = attack_instance(xb, yb)
-            adv_list.append(attacked.cpu())
-            labels_list.append(yb.cpu())
-            del xb, yb, attacked
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-        atomic_torch_save(torch.cat(adv_list), attack_save_path)
-        atomic_torch_save(torch.cat(labels_list), path_adv_examples / f'{attack_name}/labels.pth')
-        del adv_list, labels_list
+                preds = torch.argmax(model(xb), dim=1)
+            correct_mask = (preds == yb)
+            total_processed += xb.size(0)
+            if correct_mask.any():
+                collected.append(xb[correct_mask].cpu())
+                collected_labels.append(yb[correct_mask].cpu())
+            if sum(t.size(0) for t in collected) >= needed:
+                break
+
+        if len(collected) == 0:
+            print(f"  WARNING: test produced 0 correctly-classified samples.", flush=True)
+            return
+
+        result = torch.cat(collected)[:needed]
+        result_labels = torch.cat(collected_labels)[:needed]
+        atomic_torch_save(result, attack_save_path)
+        atomic_torch_save(result_labels, path_adv_examples / f'{attack_name}/labels.pth')
+        print(f"Attack: test. Collected {result.size(0)}/{needed} correctly-classified samples from {total_processed} processed.", flush=True)
+        del collected, collected_labels, result, result_labels
         return
 
-    # For real attacks: store only misclassified adversarial examples to save RAM
-    adv_saved = []
-    wrong_preds_saved = []
-    total = 0
-    misclassified = 0
-
+    # Real attacks: collect samples that are correctly classified originally
+    # but misclassified after the attack
+    collected_adv = []
     for xb, yb in loader:
-        xb = xb.to(device, non_blocking=True)
-        yb = yb.to(device, non_blocking=True)
+        xb = xb.to(device)
+        yb = yb.to(device)
+        total_processed += xb.size(0)
 
+        # Step 1: filter to correctly-classified originals
+        with torch.no_grad():
+            orig_preds = torch.argmax(model(xb), dim=1)
+        correct_mask = (orig_preds == yb)
+        if not correct_mask.any():
+            continue
+        xb_correct = xb[correct_mask]
+        yb_correct = yb[correct_mask]
+
+        # Step 2: run attack on correctly-classified subset
         try:
-            attacked_batch = attack_instance(xb, yb)  # most attacks operate batchwise
+            attacked = attack_instance(xb_correct, yb_correct)
         except Exception as e:
-            print(f"Error applying attack {attack_name} on a batch: {e}")
-            # free and continue to next batch / or break depending on severity
-            del xb, yb
+            print(f"Error applying attack {attack_name} on batch: {e}")
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
             continue
 
+        # Step 3: keep only samples where the attack succeeded (misclassified)
         with torch.no_grad():
-            preds = torch.argmax(model(attacked_batch), dim=1)
+            adv_preds = torch.argmax(model(attacked), dim=1)
+        success_mask = (adv_preds != yb_correct)
+        if success_mask.any():
+            collected_adv.append(attacked[success_mask].cpu())
 
-        mis_idx = (yb != preds)
-        miscount_batch = mis_idx.sum().item()
-        misclassified += miscount_batch
-        total += xb.size(0)
-
-        if miscount_batch > 0:
-            adv_saved.append(attacked_batch[mis_idx].cpu())
-            wrong_preds_saved.append(preds[mis_idx].cpu())
-
-        # free GPU memory from this batch
-        del xb, yb, attacked_batch, preds, mis_idx
+        del xb, yb, xb_correct, yb_correct, attacked, adv_preds
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-    print(f"Attack: {attack_name}. Misclassified after attack: {misclassified} out of {total}.", flush=True)
+        if sum(t.size(0) for t in collected_adv) >= needed:
+            break
 
-    if len(adv_saved) > 0:
-        atomic_torch_save(torch.cat(adv_saved), attack_save_path)
-        atomic_torch_save(torch.cat(wrong_preds_saved), wrong_pred_save_path)
+    if len(collected_adv) > 0:
+        result = torch.cat(collected_adv)[:needed]
+        print(f"Attack: {attack_name}. Collected {result.size(0)}/{needed} adversarial examples from {total_processed} processed.", flush=True)
+        atomic_torch_save(result, attack_save_path)
+        del result
     else:
-        print(f"  WARNING: {attack_name} produced 0 misclassified examples. Skipping save.", flush=True)
-        # Write a zero-results marker so downstream can distinguish from crash
+        print(f"  WARNING: {attack_name} produced 0 successful adversarial examples after processing {total_processed} samples. Skipping save.", flush=True)
         save_dir = path_adv_examples / f'{attack_name}'
         save_dir.mkdir(parents=True, exist_ok=True)
         marker_path = save_dir / 'zero_misclassifications.txt'
         with open(marker_path, 'w') as f:
-            f.write(f"Attack {attack_name} produced 0 misclassified adversarial examples\n")
+            f.write(f"Attack {attack_name} produced 0 successful adversarial examples from {total_processed} samples\n")
 
     # cleanup
-    del adv_saved, wrong_preds_saved, model, attack_instance
+    del collected_adv, model, attack_instance
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
@@ -204,19 +220,9 @@ def generate_adversarial_examples(
         num_classes: int,
         attacks: list = None,
         no_auto_test: bool = False,
+        num_adv_examples: int = 500,
+        batch_size: int = 512,
     ) -> None:
-    """
-        Args:
-            exp_dataset_test: the test set.
-            exp_labels_test: the labels of the test set.
-            weights_path: the path to the weights.
-            architecture_index: the index of the architecture (See constants/constants.py).
-            experiment_name: the name of the experiment (See constants/constants.py).
-            input_shape: the shape of the input.
-            num_classes: the number of classes.
-            attacks: optional list of attack names to run. If None, all ATTACKS are used.
-            no_auto_test: if True, skip automatic prepending of 'test' attack.
-    """
 
     experiment_dir = Path(f'experiments/{experiment_name}/adversarial_examples')
     experiment_dir.mkdir(parents=True, exist_ok=True)
@@ -238,7 +244,9 @@ def generate_adversarial_examples(
                          architecture_index,
                          experiment_dir,
                          input_shape,
-                         num_classes)
+                         num_classes,
+                         num_adv_examples=num_adv_examples,
+                         batch_size=batch_size)
         except Exception as e:
             print(f'ERROR: Attack {attack_name} failed entirely: {type(e).__name__}: {e}', flush=True)
             failed_attacks += 1
@@ -255,9 +263,6 @@ def generate_adversarial_examples(
 
 
 def main() -> None:
-    """
-        Main function to generate adversarial examples.
-    """
     args = parse_args()
     if args.experiment_name is None:
         raise ValueError("Default index not specified in constants/constants.py")
@@ -325,6 +330,8 @@ def main() -> None:
         num_classes = num_classes,
         attacks = args.attacks,
         no_auto_test = args.no_auto_test,
+        num_adv_examples = args.num_adv_examples,
+        batch_size = args.batch_size,
     )
 
 

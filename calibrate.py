@@ -246,11 +246,15 @@ def find_optimal_batch_size(model, sample_input, device, target_utilization=0.85
                       f"rejected", flush=True)
                 high = mid - 1
 
-        # Select the batch_size with the minimum probe time
-        fastest_bs, fastest_time, fastest_peak = min(probes, key=lambda x: x[1])
-        best_bs = fastest_bs
-        best_peak = fastest_peak
-        print(f"Optimal batch_size: {best_bs} (fastest: {fastest_time:.1f}s/sample)", flush=True)
+        # Select the largest batch_size within the noise floor of the fastest probe.
+        # All batch_sizes in the plateau region give the same total time (the workload
+        # is memory-bandwidth-bound), so prefer the largest to minimize kernel launches.
+        fastest_time = min(t for _, t, _ in probes)
+        NOISE_THRESHOLD = 1.10  # 10% — probes within this range are equivalent
+        acceptable = [(bs, t, p) for bs, t, p in probes if t <= fastest_time * NOISE_THRESHOLD]
+        best_bs, best_time, best_peak = max(acceptable, key=lambda x: x[0])
+        print(f"Optimal batch_size: {best_bs} (time: {best_time:.1f}s, "
+              f"fastest: {fastest_time:.1f}s, threshold: {fastest_time * NOISE_THRESHOLD:.1f}s)", flush=True)
         print(f"  All probes: {[(bs, f'{t:.1f}s') for bs, t, _ in sorted(probes)]}", flush=True)
     else:
         # No cliff: find largest batch_size that doesn't OOM / exceed target
@@ -508,8 +512,15 @@ def main():
     test_data_subset, test_labels_subset = subset(
         test_set, min(len(test_set), 10000), input_shape
     )
-    # Find weights path (random weights are fine — timing depends on architecture)
-    weights_path = os.path.join(calib_dir, "weights")
+    # Find weights path — use latest .pth file if available, else directory fallback
+    weights_dir = os.path.join(calib_dir, "weights")
+    weights_path = weights_dir
+    if os.path.isdir(weights_dir):
+        pth_files = [f for f in os.listdir(weights_dir) if f.endswith('.pth')]
+        if pth_files:
+            pth_files.sort(key=lambda f: os.path.getmtime(os.path.join(weights_dir, f)))
+            weights_path = os.path.join(weights_dir, pth_files[-1])
+            print(f"  Using weights: {weights_path}", flush=True)
 
     adv_total_time, per_attack_seconds, trained_weights_exist, random_penalty = calibrate_adversarial_attacks(
         model=model,
@@ -533,7 +544,7 @@ def main():
 
     num_attacks = len(ATTACKS) + 1  # +1 for "test"
     time_padding = 1.15      # +15% for A, B
-    time_padding_adv = 3.0   # 3× for D (adversarial examples are much slower)
+    time_padding_adv = 1.5   # 1.5× for D (same KM kernel as B; extra buffer for I/O + per-attack file loading)
     mem_padding = 1.20       # +20%
     adv_grace_seconds = 1800  # 30 min grace for Step C
 

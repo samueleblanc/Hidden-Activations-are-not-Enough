@@ -741,7 +741,7 @@ monitor_gpu &
 MONITOR_PID=\$!
 
 STEP_START=\$(date +%s)
-python generate_adversarial_examples.py --experiment_name \$EXPERIMENT --temp_dir=\$SLURM_TMPDIR $C_TEST_SIZE_ARG
+python generate_adversarial_examples.py --experiment_name \$EXPERIMENT --temp_dir=\$SLURM_TMPDIR --num_adv_examples $SAMPLES_PER_ATTACK --batch_size $BATCH_SIZE $C_TEST_SIZE_ARG
 PY_EXIT=\$?
 STEP_END=\$(date +%s)
 STEP_ELAPSED=\$(( STEP_END - STEP_START ))
@@ -2213,7 +2213,7 @@ if [ -d "\$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adversarial_examples/" ]; th
     mkdir -p \$SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_examples/
     cp -r \$SLURM_SUBMIT_DIR/experiments/$EXPERIMENT/adversarial_examples/* \$SLURM_TMPDIR/experiments/$EXPERIMENT/adversarial_examples/ 2>/dev/null || true
 fi
-python generate_adversarial_examples.py --experiment_name $EXPERIMENT --temp_dir=\$SLURM_TMPDIR $C_TEST_SIZE_ARG
+python generate_adversarial_examples.py --experiment_name $EXPERIMENT --temp_dir=\$SLURM_TMPDIR --num_adv_examples $SAMPLES_PER_ATTACK --batch_size $BATCH_SIZE $C_TEST_SIZE_ARG
 PY_EXIT=\$?
 
 # Write checkpoint
