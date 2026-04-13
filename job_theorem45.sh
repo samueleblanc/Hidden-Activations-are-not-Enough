@@ -1,5 +1,4 @@
 #!/bin/bash
-#SBATCH --account=def-xxx
 #SBATCH --array=0-2
 #SBATCH --time=02:00:00
 #SBATCH --gpus=h100:1

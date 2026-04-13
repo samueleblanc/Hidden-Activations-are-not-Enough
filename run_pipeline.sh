@@ -174,30 +174,32 @@ if [ "$TOTAL_NEEDED" -eq 0 ]; then
     exit 0
 fi
 
+ACCOUNT="def-xxxx"  # <-- SET YOUR ACCOUNT HERE
+
 if [ "$DRY_RUN" = true ]; then
-    echo "[DRY RUN] Would submit:"
-    [ ${#A_NEEDED[@]} -gt 0 ] && echo "  sbatch --array=$A_ARRAY_STR job_isomorphism.sh"
-    [ ${#B_NEEDED[@]} -gt 0 ] && echo "  sbatch --array=$B_ARRAY_STR job_teleportation.sh"
-    [ ${#C_NEEDED[@]} -gt 0 ] && echo "  sbatch --array=$C_ARRAY_STR job_theorem45.sh"
+    echo "[DRY RUN] Would submit (account=$ACCOUNT):"
+    [ ${#A_NEEDED[@]} -gt 0 ] && echo "  sbatch --account=$ACCOUNT --array=$A_ARRAY_STR job_isomorphism.sh"
+    [ ${#B_NEEDED[@]} -gt 0 ] && echo "  sbatch --account=$ACCOUNT --array=$B_ARRAY_STR job_teleportation.sh"
+    [ ${#C_NEEDED[@]} -gt 0 ] && echo "  sbatch --account=$ACCOUNT --array=$C_ARRAY_STR job_theorem45.sh"
     exit 0
 fi
 
-echo "Submitting SLURM jobs..."
+echo "Submitting SLURM jobs (account=$ACCOUNT)..."
 echo ""
 
 if [ ${#A_NEEDED[@]} -gt 0 ]; then
     echo "  Step A (Isomorphism):  --array=$A_ARRAY_STR"
-    sbatch --array="$A_ARRAY_STR" job_isomorphism.sh
+    sbatch --account="$ACCOUNT" --array="$A_ARRAY_STR" job_isomorphism.sh
 fi
 
 if [ ${#B_NEEDED[@]} -gt 0 ]; then
     echo "  Step B (Teleportation): --array=$B_ARRAY_STR"
-    sbatch --array="$B_ARRAY_STR" job_teleportation.sh
+    sbatch --account="$ACCOUNT" --array="$B_ARRAY_STR" job_teleportation.sh
 fi
 
 if [ ${#C_NEEDED[@]} -gt 0 ]; then
     echo "  Step C (Theorem 4.5):  --array=$C_ARRAY_STR"
-    sbatch --array="$C_ARRAY_STR" job_theorem45.sh
+    sbatch --account="$ACCOUNT" --array="$C_ARRAY_STR" job_theorem45.sh
 fi
 
 echo ""
