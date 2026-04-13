@@ -51,7 +51,7 @@ ARCHITECTURES = {
     'vgg19_bn':  {'factory': vgg19_bnCOB,  'penultimate_dim': 4096, 'family': 'vgg'},
 }
 
-NUM_CLASSES = {'cifar10': 10, 'cifar100': 100, 'tiny_imagenet': 200}
+NUM_CLASSES = {'cifar10': 10, 'cifar100': 100, 'tiny_imagenet': 200, 'imagenet': 1000}
 
 
 # ---------------------------------------------------------------------------
@@ -214,6 +214,19 @@ def load_dataset(dataset_name, split, num_samples, data_dir='data', seed=42):
         subdir = 'train' if is_train else 'val'
         path = Path(data_dir) / 'tiny-imagenet-200' / subdir
         ds = datasets.ImageFolder(str(path), transform=IMAGENET_TRANSFORM)
+    elif dataset_name == 'imagenet':
+        # Use validation set (split into train/test halves for consistency)
+        val_dir = Path(data_dir) / 'validation'
+        if not val_dir.exists():
+            val_dir = Path(data_dir) / 'val'
+        ds = datasets.ImageFolder(str(val_dir), transform=IMAGENET_TRANSFORM)
+        # First half for 'train', second half for 'test'
+        half = len(ds) // 2
+        if is_train:
+            indices = list(range(half))
+        else:
+            indices = list(range(half, len(ds)))
+        ds = torch.utils.data.Subset(ds, indices)
     else:
         raise ValueError(f"Unknown dataset: {dataset_name}")
     g = torch.Generator().manual_seed(seed)
@@ -344,11 +357,26 @@ def run_experiment(args):
 
     # Load model
     model = create_model(arch_name, num_classes)
-    state_dict = torch.load(args.weights_path, map_location='cpu', weights_only=True)
-    model.load_state_dict(state_dict)
+    if args.pretrained:
+        import torchvision.models as tv_models
+        tv_factory = {
+            'resnet18': tv_models.resnet18, 'resnet34': tv_models.resnet34,
+            'resnet50': tv_models.resnet50, 'resnet101': tv_models.resnet101,
+            'resnet152': tv_models.resnet152,
+            'vgg11_bn': tv_models.vgg11_bn, 'vgg13_bn': tv_models.vgg13_bn,
+            'vgg16_bn': tv_models.vgg16_bn, 'vgg19_bn': tv_models.vgg19_bn,
+        }
+        tv_model = tv_factory[arch_name](weights='DEFAULT')
+        model.load_state_dict(tv_model.state_dict())
+        print(f"  Using pretrained torchvision weights for {arch_name}",
+              flush=True)
+    else:
+        state_dict = torch.load(args.weights_path, map_location='cpu',
+                                weights_only=True)
+        model.load_state_dict(state_dict)
+        print(f"  Weights loaded from: {args.weights_path}", flush=True)
     model = model.to(device)
     model.eval()
-    print(f"  Weights loaded from: {args.weights_path}", flush=True)
 
     # Load data
     print("Loading datasets...", flush=True)
@@ -461,7 +489,11 @@ def parse_args():
                         choices=sorted(ARCHITECTURES.keys()))
     parser.add_argument('--dataset', required=True,
                         choices=sorted(NUM_CLASSES.keys()))
-    parser.add_argument('--weights_path', required=True, type=str)
+    weights_group = parser.add_mutually_exclusive_group(required=True)
+    weights_group.add_argument('--weights_path', type=str,
+                               help="Path to saved state_dict.")
+    weights_group.add_argument('--pretrained', action='store_true',
+                               help="Use torchvision pretrained weights.")
     parser.add_argument('--num_teleportations', type=int, default=100)
     parser.add_argument('--num_samples', type=int, default=500)
     parser.add_argument('--seed', type=int, default=42)

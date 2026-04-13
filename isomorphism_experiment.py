@@ -1,5 +1,5 @@
 """
-Isomorphism invariance demonstration (Stage 6).
+Isomorphism invariance demonstration.
 
 Validates the paper's core theoretical claim that knowledge matrices are
 invariant under neuron permutations (isomorphisms) while penultimate-layer
@@ -13,9 +13,6 @@ The experiment:
      - The permuted network produces IDENTICAL outputs (same predictions).
      - Penultimate-layer activations CHANGE after permutation.
      - Knowledge matrices remain the SAME (up to numerical precision).
-  4. Runs the 6 detectors on both original and permuted representations.
-  5. Shows that detection performance degrades for penultimate activations
-     but stays stable for matrices.
 
 Usage:
     python isomorphism_experiment.py --experiment alexnet_cifar10
@@ -37,13 +34,10 @@ from knowledgematrix.matrix_computer import KnowledgeMatrixComputer
 
 from utils.utils import (
     get_model, get_dataset, get_input_shape, get_num_classes,
-    get_device, subset,
+    get_device, subset, get_architecture,
 )
-from constants.constants import DEFAULT_EXPERIMENTS, ATTACKS
-from compare_representations import (
-    DETECTORS, compute_detection_metrics,
-    extract_penultimate_features,
-)
+from constants.constants import DEFAULT_EXPERIMENTS
+from utils.features import extract_penultimate_features
 
 
 # ---------------------------------------------------------------------------
@@ -365,63 +359,6 @@ def compute_matrix_distances(model_orig, model_perm, data, device,
 
 
 # ---------------------------------------------------------------------------
-# Detection experiment
-# ---------------------------------------------------------------------------
-
-def run_detection_comparison(model, train_data, train_labels, test_data,
-                             adv_data_dict, num_classes, device,
-                             batch_size=128):
-    """Run all 6 detectors on penultimate features for one model.
-
-    Args:
-        model: the network.
-        train_data: training data tensor.
-        train_labels: training labels tensor.
-        test_data: clean test data tensor.
-        adv_data_dict: {attack_name: adv_tensor}.
-        num_classes: number of classes.
-        device: torch device.
-        batch_size: batch size for feature extraction.
-
-    Returns:
-        dict: {detector_name: {attack_name: metrics_dict}}.
-    """
-    model.eval()
-    train_labels_np = train_labels.numpy().astype(int)
-
-    # Extract training features
-    train_feats = extract_penultimate_features(model, train_data,
-                                               batch_size=batch_size)
-    # Fit detectors
-    fitted = {}
-    for det_name, det_factory in DETECTORS.items():
-        det = det_factory()
-        det.fit(train_feats, train_labels_np, num_classes)
-        fitted[det_name] = det
-
-    # Score clean test data
-    test_feats = extract_penultimate_features(model, test_data,
-                                              batch_size=batch_size)
-    clean_scores = {}
-    for det_name, det in fitted.items():
-        clean_scores[det_name] = det.score(test_feats)
-
-    # Score adversarial data per attack
-    results = {}
-    for det_name, det in fitted.items():
-        results[det_name] = {}
-        for attack_name, adv_data in adv_data_dict.items():
-            adv_feats = extract_penultimate_features(model, adv_data,
-                                                     batch_size=batch_size)
-            metrics = compute_detection_metrics(
-                clean_scores[det_name], det.score(adv_feats)
-            )
-            results[det_name][attack_name] = metrics
-
-    return results
-
-
-# ---------------------------------------------------------------------------
 # Main experiment
 # ---------------------------------------------------------------------------
 
@@ -454,27 +391,35 @@ def run_isomorphism_experiment(experiment_name, num_permutations=5,
     base = (f'{temp_dir}/experiments/{experiment_name}'
             if temp_dir else f'experiments/{experiment_name}')
 
-    # Find weights
-    weights_dir = Path(base) / 'weights'
-    weights_path = None
-    for candidate_epoch in [epoch, epoch - 1]:
-        candidate = weights_dir / f'epoch_{candidate_epoch}.pth'
-        if candidate.exists():
-            weights_path = candidate
-            break
-    if weights_path is None:
-        epoch_files = sorted(weights_dir.glob('epoch_*.pth'),
-                             key=lambda p: int(p.stem.split('_')[1]))
-        if epoch_files:
-            weights_path = epoch_files[-1]
-        else:
-            raise FileNotFoundError(
-                f"No weights found in {weights_dir}"
-            )
-    print(f"Using weights: {weights_path}", flush=True)
-
     # Load model
-    model = get_model(weights_path, arch_idx, input_shape, num_classes, device)
+    if exp_config.get('pretrained', False) and epoch == 0:
+        print("Using pretrained torchvision weights (no local weight file)",
+              flush=True)
+        model = get_architecture(
+            architecture_index=arch_idx, input_shape=input_shape,
+            num_classes=num_classes, pretrained=True,
+            freeze_features=False,
+        ).to(device)
+    else:
+        weights_dir = Path(base) / 'weights'
+        weights_path = None
+        for candidate_epoch in [epoch, epoch - 1]:
+            candidate = weights_dir / f'epoch_{candidate_epoch}.pth'
+            if candidate.exists():
+                weights_path = candidate
+                break
+        if weights_path is None:
+            epoch_files = sorted(weights_dir.glob('epoch_*.pth'),
+                                 key=lambda p: int(p.stem.split('_')[1]))
+            if epoch_files:
+                weights_path = epoch_files[-1]
+            else:
+                raise FileNotFoundError(
+                    f"No weights found in {weights_dir}"
+                )
+        print(f"Using weights: {weights_path}", flush=True)
+        model = get_model(weights_path, arch_idx, input_shape, num_classes,
+                          device)
     model.eval()
 
     # Load data
@@ -484,41 +429,6 @@ def run_isomorphism_experiment(experiment_name, num_permutations=5,
     train_data, train_labels = subset(train_set, num_samples, input_shape)
     test_data, test_labels = subset(test_set,
                                     min(num_samples, 2000), input_shape)
-
-    # Load adversarial examples (use first available attacks)
-    adv_data_dict = {}
-    adv_base = Path(base) / 'adversarial_examples'
-    if adv_base.exists():
-        for attack in ATTACKS:
-            adv_path = adv_base / attack / 'adversarial_examples.pth'
-            if adv_path.exists():
-                adv = torch.load(adv_path, map_location='cpu')
-                if len(adv) > num_samples:
-                    adv = adv[:num_samples]
-                adv_data_dict[attack] = adv
-    print(f"Found {len(adv_data_dict)} attacks: {list(adv_data_dict.keys())}",
-          flush=True)
-
-    # -----------------------------------------------------------------------
-    # Run original model detection baseline
-    # -----------------------------------------------------------------------
-    print("\n" + "=" * 70, flush=True)
-    print("  ORIGINAL MODEL: detection baseline", flush=True)
-    print("=" * 70, flush=True)
-
-    detection_original = None
-    if adv_data_dict:
-        detection_original = run_detection_comparison(
-            model, train_data, train_labels, test_data,
-            adv_data_dict, num_classes, device
-        )
-        # Print summary
-        for det_name in DETECTORS:
-            aurocs = [detection_original[det_name][a]['auroc']
-                      for a in adv_data_dict if a in detection_original[det_name]]
-            if aurocs:
-                print(f"  {det_name:<18s}: mean AUROC = {np.mean(aurocs):.4f}",
-                      flush=True)
 
     # -----------------------------------------------------------------------
     # Per-permutation experiments
@@ -569,32 +479,6 @@ def run_isomorphism_experiment(experiment_name, num_permutations=5,
         print(f"    Mean L2 distance: {mat_dist['mean_l2']:.6e}", flush=True)
         print(f"    Max L2 distance: {mat_dist['max_l2']:.6e}", flush=True)
 
-        # 4. Run detection on permuted model
-        detection_permuted = None
-        if adv_data_dict:
-            print("  Running detectors on permuted model...", flush=True)
-            detection_permuted = run_detection_comparison(
-                permuted_model, train_data, train_labels, test_data,
-                adv_data_dict, num_classes, device
-            )
-            # Print summary
-            for det_name in DETECTORS:
-                aurocs_orig = [
-                    detection_original[det_name][a]['auroc']
-                    for a in adv_data_dict
-                    if a in detection_original[det_name]
-                ]
-                aurocs_perm = [
-                    detection_permuted[det_name][a]['auroc']
-                    for a in adv_data_dict
-                    if a in detection_permuted[det_name]
-                ]
-                if aurocs_orig and aurocs_perm:
-                    delta = np.mean(aurocs_perm) - np.mean(aurocs_orig)
-                    print(f"    {det_name:<18s}: AUROC orig={np.mean(aurocs_orig):.4f}"
-                          f"  perm={np.mean(aurocs_perm):.4f}"
-                          f"  delta={delta:+.4f}", flush=True)
-
         elapsed = time.perf_counter() - t0
 
         perm_result = {
@@ -602,7 +486,6 @@ def run_isomorphism_experiment(experiment_name, num_permutations=5,
             'output_equivalence': output_equiv,
             'activation_change': act_dist,
             'matrix_change': mat_dist,
-            'detection_permuted': detection_permuted,
             'elapsed_seconds': float(elapsed),
         }
         all_permutation_results.append(perm_result)
@@ -643,39 +526,6 @@ def run_isomorphism_experiment(experiment_name, num_permutations=5,
     print(f"  All predictions match:                {all_outputs_match}",
           flush=True)
 
-    # Detection degradation summary
-    detection_summary = {}
-    if detection_original and adv_data_dict:
-        print(f"\n  Detection AUROC degradation (penultimate features):")
-        for det_name in DETECTORS:
-            aurocs_orig = [
-                detection_original[det_name][a]['auroc']
-                for a in adv_data_dict
-                if a in detection_original[det_name]
-            ]
-            mean_orig = float(np.mean(aurocs_orig)) if aurocs_orig else None
-
-            deltas = []
-            for r in all_permutation_results:
-                if r['detection_permuted'] is None:
-                    continue
-                aurocs_perm = [
-                    r['detection_permuted'][det_name][a]['auroc']
-                    for a in adv_data_dict
-                    if a in r['detection_permuted'][det_name]
-                ]
-                if aurocs_perm:
-                    deltas.append(np.mean(aurocs_perm) - mean_orig)
-            mean_delta = float(np.mean(deltas)) if deltas else None
-
-            detection_summary[det_name] = {
-                'original_mean_auroc': mean_orig,
-                'mean_auroc_delta': mean_delta,
-            }
-            if mean_orig is not None and mean_delta is not None:
-                print(f"    {det_name:<18s}: original={mean_orig:.4f}  "
-                      f"avg delta={mean_delta:+.4f}", flush=True)
-
     # -----------------------------------------------------------------------
     # Save results
     # -----------------------------------------------------------------------
@@ -695,9 +545,7 @@ def run_isomorphism_experiment(experiment_name, num_permutations=5,
             'matrix_change': avg_mat_l2,
             'max_matrix_change': max_mat_l2,
             'all_predictions_match': all_outputs_match,
-            'detection_degradation': detection_summary,
         },
-        'detection_original': detection_original,
         'per_permutation': all_permutation_results,
     }
 

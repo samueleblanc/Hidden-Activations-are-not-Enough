@@ -30,10 +30,10 @@ from knowledgematrix.matrix_computer import KnowledgeMatrixComputer
 
 from utils.utils import (
     get_model, get_dataset, get_input_shape, get_num_classes,
-    get_device, subset,
+    get_device, subset, get_architecture,
 )
-from constants.constants import DEFAULT_EXPERIMENTS, ATTACKS
-from compare_representations import extract_penultimate_features
+from constants.constants import DEFAULT_EXPERIMENTS, ATTACKS, IMAGENET_ATTACKS
+from utils.features import extract_penultimate_features
 
 
 # ---------------------------------------------------------------------------
@@ -218,24 +218,34 @@ def validate_theorem45(experiment_name, num_samples=200, attacks=None,
     base = (f'{temp_dir}/experiments/{experiment_name}'
             if temp_dir else f'experiments/{experiment_name}')
 
-    # Find weights (same logic as isomorphism_experiment.py)
-    weights_dir = Path(base) / 'weights'
-    weights_path = None
-    for candidate_epoch in [epoch, epoch - 1]:
-        candidate = weights_dir / f'epoch_{candidate_epoch}.pth'
-        if candidate.exists():
-            weights_path = candidate
-            break
-    if weights_path is None:
-        epoch_files = sorted(weights_dir.glob('epoch_*.pth'),
-                             key=lambda p: int(p.stem.split('_')[1]))
-        if epoch_files:
-            weights_path = epoch_files[-1]
-        else:
-            raise FileNotFoundError(f"No weights found in {weights_dir}")
-    print(f"Using weights: {weights_path}", flush=True)
-
-    model = get_model(weights_path, arch_idx, input_shape, num_classes, device)
+    # Load model
+    if exp_config.get('pretrained', False) and epoch == 0:
+        print("Using pretrained torchvision weights (no local weight file)",
+              flush=True)
+        model = get_architecture(
+            architecture_index=arch_idx, input_shape=input_shape,
+            num_classes=num_classes, pretrained=True,
+            freeze_features=False,
+        ).to(device)
+    else:
+        weights_dir = Path(base) / 'weights'
+        weights_path = None
+        for candidate_epoch in [epoch, epoch - 1]:
+            candidate = weights_dir / f'epoch_{candidate_epoch}.pth'
+            if candidate.exists():
+                weights_path = candidate
+                break
+        if weights_path is None:
+            epoch_files = sorted(weights_dir.glob('epoch_*.pth'),
+                                 key=lambda p: int(p.stem.split('_')[1]))
+            if epoch_files:
+                weights_path = epoch_files[-1]
+            else:
+                raise FileNotFoundError(
+                    f"No weights found in {weights_dir}")
+        print(f"Using weights: {weights_path}", flush=True)
+        model = get_model(weights_path, arch_idx, input_shape, num_classes,
+                          device)
     model.eval()
 
     # Load test data
@@ -244,7 +254,12 @@ def validate_theorem45(experiment_name, num_samples=200, attacks=None,
     test_data, test_labels = subset(test_set, num_samples, input_shape)
     print(f"Test subset: {test_data.shape}", flush=True)
 
-    attack_list = attacks if attacks is not None else ATTACKS
+    if attacks is not None:
+        attack_list = attacks
+    elif dataset == 'imagenet':
+        attack_list = IMAGENET_ATTACKS
+    else:
+        attack_list = ATTACKS
 
     # --- Checkpoint: resume from previous partial run ---
     ckpt_path = Path(f'experiments/{experiment_name}/theorem45/theorem45_checkpoint.json')

@@ -851,35 +851,6 @@ def subset(
     return exp_dataset, exp_labels
 
 
-def zip_and_cleanup(
-        src_directory: str,
-        zip_filename: str,
-        clean:bool = True
-    ) -> None:
-    """
-        Args:
-            src_directory: the source directory.
-            zip_filename: the filename of the zip file.
-            clean: whether to clean the source directory.
-    """
-    from utils.data_integrity import zip_and_verify
-
-    print("Zipping and verifying...", flush=True)
-    result = zip_and_verify(src_directory, zip_filename, cleanup=clean)
-    if not result["success"]:
-        print(f"WARNING: zip_and_verify failed: {result['errors']}", flush=True)
-        # Fallback to old behavior
-        print("Falling back to shutil.make_archive...", flush=True)
-        shutil.make_archive(zip_filename, 'zip', src_directory)
-        if clean:
-            for root, dirs, files in os.walk(src_directory, topdown=False):
-                for name in files:
-                    os.remove(os.path.join(root, name))
-                for name in dirs:
-                    os.rmdir(os.path.join(root, name))
-    else:
-        print(f"Zip verified: {result['file_count']} files in {result['zip_path']}", flush=True)
-
 def get_parameters_baseline(dataset):
     param_sets = {
         'mnist': {
