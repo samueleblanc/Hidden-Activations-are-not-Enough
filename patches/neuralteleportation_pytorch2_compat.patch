@@ -1,5 +1,5 @@
---- /tmp/nt_extracted/neuralteleportation/neuralteleportation/network_graph.py	2026-04-06 22:01:00
-+++ /Users/marco/Desktop/Experiments - NNs/Hidden-Activations-are-not-Enough/env/lib/python3.11/site-packages/neuralteleportation/network_graph.py	2026-04-06 21:54:36
+--- neuralteleportation/network_graph.py.orig
++++ neuralteleportation/network_graph.py
 @@ -74,7 +74,101 @@
              return trace.graph
          else:
@@ -113,8 +113,8 @@
          # correct indexes
          graph = self.correct_indexes(graph)
  
---- /tmp/nt_extracted/neuralteleportation/neuralteleportation/changeofbasisutils.py	2026-04-06 22:01:00
-+++ /Users/marco/Desktop/Experiments - NNs/Hidden-Activations-are-not-Enough/env/lib/python3.11/site-packages/neuralteleportation/changeofbasisutils.py	2026-04-06 21:54:59
+--- neuralteleportation/changeofbasisutils.py.orig
++++ neuralteleportation/changeofbasisutils.py
 @@ -37,12 +37,12 @@
          if center != 1:
              print('Warning: The change of basis sampling is not centered at 1. But no negative change of basis'
