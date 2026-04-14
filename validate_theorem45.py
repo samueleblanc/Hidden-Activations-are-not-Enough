@@ -30,7 +30,7 @@ from knowledgematrix.matrix_computer import KnowledgeMatrixComputer
 
 from utils.utils import (
     get_model, get_dataset, get_input_shape, get_num_classes,
-    get_device, subset, get_architecture,
+    get_device, subset, get_architecture, _move_residuals_to_device,
 )
 from constants.constants import DEFAULT_EXPERIMENTS, ATTACKS, IMAGENET_ATTACKS
 from utils.features import extract_penultimate_features
@@ -195,6 +195,43 @@ def _load_checkpoint(path):
         return {}
 
 
+def _load_per_attack_files(experiment_name, num_samples):
+    """Load completed attack results from per-attack files.
+
+    Per-attack files are saved to experiments/{exp}/theorem45/per_attack/{attack}.json
+    by parallel SLURM jobs. Returns a dict of {attack_name: result_dict}.
+    """
+    pa_dir = Path(f'experiments/{experiment_name}/theorem45/per_attack')
+    results = {}
+    if not pa_dir.is_dir():
+        return results
+    for f in pa_dir.glob('*.json'):
+        try:
+            with open(f) as fh:
+                data = json.load(fh)
+            if (isinstance(data, dict)
+                    and data.get('experiment') == experiment_name
+                    and data.get('num_samples') == num_samples
+                    and 'result' in data):
+                results[data['attack']] = data['result']
+        except (json.JSONDecodeError, OSError, KeyError):
+            continue
+    return results
+
+
+def _save_per_attack_file(experiment_name, num_samples, attack_name, result):
+    """Save a single attack result to its own file (parallel-safe)."""
+    pa_dir = Path(f'experiments/{experiment_name}/theorem45/per_attack')
+    pa_dir.mkdir(parents=True, exist_ok=True)
+    data = {
+        'experiment': experiment_name,
+        'num_samples': num_samples,
+        'attack': attack_name,
+        'result': result,
+    }
+    _save_checkpoint(pa_dir / f'{attack_name}.json', data)
+
+
 # ---------------------------------------------------------------------------
 # Main validation
 # ---------------------------------------------------------------------------
@@ -227,6 +264,7 @@ def validate_theorem45(experiment_name, num_samples=200, attacks=None,
             num_classes=num_classes, pretrained=True,
             freeze_features=False,
         ).to(device)
+        _move_residuals_to_device(model, device)
     else:
         weights_dir = Path(base) / 'weights'
         weights_path = None
@@ -270,26 +308,34 @@ def validate_theorem45(experiment_name, num_samples=200, attacks=None,
     all_amp_M = []
     all_amp_h = []
 
+    # Load from checkpoint (legacy sequential runs)
     if (ckpt
             and ckpt.get('experiment') == experiment_name
             and ckpt.get('num_samples') == num_samples):
-        completed = set(ckpt['per_attack'].keys())
-        remaining = [a for a in attack_list if a not in completed]
-        # Reconstruct aggregated lists from checkpoint
         for atk_name, atk_result in ckpt['per_attack'].items():
             per_attack[atk_name] = atk_result
-            all_gammas.append(atk_result['gamma_empirical'])
-            all_amp_M.append(atk_result['amplification_M_median'])
-            all_amp_h.append(atk_result['amplification_h_median'])
-        if completed:
-            print(f"  Resuming from checkpoint: {len(completed)} attacks done "
-                  f"({', '.join(sorted(completed))}), "
-                  f"{len(remaining)} remaining.", flush=True)
-    else:
-        remaining = list(attack_list)
-        if ckpt:
-            print(f"  Checkpoint discarded (experiment/num_samples mismatch).",
-                  flush=True)
+    elif ckpt:
+        print(f"  Checkpoint discarded (experiment/num_samples mismatch).",
+              flush=True)
+
+    # Load from per-attack files (parallel SLURM runs)
+    pa_results = _load_per_attack_files(experiment_name, num_samples)
+    for atk_name, atk_result in pa_results.items():
+        if atk_name not in per_attack:
+            per_attack[atk_name] = atk_result
+
+    # Reconstruct aggregated lists from all completed attacks
+    for atk_name, atk_result in per_attack.items():
+        all_gammas.append(atk_result['gamma_empirical'])
+        all_amp_M.append(atk_result['amplification_M_median'])
+        all_amp_h.append(atk_result['amplification_h_median'])
+
+    completed = set(per_attack.keys())
+    remaining = [a for a in attack_list if a not in completed]
+    if completed:
+        print(f"  Resuming: {len(completed)} attacks done "
+              f"({', '.join(sorted(completed))}), "
+              f"{len(remaining)} remaining.", flush=True)
 
     attack_times = []
     for idx, attack_name in enumerate(remaining):
@@ -351,8 +397,8 @@ def validate_theorem45(experiment_name, num_samples=200, attacks=None,
         boot_gammas = []
         rng = np.random.RandomState(42 + idx)
         for _ in range(n_bootstrap):
-            idx = rng.choice(len(ratio_M), size=len(ratio_M), replace=True)
-            boot_gammas.append(float(np.min(ratio_M[idx])))
+            boot_idx = rng.choice(len(ratio_M), size=len(ratio_M), replace=True)
+            boot_gammas.append(float(np.min(ratio_M[boot_idx])))
         gamma_ci_lower = float(np.percentile(boot_gammas, 2.5))
         gamma_ci_upper = float(np.percentile(boot_gammas, 97.5))
 
@@ -387,12 +433,16 @@ def validate_theorem45(experiment_name, num_samples=200, attacks=None,
 
         attack_times.append(elapsed)
 
-        # Save checkpoint after each attack
+        # Save checkpoint after each attack (legacy format)
         _save_checkpoint(ckpt_path, {
             'experiment': experiment_name,
             'num_samples': num_samples,
             'per_attack': per_attack,
         })
+
+        # Save per-attack file (parallel-safe)
+        _save_per_attack_file(experiment_name, num_samples, attack_name,
+                              per_attack[attack_name])
 
         # Cleanup
         del clean, adv, d_f, d_h, d_M
@@ -480,11 +530,121 @@ def parse_args():
         "--temp_dir", type=str, default=None,
         help="Temporary directory (cluster SLURM_TMPDIR)."
     )
+    parser.add_argument(
+        "--aggregate", action="store_true",
+        help="Aggregate per-attack result files into final results "
+             "(no GPU needed, no attack generation)."
+    )
     return parser.parse_args()
+
+
+def aggregate_theorem45(experiment_name, num_samples=200):
+    """Aggregate per-attack result files into final theorem45_results.json.
+
+    No GPU or model loading needed. Reads per-attack files and checkpoint,
+    combines results, writes the final output.
+    """
+    exp_config = DEFAULT_EXPERIMENTS[experiment_name]
+    dataset = exp_config['dataset']
+
+    if dataset == 'imagenet':
+        attack_list = IMAGENET_ATTACKS
+    else:
+        attack_list = ATTACKS
+
+    # Load from checkpoint + per-attack files
+    ckpt_path = Path(f'experiments/{experiment_name}/theorem45/theorem45_checkpoint.json')
+    ckpt = _load_checkpoint(ckpt_path)
+    per_attack = {}
+
+    if (ckpt
+            and ckpt.get('experiment') == experiment_name
+            and ckpt.get('num_samples') == num_samples):
+        per_attack.update(ckpt['per_attack'])
+
+    pa_results = _load_per_attack_files(experiment_name, num_samples)
+    for atk_name, atk_result in pa_results.items():
+        if atk_name not in per_attack:
+            per_attack[atk_name] = atk_result
+
+    completed = set(per_attack.keys())
+    expected = set(attack_list)
+    missing = expected - completed
+    if missing:
+        print(f"  WARNING: Missing attacks: {', '.join(sorted(missing))}",
+              flush=True)
+        print(f"  Aggregating {len(completed)}/{len(expected)} attacks.",
+              flush=True)
+
+    all_gammas = []
+    all_amp_M = []
+    all_amp_h = []
+    for atk_result in per_attack.values():
+        all_gammas.append(atk_result['gamma_empirical'])
+        all_amp_M.append(atk_result['amplification_M_median'])
+        all_amp_h.append(atk_result['amplification_h_median'])
+
+    aggregate = {}
+    if all_gammas:
+        aggregate = {
+            'gamma_global': float(np.min(all_gammas)),
+            'mean_amplification_M': float(np.mean(all_amp_M)),
+            'mean_amplification_h': float(np.mean(all_amp_h)),
+            'ratio_M_over_h': float(np.mean(all_amp_M) / np.mean(all_amp_h))
+                if np.mean(all_amp_h) > 1e-12 else None,
+        }
+
+    print(f"\n{'#'*60}", flush=True)
+    print(f"  THEOREM 4.5 AGGREGATION: {experiment_name}", flush=True)
+    print(f"{'#'*60}", flush=True)
+    if aggregate:
+        print(f"  Attacks:                {len(completed)}/{len(expected)}",
+              flush=True)
+        print(f"  Global gamma:           {aggregate['gamma_global']:.4f}",
+              flush=True)
+        print(f"  Mean amplif. (KM):      {aggregate['mean_amplification_M']:.2f}",
+              flush=True)
+        print(f"  Mean amplif. (penult):  {aggregate['mean_amplification_h']:.2f}",
+              flush=True)
+        r = aggregate.get('ratio_M_over_h')
+        if r is not None:
+            print(f"  KM / penult ratio:      {r:.2f}x", flush=True)
+    else:
+        print("  No valid results to aggregate.", flush=True)
+        return None
+
+    out_dir = Path(f'experiments/{experiment_name}/theorem45/')
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_file = out_dir / 'theorem45_results.json'
+
+    save_data = {
+        'experiment': experiment_name,
+        'num_samples': num_samples,
+        'per_attack': per_attack,
+        'aggregate': aggregate,
+    }
+    with open(out_file, 'w') as f:
+        json.dump(save_data, f, indent=2)
+    print(f"\n  Results saved to {out_file}", flush=True)
+
+    # Clean up checkpoint (per-attack files kept for reproducibility)
+    if ckpt_path.exists():
+        ckpt_path.unlink()
+        print(f"  Checkpoint cleaned up.", flush=True)
+
+    return save_data
 
 
 def main():
     args = parse_args()
+
+    if args.aggregate:
+        print(f"Theorem 4.5 Aggregation", flush=True)
+        print(f"  Experiment:    {args.experiment}", flush=True)
+        print(f"  Samples:       {args.num_samples}", flush=True)
+        aggregate_theorem45(args.experiment, args.num_samples)
+        return
+
     print(f"Theorem 4.5 Validation", flush=True)
     print(f"  Experiment:    {args.experiment}", flush=True)
     print(f"  Samples:       {args.num_samples}", flush=True)

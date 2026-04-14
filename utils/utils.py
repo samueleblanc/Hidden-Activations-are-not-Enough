@@ -342,6 +342,21 @@ def get_imagenet_loaders(
 
 
 
+def _move_residuals_to_device(model, device):
+    """Move knowledgematrix residual projection layers to device.
+
+    Workaround: NN.residuals is a plain dict, not nn.ModuleDict,
+    so model.to(device) misses these layers.
+    """
+    if hasattr(model, 'residuals'):
+        for connections in model.residuals.values():
+            for _, proj_layers in connections:
+                for layer in proj_layers:
+                    if isinstance(layer, nn.Module):
+                        layer.to(device)
+    return model
+
+
 def get_device(trial_number: int = 1, gpu_count: int = 1) -> torch.device:
     """
         Returns:
@@ -501,6 +516,7 @@ def get_model(
                 pretrained = False,
                 freeze_features = False,
             ).to(device)
+    _move_residuals_to_device(model, device)
     state_dict = _remap_state_dict_keys(model, state_dict)
     model.load_state_dict(state_dict)
     return model

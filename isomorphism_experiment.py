@@ -34,7 +34,7 @@ from knowledgematrix.matrix_computer import KnowledgeMatrixComputer
 
 from utils.utils import (
     get_model, get_dataset, get_input_shape, get_num_classes,
-    get_device, subset, get_architecture,
+    get_device, subset, get_architecture, _move_residuals_to_device,
 )
 from constants.constants import DEFAULT_EXPERIMENTS
 from utils.features import extract_penultimate_features
@@ -400,6 +400,7 @@ def run_isomorphism_experiment(experiment_name, num_permutations=5,
             num_classes=num_classes, pretrained=True,
             freeze_features=False,
         ).to(device)
+        _move_residuals_to_device(model, device)
     else:
         weights_dir = Path(base) / 'weights'
         weights_path = None
@@ -447,6 +448,7 @@ def run_isomorphism_experiment(experiment_name, num_permutations=5,
         # Create permuted model
         permuted_model, perm = permute_network(model, seed=seed)
         permuted_model.to(device)
+        _move_residuals_to_device(permuted_model, device)
         permuted_model.eval()
 
         # 1. Verify output equivalence

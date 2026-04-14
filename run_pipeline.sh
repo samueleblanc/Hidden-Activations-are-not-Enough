@@ -98,19 +98,59 @@ for i in 0 1 2; do
 done
 echo ""
 
+C_ATTACKS=("FGSM" "PGD" "CW" "DeepFool" "APGD" "Square")
+C_ATTACK_TASKS=()  # per-attack SLURM array indices (0-17)
+C_AGG_NEEDED=()    # experiments needing aggregation
+
 echo "Step C: Theorem 4.5"
 for i in 0 1 2; do
     if [ -f "${C_RESULTS[$i]}" ]; then
         C_STATUS[$i]="done"
         echo "  [$i] ${C_NAMES[$i]}: DONE"
-    elif [ -f "${C_CHECKPOINTS[$i]}" ]; then
-        C_STATUS[$i]="in_progress"
-        C_NEEDED+=("$i")
-        echo "  [$i] ${C_NAMES[$i]}: IN PROGRESS (checkpoint found, will resume)"
     else
-        C_STATUS[$i]="pending"
-        C_NEEDED+=("$i")
-        echo "  [$i] ${C_NAMES[$i]}: PENDING"
+        # Check per-attack files
+        PA_DIR="experiments/${C_NAMES[$i]}/theorem45/per_attack"
+        CKPT_FILE="${C_CHECKPOINTS[$i]}"
+        PA_COUNT=0
+        [ -d "$PA_DIR" ] && PA_COUNT=$(ls "$PA_DIR"/*.json 2>/dev/null | wc -l)
+        CKPT_COUNT=0
+        if [ -f "$CKPT_FILE" ]; then
+            CKPT_COUNT=$(python3 -c "
+import json
+with open('$CKPT_FILE') as f: d=json.load(f)
+print(len(d.get('per_attack',{})))
+" 2>/dev/null || echo 0)
+        fi
+        TOTAL_DONE_ATTACKS=$((PA_COUNT > CKPT_COUNT ? PA_COUNT : CKPT_COUNT))
+
+        if [ "$TOTAL_DONE_ATTACKS" -ge 6 ]; then
+            C_STATUS[$i]="needs_aggregation"
+            C_AGG_NEEDED+=("$i")
+            echo "  [$i] ${C_NAMES[$i]}: ALL ATTACKS DONE (${TOTAL_DONE_ATTACKS}/6), needs aggregation"
+        else
+            C_STATUS[$i]="in_progress"
+            echo "  [$i] ${C_NAMES[$i]}: ${TOTAL_DONE_ATTACKS}/6 attacks done"
+            # Add missing per-attack SLURM tasks
+            for a in 0 1 2 3 4 5; do
+                ATK=${C_ATTACKS[$a]}
+                PA_FILE="$PA_DIR/${ATK}.json"
+                TASK_ID=$(( i * 6 + a ))
+                if [ ! -f "$PA_FILE" ]; then
+                    # Also check checkpoint for this attack
+                    IN_CKPT=false
+                    if [ -f "$CKPT_FILE" ]; then
+                        IN_CKPT=$(python3 -c "
+import json
+with open('$CKPT_FILE') as f: d=json.load(f)
+print('true' if '$ATK' in d.get('per_attack',{}) else 'false')
+" 2>/dev/null || echo false)
+                    fi
+                    if [ "$IN_CKPT" = "false" ]; then
+                        C_ATTACK_TASKS+=("$TASK_ID")
+                    fi
+                fi
+            done
+        fi
     fi
 done
 echo ""
@@ -122,10 +162,12 @@ join_array() { local IFS=','; echo "$*"; }
 
 A_ARRAY_STR=""
 B_ARRAY_STR=""
-C_ARRAY_STR=""
+C_ATTACK_ARRAY_STR=""
+C_AGG_ARRAY_STR=""
 [ ${#A_NEEDED[@]} -gt 0 ] && A_ARRAY_STR=$(join_array "${A_NEEDED[@]}")
 [ ${#B_NEEDED[@]} -gt 0 ] && B_ARRAY_STR=$(join_array "${B_NEEDED[@]}")
-[ ${#C_NEEDED[@]} -gt 0 ] && C_ARRAY_STR=$(join_array "${C_NEEDED[@]}")
+[ ${#C_ATTACK_TASKS[@]} -gt 0 ] && C_ATTACK_ARRAY_STR=$(join_array "${C_ATTACK_TASKS[@]}")
+[ ${#C_AGG_NEEDED[@]} -gt 0 ] && C_AGG_ARRAY_STR=$(join_array "${C_AGG_NEEDED[@]}")
 
 STATE_FILE="pipeline_state.json"
 TMP_FILE="${STATE_FILE}.tmp"
@@ -150,7 +192,8 @@ printf '%s\n' '{
   "submitted": {
     "step_A": "'"${A_ARRAY_STR:-none}"'",
     "step_B": "'"${B_ARRAY_STR:-none}"'",
-    "step_C": "'"${C_ARRAY_STR:-none}"'"
+    "step_C_attacks": "'"${C_ATTACK_ARRAY_STR:-none}"'",
+    "step_C_aggregate": "'"${C_AGG_ARRAY_STR:-none}"'"
   }
 }' > "$TMP_FILE"
 mv "$TMP_FILE" "$STATE_FILE"
@@ -161,11 +204,21 @@ echo ""
 # ==============================================================
 # Phase 2: Submit
 # ==============================================================
-TOTAL_NEEDED=$(( ${#A_NEEDED[@]} + ${#B_NEEDED[@]} + ${#C_NEEDED[@]} ))
-TOTAL_DONE=$(( 9 - TOTAL_NEEDED ))
+C_TOTAL_JOBS=$(( ${#C_ATTACK_TASKS[@]} + ${#C_AGG_NEEDED[@]} ))
+TOTAL_NEEDED=$(( ${#A_NEEDED[@]} + ${#B_NEEDED[@]} + C_TOTAL_JOBS ))
+# Count fully done: A(3) + B(3) + C(3 experiments)
+C_DONE=0
+for i in 0 1 2; do [ "${C_STATUS[$i]}" = "done" ] && C_DONE=$((C_DONE + 1)); done
+TOTAL_DONE=$(( 3 - ${#A_NEEDED[@]} + 3 - ${#B_NEEDED[@]} + C_DONE ))
 
 echo "========================================"
-echo "  SUMMARY: $TOTAL_DONE/9 done, $TOTAL_NEEDED to submit"
+echo "  SUMMARY: $TOTAL_DONE/9 done, $TOTAL_NEEDED jobs to submit"
+if [ ${#C_ATTACK_TASKS[@]} -gt 0 ]; then
+    echo "  Step C: ${#C_ATTACK_TASKS[@]} per-attack jobs"
+fi
+if [ ${#C_AGG_NEEDED[@]} -gt 0 ]; then
+    echo "  Step C: ${#C_AGG_NEEDED[@]} aggregation jobs"
+fi
 echo "========================================"
 echo ""
 
@@ -174,13 +227,14 @@ if [ "$TOTAL_NEEDED" -eq 0 ]; then
     exit 0
 fi
 
-ACCOUNT="def-xxxx"  # <-- SET YOUR ACCOUNT HERE
+ACCOUNT="def-bruestle_gpu"
 
 if [ "$DRY_RUN" = true ]; then
     echo "[DRY RUN] Would submit (account=$ACCOUNT):"
     [ ${#A_NEEDED[@]} -gt 0 ] && echo "  sbatch --account=$ACCOUNT --array=$A_ARRAY_STR job_isomorphism.sh"
     [ ${#B_NEEDED[@]} -gt 0 ] && echo "  sbatch --account=$ACCOUNT --array=$B_ARRAY_STR job_teleportation.sh"
-    [ ${#C_NEEDED[@]} -gt 0 ] && echo "  sbatch --account=$ACCOUNT --array=$C_ARRAY_STR job_theorem45.sh"
+    [ ${#C_ATTACK_TASKS[@]} -gt 0 ] && echo "  sbatch --account=$ACCOUNT --array=$C_ATTACK_ARRAY_STR job_theorem45.sh"
+    [ ${#C_AGG_NEEDED[@]} -gt 0 ] && echo "  sbatch --account=$ACCOUNT --array=$C_AGG_ARRAY_STR --dependency=afterany:\$C_JOB_ID job_theorem45_agg.sh"
     exit 0
 fi
 
@@ -197,9 +251,21 @@ if [ ${#B_NEEDED[@]} -gt 0 ]; then
     sbatch --account="$ACCOUNT" --array="$B_ARRAY_STR" job_teleportation.sh
 fi
 
-if [ ${#C_NEEDED[@]} -gt 0 ]; then
-    echo "  Step C (Theorem 4.5):  --array=$C_ARRAY_STR"
-    sbatch --account="$ACCOUNT" --array="$C_ARRAY_STR" job_theorem45.sh
+C_JOB_ID=""
+if [ ${#C_ATTACK_TASKS[@]} -gt 0 ]; then
+    echo "  Step C (Theorem 4.5 per-attack):  --array=$C_ATTACK_ARRAY_STR"
+    C_JOB_ID=$(sbatch --parsable --account="$ACCOUNT" --array="$C_ATTACK_ARRAY_STR" job_theorem45.sh)
+    echo "    Job ID: $C_JOB_ID"
+fi
+
+if [ ${#C_AGG_NEEDED[@]} -gt 0 ]; then
+    if [ -n "$C_JOB_ID" ]; then
+        echo "  Step C (Theorem 4.5 aggregation):  --array=$C_AGG_ARRAY_STR (after $C_JOB_ID)"
+        sbatch --account="$ACCOUNT" --array="$C_AGG_ARRAY_STR" --dependency=afterany:"$C_JOB_ID" job_theorem45_agg.sh
+    else
+        echo "  Step C (Theorem 4.5 aggregation):  --array=$C_AGG_ARRAY_STR"
+        sbatch --account="$ACCOUNT" --array="$C_AGG_ARRAY_STR" job_theorem45_agg.sh
+    fi
 fi
 
 echo ""
