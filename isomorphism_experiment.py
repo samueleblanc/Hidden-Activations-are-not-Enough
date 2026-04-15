@@ -130,17 +130,22 @@ def permute_penultimate_layer(model, seed=42):
 
 
 def permute_conv_penultimate(model, seed=42):
-    """Permute the channels before the final Linear layer for architectures
-    with only one Linear layer (e.g., ResNet18).
+    """Permute the channel group before the final Linear layer for
+    architectures with only one Linear layer (e.g., ResNet18).
 
     For ResNet18, the structure ends with:
-        ... -> AdaptiveAvgPool2d -> Flatten -> Linear(512, num_classes)
+        ... -> [block4: Conv2d/BN layers with 512 channels] ->
+        AdaptiveAvgPool2d -> Flatten -> Linear(512, num_classes)
 
-    We permute the output channels of the last Conv2d (or BN after it)
-    and the corresponding input features of the final Linear.
+    We permute ALL layers in the final channel group (e.g., all 512-ch
+    Conv2d and BN layers in ResNet18's block 4), including residual
+    projection layers, and the corresponding input features of the
+    final Linear.  This correctly handles skip connections: both the
+    main pathway and the residual pathway are permuted, so their
+    addition remains consistent.
 
     Args:
-        model: a knowledgematrix NN model.
+        model: a knowledgematrix NN model (with .layers and .residuals).
         seed: random seed.
 
     Returns:
@@ -156,60 +161,97 @@ def permute_conv_penultimate(model, seed=42):
     final_linear_idx = linear_indices[-1]
     final_linear = permuted.layers[final_linear_idx]
 
-    # Walk backward to find the last Conv2d before the final Linear
+    # Determine channel count from the final Linear's input features.
+    # After AdaptiveAvgPool2d → Flatten, in_features = n_channels * spatial_size.
+    # For ResNet18: pool output is (512, 1, 1), so spatial_size = 1.
+    # We detect n_channels from the last Conv2d before the Linear.
     last_conv_idx = None
-    last_bn_idx = None
     for i in range(final_linear_idx - 1, -1, -1):
-        layer = permuted.layers[i]
-        if isinstance(layer, nn.Conv2d):
+        if isinstance(permuted.layers[i], nn.Conv2d):
             last_conv_idx = i
             break
-        if isinstance(layer, nn.BatchNorm2d) and last_bn_idx is None:
-            last_bn_idx = i
-
     if last_conv_idx is None:
         raise ValueError("No Conv2d layer found before the final Linear.")
 
-    conv_layer = permuted.layers[last_conv_idx]
-    n_channels = conv_layer.out_channels
+    n_channels = permuted.layers[last_conv_idx].out_channels
 
     rng = torch.Generator()
     rng.manual_seed(seed)
     perm = torch.randperm(n_channels, generator=rng)
 
     with torch.no_grad():
-        # Permute output channels of the Conv2d
-        conv_layer.weight.data = conv_layer.weight.data[perm]
-        if conv_layer.bias is not None:
-            conv_layer.bias.data = conv_layer.bias.data[perm]
+        # --- 1. Walk backward through model.layers, permuting the channel group ---
+        for i in range(final_linear_idx - 1, -1, -1):
+            layer = permuted.layers[i]
 
-        # If there is a BatchNorm2d after this Conv2d, permute it too
-        if last_bn_idx is not None and last_bn_idx > last_conv_idx:
-            bn = permuted.layers[last_bn_idx]
-            bn.weight.data = bn.weight.data[perm]
-            bn.bias.data = bn.bias.data[perm]
-            bn.running_mean.data = bn.running_mean.data[perm]
-            bn.running_var.data = bn.running_var.data[perm]
+            if isinstance(layer, nn.Conv2d):
+                if (layer.out_channels == n_channels
+                        and layer.in_channels == n_channels):
+                    # Fully inside the channel group: permute both
+                    layer.weight.data = layer.weight.data[perm][:, perm]
+                    if layer.bias is not None:
+                        layer.bias.data = layer.bias.data[perm]
+                elif layer.out_channels == n_channels:
+                    # Boundary (e.g., Conv2d(256→512)): permute output only
+                    layer.weight.data = layer.weight.data[perm]
+                    if layer.bias is not None:
+                        layer.bias.data = layer.bias.data[perm]
+                    break  # reached the boundary of the channel group
+                else:
+                    break  # exited the channel group
 
-        # Permute input features of the final Linear layer.
-        # The Flatten maps (C, H, W) -> C*H*W, so channel c occupies
-        # positions [c*H*W : (c+1)*H*W].
+            elif isinstance(layer, nn.BatchNorm2d):
+                if layer.num_features == n_channels:
+                    layer.weight.data = layer.weight.data[perm]
+                    layer.bias.data = layer.bias.data[perm]
+                    layer.running_mean.data = layer.running_mean.data[perm]
+                    layer.running_var.data = layer.running_var.data[perm]
+                else:
+                    break  # exited the channel group
+
+            # Skip non-parametric layers (ReLU, Flatten, Pool, etc.)
+
+        # --- 2. Permute residual projection layers in the channel group ---
+        if hasattr(permuted, 'residuals'):
+            for connections in permuted.residuals.values():
+                for _, proj_layers in connections:
+                    for proj_layer in proj_layers:
+                        if isinstance(proj_layer, nn.Conv2d):
+                            if proj_layer.out_channels == n_channels:
+                                proj_layer.weight.data = (
+                                    proj_layer.weight.data[perm])
+                                if proj_layer.bias is not None:
+                                    proj_layer.bias.data = (
+                                        proj_layer.bias.data[perm])
+                        elif isinstance(proj_layer, nn.BatchNorm2d):
+                            if proj_layer.num_features == n_channels:
+                                proj_layer.weight.data = (
+                                    proj_layer.weight.data[perm])
+                                proj_layer.bias.data = (
+                                    proj_layer.bias.data[perm])
+                                proj_layer.running_mean.data = (
+                                    proj_layer.running_mean.data[perm])
+                                proj_layer.running_var.data = (
+                                    proj_layer.running_var.data[perm])
+
+        # --- 3. Permute final Linear input features ---
         in_features = final_linear.in_features
         spatial_size = in_features // n_channels
         assert in_features == n_channels * spatial_size, (
             f"in_features={in_features} not divisible by n_channels={n_channels}"
         )
 
-        # Build the full feature permutation
-        full_perm = torch.zeros(in_features, dtype=torch.long)
-        for new_pos, old_pos in enumerate(perm):
-            src_start = old_pos * spatial_size
-            dst_start = new_pos * spatial_size
-            full_perm[dst_start:dst_start + spatial_size] = torch.arange(
-                src_start, src_start + spatial_size
-            )
-
-        final_linear.weight.data = final_linear.weight.data[:, full_perm]
+        if spatial_size == 1:
+            final_linear.weight.data = final_linear.weight.data[:, perm]
+        else:
+            full_perm = torch.zeros(in_features, dtype=torch.long)
+            for new_pos, old_pos in enumerate(perm):
+                src_start = old_pos * spatial_size
+                dst_start = new_pos * spatial_size
+                full_perm[dst_start:dst_start + spatial_size] = torch.arange(
+                    src_start, src_start + spatial_size
+                )
+            final_linear.weight.data = final_linear.weight.data[:, full_perm]
 
     return permuted, perm
 

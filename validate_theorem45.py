@@ -51,8 +51,17 @@ ATTACK_MAP = {
 
 
 def generate_adversarial_pairs(model, data, labels, attack_name, device,
-                               batch_size=8):
+                               dataset='imagenet', batch_size=8):
     """Generate adversarial examples, keeping ALL paired (clean, adv) samples.
+
+    Args:
+        model: the target model.
+        data: clean input tensor (N, C, H, W).
+        labels: ground truth labels.
+        attack_name: name of the attack (key in ATTACK_MAP).
+        device: torch device.
+        dataset: dataset name — used to set normalization for the attack.
+        batch_size: batch size for attack generation.
 
     Returns:
         (clean_tensor, adv_tensor): tensors on CPU of shape (N, C, H, W).
@@ -70,6 +79,14 @@ def generate_adversarial_pairs(model, data, labels, attack_name, device,
 
     model.eval()
     attack_instance = attack_cls(model)
+
+    # Tell the attack about data normalization so it operates in [0,1] space
+    # and returns adversarial examples in the same normalized space as input.
+    if dataset in ('cifar10', 'cifar100', 'imagenet'):
+        attack_instance.set_normalization_used(
+            mean=[0.485, 0.456, 0.406],
+            std=[0.229, 0.224, 0.225],
+        )
 
     adv_list = []
     clean_list = []
@@ -89,6 +106,13 @@ def generate_adversarial_pairs(model, data, labels, attack_name, device,
         del xb, yb, adv_batch
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+
+    # Aggressive cleanup: release attack internals before matrix computation
+    del attack_instance
+    if torch.cuda.is_available():
+        import gc
+        gc.collect()
+        torch.cuda.empty_cache()
 
     if not clean_list:
         return None, None
@@ -352,7 +376,8 @@ def validate_theorem45(experiment_name, num_samples=200, attacks=None,
 
         # Generate paired adversarial examples
         clean, adv = generate_adversarial_pairs(
-            model, test_data, test_labels, attack_name, device)
+            model, test_data, test_labels, attack_name, device,
+            dataset=dataset)
         if clean is None:
             print(f"  Skipping {attack_name} (generation failed).", flush=True)
             continue

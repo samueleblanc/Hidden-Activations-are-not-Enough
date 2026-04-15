@@ -25,6 +25,8 @@ echo "Step C: Theorem 4.5 — $EXPERIMENT / $ATTACK (task $SLURM_ARRAY_TASK_ID)"
 module load StdEnv/2023 python/3.11.5 scipy-stack/2025a
 source env/bin/activate
 
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
 python validate_theorem45.py \
     --experiment $EXPERIMENT \
     --attacks $ATTACK \
