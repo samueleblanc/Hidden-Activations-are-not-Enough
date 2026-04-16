@@ -3,7 +3,7 @@
 #SBATCH --time=04:00:00
 #SBATCH --gpus=h100:1
 #SBATCH --cpus-per-task=4
-#SBATCH --mem=64G
+#SBATCH --mem=16G
 #SBATCH --output=slurm_out/A_iso_%A_%a.out
 #SBATCH --error=slurm_err/A_iso_%A_%a.err
 

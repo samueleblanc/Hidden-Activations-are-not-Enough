@@ -345,7 +345,8 @@ def compute_activation_distances(model_orig, model_perm, data, device,
 
 
 def compute_matrix_distances(model_orig, model_perm, data, device,
-                             num_samples=50, batch_size_mc=1800):
+                             num_samples=50, batch_size_mc=1800,
+                             debug=False):
     """Compute L2 distances between knowledge matrices of original and
     permuted models for a subset of samples.
 
@@ -357,6 +358,7 @@ def compute_matrix_distances(model_orig, model_perm, data, device,
         device: torch device.
         num_samples: how many samples to check (matrix computation is expensive).
         batch_size_mc: batch_size for KnowledgeMatrixComputer.
+        debug: if True, print matrix norms and relative errors.
 
     Returns:
         dict with 'mean_l2', 'max_l2', 'min_l2', distances list.
@@ -371,6 +373,8 @@ def compute_matrix_distances(model_orig, model_perm, data, device,
 
     n = min(num_samples, len(data))
     distances = []
+    norms_orig = []
+    rel_errors = []
 
     for i in range(n):
         # KnowledgeMatrixComputer expects 3D input (C, H, W)
@@ -378,19 +382,28 @@ def compute_matrix_distances(model_orig, model_perm, data, device,
         mat_orig = mc_orig.forward(sample)
         mat_perm = mc_perm.forward(sample)
 
-        dist = torch.norm(mat_orig - mat_perm).item()
+        norm_orig = torch.linalg.norm(mat_orig.double()).item()
+        dist = torch.linalg.norm(
+            (mat_orig.double() - mat_perm.double())).item()
+        rel = dist / norm_orig if norm_orig > 0 else float('inf')
         distances.append(dist)
+        norms_orig.append(norm_orig)
+        rel_errors.append(rel)
 
         if (i + 1) % 10 == 0 or i == n - 1:
-            print(f"    Matrix comparison {i + 1}/{n}: L2 dist = {dist:.6e}",
-                  flush=True)
+            if debug:
+                print(f"    Matrix {i + 1}/{n}: ||M||={norm_orig:.4e}  "
+                      f"||diff||={dist:.4e}  rel={rel:.4e}", flush=True)
+            else:
+                print(f"    Matrix comparison {i + 1}/{n}: "
+                      f"L2 dist = {dist:.6e}", flush=True)
 
         del mat_orig, mat_perm
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
     distances = np.array(distances)
-    return {
+    result = {
         'mean_l2': float(np.mean(distances)),
         'max_l2': float(np.max(distances)),
         'min_l2': float(np.min(distances)),
@@ -398,6 +411,15 @@ def compute_matrix_distances(model_orig, model_perm, data, device,
         'n_samples': n,
         'distances': [float(d) for d in distances],
     }
+
+    if debug:
+        result['mean_norm_orig'] = float(np.mean(norms_orig))
+        result['mean_relative_error'] = float(np.mean(rel_errors))
+        result['max_relative_error'] = float(np.max(rel_errors))
+        print(f"    DEBUG: mean ||M_orig||={np.mean(norms_orig):.4e}  "
+              f"mean_rel_err={np.mean(rel_errors):.4e}", flush=True)
+
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -407,7 +429,7 @@ def compute_matrix_distances(model_orig, model_perm, data, device,
 def run_isomorphism_experiment(experiment_name, num_permutations=5,
                                num_samples=500, temp_dir=None,
                                num_matrix_samples=50,
-                               matrix_batch_size=1800):
+                               matrix_batch_size=1800, debug=False):
     """Run the full isomorphism invariance experiment.
 
     Args:
@@ -518,7 +540,8 @@ def run_isomorphism_experiment(experiment_name, num_permutations=5,
         mat_dist = compute_matrix_distances(
             model, permuted_model, test_data, device,
             num_samples=num_matrix_samples,
-            batch_size_mc=matrix_batch_size
+            batch_size_mc=matrix_batch_size,
+            debug=debug,
         )
         print(f"    Mean L2 distance: {mat_dist['mean_l2']:.6e}", flush=True)
         print(f"    Max L2 distance: {mat_dist['max_l2']:.6e}", flush=True)
@@ -634,6 +657,10 @@ def parse_args():
         "--temp_dir", type=str, default=None,
         help="Temporary directory (cluster SLURM_TMPDIR)."
     )
+    parser.add_argument(
+        "--debug", action="store_true",
+        help="Print matrix norms and relative errors for diagnostics."
+    )
     return parser.parse_args()
 
 
@@ -655,6 +682,7 @@ def main():
         temp_dir=args.temp_dir,
         num_matrix_samples=args.num_matrix_samples,
         matrix_batch_size=args.matrix_batch_size,
+        debug=args.debug,
     )
 
     elapsed = time.perf_counter() - t_start

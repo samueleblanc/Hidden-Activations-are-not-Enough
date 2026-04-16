@@ -49,9 +49,22 @@ ATTACK_MAP = {
     "SPSA": "SPSA", "EADL1": "EADL1", "EADEN": "EADEN",
 }
 
+# Per-experiment attack hyperparameter overrides.
+# Default torchattacks parameters are insufficient for some attacks on
+# certain architectures (e.g. DeepFool/APGD/Square produce ~0 logit
+# change on pretrained ResNet18 with defaults).
+ATTACK_OVERRIDES = {
+    'resnet_imagenet': {
+        'DeepFool': {'steps': 200},
+        'APGD': {'steps': 50, 'loss': 'dlr'},
+        'Square': {'n_queries': 20000},
+    },
+}
+
 
 def generate_adversarial_pairs(model, data, labels, attack_name, device,
-                               dataset='imagenet', batch_size=8):
+                               dataset='imagenet', batch_size=8,
+                               experiment_name=None):
     """Generate adversarial examples, keeping ALL paired (clean, adv) samples.
 
     Args:
@@ -62,6 +75,8 @@ def generate_adversarial_pairs(model, data, labels, attack_name, device,
         device: torch device.
         dataset: dataset name — used to set normalization for the attack.
         batch_size: batch size for attack generation.
+        experiment_name: experiment key — used to look up per-experiment
+            attack hyperparameter overrides in ATTACK_OVERRIDES.
 
     Returns:
         (clean_tensor, adv_tensor): tensors on CPU of shape (N, C, H, W).
@@ -78,7 +93,12 @@ def generate_adversarial_pairs(model, data, labels, attack_name, device,
         return None, None
 
     model.eval()
-    attack_instance = attack_cls(model)
+    overrides = {}
+    if experiment_name and experiment_name in ATTACK_OVERRIDES:
+        overrides = ATTACK_OVERRIDES[experiment_name].get(attack_name, {})
+    if overrides:
+        print(f"  Using overrides for {attack_name}: {overrides}", flush=True)
+    attack_instance = attack_cls(model, **overrides)
 
     # Tell the attack about data normalization so it operates in [0,1] space
     # and returns adversarial examples in the same normalized space as input.
@@ -377,7 +397,7 @@ def validate_theorem45(experiment_name, num_samples=200, attacks=None,
         # Generate paired adversarial examples
         clean, adv = generate_adversarial_pairs(
             model, test_data, test_labels, attack_name, device,
-            dataset=dataset)
+            dataset=dataset, experiment_name=experiment_name)
         if clean is None:
             print(f"  Skipping {attack_name} (generation failed).", flush=True)
             continue
