@@ -68,9 +68,13 @@ def run_diagnostic(experiment_name, num_samples=5, seed=42,
 
     model.eval()
 
-    # Load data
-    _, test_set = get_dataset(dataset, data_loader=False)
-    test_data, _ = subset(test_set, num_samples, input_shape)
+    # Load data (fall back to random data if dataset unavailable)
+    try:
+        _, test_set = get_dataset(dataset, data_loader=False)
+        test_data, _ = subset(test_set, num_samples, input_shape)
+    except (FileNotFoundError, OSError) as e:
+        print(f"  Dataset not available ({e}), using random data.", flush=True)
+        test_data = torch.randn(num_samples, *input_shape)
 
     # Create permuted model
     permuted_model, perm = permute_network(model, seed=seed)
