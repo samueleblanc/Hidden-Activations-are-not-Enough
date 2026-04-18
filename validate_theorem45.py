@@ -136,7 +136,24 @@ def generate_adversarial_pairs(model, data, labels, attack_name, device,
 
     if not clean_list:
         return None, None
-    return torch.cat(clean_list), torch.cat(adv_list)
+
+    clean_all = torch.cat(clean_list)
+    adv_all = torch.cat(adv_list)
+
+    # Diagnostic: report actual perturbation magnitudes. If adv == clean here,
+    # the attack silently noop'd (see e.g. the skip path at line ~425).
+    diff = (adv_all - clean_all).flatten(1)
+    per_sample_inf = diff.abs().amax(dim=1)
+    per_sample_l2 = diff.norm(dim=1)
+    n_exact_zero = int((per_sample_inf == 0).sum().item())
+    print(f"  Perturbation ||adv - clean||: "
+          f"L_inf max={per_sample_inf.max().item():.3e} "
+          f"mean={per_sample_inf.mean().item():.3e} | "
+          f"L2 max={per_sample_l2.max().item():.3e} "
+          f"mean={per_sample_l2.mean().item():.3e} | "
+          f"exact-zero pairs: {n_exact_zero}/{len(clean_all)}", flush=True)
+
+    return clean_all, adv_all
 
 
 # ---------------------------------------------------------------------------
@@ -423,8 +440,32 @@ def validate_theorem45(experiment_name, num_samples=200, attacks=None,
         valid = d_f > eps_threshold
         n_valid = int(valid.sum())
         if n_valid == 0:
-            print(f"  WARNING: All logit distances are ~0 for {attack_name}. "
-                  f"Skipping.", flush=True)
+            print(f"  WARNING: All logit distances are ~0 for {attack_name}.",
+                  flush=True)
+            print(f"    d_f stats: min={float(np.min(d_f)):.3e} "
+                  f"max={d_f_max:.3e} "
+                  f"mean={float(np.mean(d_f)):.3e} "
+                  f"median={float(np.median(d_f)):.3e} "
+                  f"threshold={eps_threshold:.3e}", flush=True)
+            print(f"    d_h stats: min={float(np.min(d_h)):.3e} "
+                  f"max={float(np.max(d_h)):.3e} "
+                  f"mean={float(np.mean(d_h)):.3e}", flush=True)
+            print(f"    d_M stats: min={float(np.min(d_M)):.3e} "
+                  f"max={float(np.max(d_M)):.3e} "
+                  f"mean={float(np.mean(d_M)):.3e}", flush=True)
+            skipped_result = {
+                'skipped': True,
+                'reason': 'all_logit_distances_zero',
+                'num_pairs': int(n_pairs),
+                'd_f_stats': _stats(d_f),
+                'd_h_stats': _stats(d_h),
+                'd_M_stats': _stats(d_M),
+                'eps_threshold': float(eps_threshold),
+            }
+            _save_per_attack_file(
+                experiment_name, num_samples,
+                f'{attack_name}_SKIPPED', skipped_result,
+            )
             continue
 
         d_f_v = d_f[valid]

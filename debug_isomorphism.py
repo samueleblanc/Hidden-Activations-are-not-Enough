@@ -33,6 +33,21 @@ from constants.constants import DEFAULT_EXPERIMENTS
 from isomorphism_experiment import permute_network
 
 
+def _cast_residuals_to_dtype(model, dtype):
+    """Cast knowledgematrix residual projection layers to a given dtype.
+
+    Mirror of _move_residuals_to_device — residuals is a plain dict, so
+    model.double()/.float() misses these layers and leaves them as float32.
+    """
+    if hasattr(model, 'residuals'):
+        for connections in model.residuals.values():
+            for _, proj_layers in connections:
+                for layer in proj_layers:
+                    if isinstance(layer, nn.Module):
+                        layer.to(dtype)
+    return model
+
+
 def compute_matrix_with_norms(model, sample, device, batch_size_mc=1800):
     """Compute knowledge matrix and return it with its Frobenius norm."""
     mc = KnowledgeMatrixComputer(model, batch_size=batch_size_mc, device=device)
@@ -87,19 +102,24 @@ def run_diagnostic(experiment_name, num_samples=5, seed=42,
     _run_comparison(model, permuted_model, test_data, device,
                     matrix_batch_size, dtype_label="float32")
 
-    # --- Test 2: float64 ---
-    print(f"\n--- Float64 test ({num_samples} samples) ---")
-    model_f64 = copy.deepcopy(model).double().to(device)
-    _move_residuals_to_device(model_f64, device)
+    # --- Test 2: float64 (on CPU) ---
+    # Run on CPU to avoid dtype-plumbing with the knowledgematrix residuals
+    # dict (not covered by model.double() / model.to(device)).
+    print(f"\n--- Float64 test ({num_samples} samples, on CPU) ---")
+    cpu = torch.device('cpu')
+    model_f64 = copy.deepcopy(model).cpu().double()
+    _move_residuals_to_device(model_f64, cpu)
+    _cast_residuals_to_dtype(model_f64, torch.float64)
     model_f64.eval()
 
-    perm_f64 = copy.deepcopy(permuted_model).double().to(device)
-    _move_residuals_to_device(perm_f64, device)
+    perm_f64 = copy.deepcopy(permuted_model).cpu().double()
+    _move_residuals_to_device(perm_f64, cpu)
+    _cast_residuals_to_dtype(perm_f64, torch.float64)
     perm_f64.eval()
 
-    test_data_f64 = test_data.double()
+    test_data_f64 = test_data.cpu().double()
 
-    _run_comparison(model_f64, perm_f64, test_data_f64, device,
+    _run_comparison(model_f64, perm_f64, test_data_f64, cpu,
                     matrix_batch_size, dtype_label="float64")
 
     # Cleanup
