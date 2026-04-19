@@ -495,6 +495,13 @@ def get_architecture(
                     "  python -c \"import torchvision; torchvision.models.vgg11(weights='DEFAULT')\"\n"
                     f"Original error: {e}"
                 ) from e
+            # knowledgematrix.NN.residual() calls shape_at_layer() which runs a
+            # forward pass with random input through the accumulated layers.
+            # If BN layers are in training mode, that forward OVERWRITES their
+            # pretrained running_mean/running_var with statistics of the random
+            # probe input — destroying accuracy. Put tv_model in eval before
+            # its layers get appended to the km wrapper.
+            tv_model.eval()
 
             mod_name, attr_name = km_mod_map[architecture_index]
             km_mod = importlib.import_module(mod_name)
