@@ -358,18 +358,26 @@ def _move_residuals_to_device(model, device):
 
 
 def _inject_postresidual_relus(model):
-    """Insert the post-residual ReLU that torchvision's BasicBlock applies
-    as `out = self.relu(out + identity)`.
+    """Repair knowledgematrix.ResNet18's pretrained reconstruction.
 
-    knowledgematrix.ResNet18 rebuilds the block structure by iterating
-    basic_block.children(), which yields conv1, bn1, relu, conv2, bn2 once
-    (torchvision shares a single self.relu attribute). NN.apply_residual
-    then only does `x = x + residual_output` — no activation. Without the
-    post-residual ReLU, pretrained ImageNet accuracy collapses to ~0%.
+    Two composed issues break pretrained ImageNet accuracy to ~0%:
 
-    Walk residual end indices from highest to lowest so each insert doesn't
-    invalidate the indices still to process; shift remaining start/end
-    indices by +1 after each insertion.
+    (1) Missing post-residual ReLU — torchvision's BasicBlock does
+        `out = self.relu(out + identity)`, but iterating basic_block.children()
+        yields only one ReLU per block (torchvision shares self.relu) and
+        NN.apply_residual does no activation.
+
+    (2) Shared boundary index — the builder sets the end of block_k equal to
+        the start of block_{k+1}. NN.forward saves x into inputs_residuals[i]
+        BEFORE applying the residual at i, so block_{k+1}'s identity becomes
+        block_k's PRE-add output instead of its final post-ReLU output.
+
+    Fix: for each residual end index (highest first, so shifts don't
+    invalidate yet-to-process ends), insert an nn.ReLU() at that position and
+    shift every start index (in both residuals_starts and the start values
+    inside residuals dict entries) that is >= end by +1 — this simultaneously
+    adds the missing activation and separates block_k's end from
+    block_{k+1}'s start by one index.
     """
     if not hasattr(model, 'residuals') or not model.residuals:
         return model
@@ -378,13 +386,13 @@ def _inject_postresidual_relus(model):
         model.layers.insert(end, nn.ReLU())
         model.residuals = {
             (e + 1 if e > end else e): [
-                (s + 1 if s > end else s, proj) for s, proj in lst
+                (s + 1 if s >= end else s, proj) for s, proj in lst
             ]
             for e, lst in model.residuals.items()
         }
         if hasattr(model, 'residuals_starts'):
             model.residuals_starts = {
-                (s + 1 if s > end else s) for s in model.residuals_starts
+                (s + 1 if s >= end else s) for s in model.residuals_starts
             }
     return model
 
