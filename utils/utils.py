@@ -357,6 +357,38 @@ def _move_residuals_to_device(model, device):
     return model
 
 
+def _inject_postresidual_relus(model):
+    """Insert the post-residual ReLU that torchvision's BasicBlock applies
+    as `out = self.relu(out + identity)`.
+
+    knowledgematrix.ResNet18 rebuilds the block structure by iterating
+    basic_block.children(), which yields conv1, bn1, relu, conv2, bn2 once
+    (torchvision shares a single self.relu attribute). NN.apply_residual
+    then only does `x = x + residual_output` — no activation. Without the
+    post-residual ReLU, pretrained ImageNet accuracy collapses to ~0%.
+
+    Walk residual end indices from highest to lowest so each insert doesn't
+    invalidate the indices still to process; shift remaining start/end
+    indices by +1 after each insertion.
+    """
+    if not hasattr(model, 'residuals') or not model.residuals:
+        return model
+    ends = sorted(model.residuals.keys(), reverse=True)
+    for end in ends:
+        model.layers.insert(end, nn.ReLU())
+        model.residuals = {
+            (e + 1 if e > end else e): [
+                (s + 1 if s > end else s, proj) for s, proj in lst
+            ]
+            for e, lst in model.residuals.items()
+        }
+        if hasattr(model, 'residuals_starts'):
+            model.residuals_starts = {
+                (s + 1 if s > end else s) for s in model.residuals_starts
+            }
+    return model
+
+
 def get_device(trial_number: int = 1, gpu_count: int = 1) -> torch.device:
     """
         Returns:
@@ -466,6 +498,9 @@ def get_architecture(
                 setattr(km_mod, attr_name, orig_ref)
         else:
             model = cls(input_shape, num_classes, pretrained=False)
+
+        if architecture_index == -2 and pretrained:
+            _inject_postresidual_relus(model)
 
         if freeze_features and pretrained:
             for layer in model.layers:
