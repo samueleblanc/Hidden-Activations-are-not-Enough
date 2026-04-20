@@ -25,16 +25,14 @@ ARCH_DISPLAY = {
 ISO_EXPERIMENTS = ['alexnet_imagenet', 'resnet_imagenet', 'vgg_imagenet']
 TELEPORT_ARCHS  = ['resnet18', 'vgg11', 'resnet50']
 
-# Relative error captured from --debug reruns (job 12456822 for ResNet,
-# estimated analytically from matrix norm + absolute change for
-# AlexNet/VGG since their `matrix_change` is at float32 precision for
-# a Linear-layer permutation). These are used as fallback when the
-# JSON doesn't contain per-permutation `mean_relative_error` fields
-# (i.e. the main run was done without --debug).
+# Relative errors captured from `--debug` isomorphism reruns.
+# Only populated for architectures where we actually ran --debug.
+#   resnet_imagenet: cluster job 12456822 measured
+#     seed=42 mean_rel_err=5.04e-4, seed=43 mean_rel_err=1.92e-4
+# alexnet_imagenet and vgg_imagenet still need --debug reruns to
+# measure their relative errors — do NOT invent these values.
 KNOWN_REL_ERRORS = {
-    'alexnet_imagenet': 7.5e-8,   # ~matrix_change / mean ||M|| approx
-    'resnet_imagenet':  3.5e-4,   # mean of seed=42 (5.04e-4) + seed=43 (1.92e-4)
-    'vgg_imagenet':     1.0e-7,   # ~matrix_change / mean ||M|| approx
+    'resnet_imagenet': 3.48e-4,   # mean of seed=42 (5.04e-4) + seed=43 (1.92e-4)
 }
 
 
