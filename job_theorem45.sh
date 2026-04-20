@@ -31,6 +31,7 @@ python validate_theorem45.py \
     --experiment $EXPERIMENT \
     --attacks $ATTACK \
     --num_samples 200 \
-    --matrix_batch_size 1800
+    --matrix_batch_size 1800 \
+    --no-aggregate
 
 echo "Task $SLURM_ARRAY_TASK_ID ($EXPERIMENT / $ATTACK) completed"

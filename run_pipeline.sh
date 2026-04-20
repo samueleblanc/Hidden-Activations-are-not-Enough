@@ -160,6 +160,33 @@ echo ""
 # ==============================================================
 join_array() { local IFS=','; echo "$*"; }
 
+# Union of experiments needing final aggregation:
+#   - those with pre-existing per_attack files but no final results
+#     (C_AGG_NEEDED from scan above), AND
+#   - those for which per-attack tasks are being queued in this run
+#     (derived from C_ATTACK_TASKS via task_id / 6, deduplicated).
+# Per-attack jobs use --no-aggregate, so the aggregation job is the ONLY
+# writer of theorem45_results.json; always submit it when any per-attack
+# job is queued to avoid the race condition where each concurrent task
+# would otherwise write its own 1-attack results file.
+# Kept portable for bash 3.x (no associative arrays) — flags[0..2] act as a set.
+C_AGG_FLAGS=(0 0 0)
+if [ ${#C_AGG_NEEDED[@]} -gt 0 ]; then
+    for i in "${C_AGG_NEEDED[@]}"; do C_AGG_FLAGS[$i]=1; done
+fi
+if [ ${#C_ATTACK_TASKS[@]} -gt 0 ]; then
+    for tid in "${C_ATTACK_TASKS[@]}"; do
+        exp_idx=$(( tid / 6 ))
+        C_AGG_FLAGS[$exp_idx]=1
+    done
+fi
+C_EXPS_NEEDING_FINAL_AGG=()
+for i in 0 1 2; do
+    if [ "${C_AGG_FLAGS[$i]}" = "1" ]; then
+        C_EXPS_NEEDING_FINAL_AGG+=("$i")
+    fi
+done
+
 A_ARRAY_STR=""
 B_ARRAY_STR=""
 C_ATTACK_ARRAY_STR=""
@@ -167,7 +194,7 @@ C_AGG_ARRAY_STR=""
 [ ${#A_NEEDED[@]} -gt 0 ] && A_ARRAY_STR=$(join_array "${A_NEEDED[@]}")
 [ ${#B_NEEDED[@]} -gt 0 ] && B_ARRAY_STR=$(join_array "${B_NEEDED[@]}")
 [ ${#C_ATTACK_TASKS[@]} -gt 0 ] && C_ATTACK_ARRAY_STR=$(join_array "${C_ATTACK_TASKS[@]}")
-[ ${#C_AGG_NEEDED[@]} -gt 0 ] && C_AGG_ARRAY_STR=$(join_array "${C_AGG_NEEDED[@]}")
+[ ${#C_EXPS_NEEDING_FINAL_AGG[@]} -gt 0 ] && C_AGG_ARRAY_STR=$(join_array "${C_EXPS_NEEDING_FINAL_AGG[@]}")
 
 STATE_FILE="pipeline_state.json"
 TMP_FILE="${STATE_FILE}.tmp"
@@ -204,7 +231,7 @@ echo ""
 # ==============================================================
 # Phase 2: Submit
 # ==============================================================
-C_TOTAL_JOBS=$(( ${#C_ATTACK_TASKS[@]} + ${#C_AGG_NEEDED[@]} ))
+C_TOTAL_JOBS=$(( ${#C_ATTACK_TASKS[@]} + ${#C_EXPS_NEEDING_FINAL_AGG[@]} ))
 TOTAL_NEEDED=$(( ${#A_NEEDED[@]} + ${#B_NEEDED[@]} + C_TOTAL_JOBS ))
 # Count fully done: A(3) + B(3) + C(3 experiments)
 C_DONE=0
@@ -216,8 +243,8 @@ echo "  SUMMARY: $TOTAL_DONE/9 done, $TOTAL_NEEDED jobs to submit"
 if [ ${#C_ATTACK_TASKS[@]} -gt 0 ]; then
     echo "  Step C: ${#C_ATTACK_TASKS[@]} per-attack jobs"
 fi
-if [ ${#C_AGG_NEEDED[@]} -gt 0 ]; then
-    echo "  Step C: ${#C_AGG_NEEDED[@]} aggregation jobs"
+if [ ${#C_EXPS_NEEDING_FINAL_AGG[@]} -gt 0 ]; then
+    echo "  Step C: ${#C_EXPS_NEEDING_FINAL_AGG[@]} aggregation jobs"
 fi
 echo "========================================"
 echo ""
@@ -234,7 +261,13 @@ if [ "$DRY_RUN" = true ]; then
     [ ${#A_NEEDED[@]} -gt 0 ] && echo "  sbatch --account=$ACCOUNT --array=$A_ARRAY_STR job_isomorphism.sh"
     [ ${#B_NEEDED[@]} -gt 0 ] && echo "  sbatch --account=$ACCOUNT --array=$B_ARRAY_STR job_teleportation.sh"
     [ ${#C_ATTACK_TASKS[@]} -gt 0 ] && echo "  sbatch --account=$ACCOUNT --array=$C_ATTACK_ARRAY_STR job_theorem45.sh"
-    [ ${#C_AGG_NEEDED[@]} -gt 0 ] && echo "  sbatch --account=$ACCOUNT --array=$C_AGG_ARRAY_STR --dependency=afterany:\$C_JOB_ID job_theorem45_agg.sh"
+    if [ ${#C_EXPS_NEEDING_FINAL_AGG[@]} -gt 0 ]; then
+        if [ ${#C_ATTACK_TASKS[@]} -gt 0 ]; then
+            echo "  sbatch --account=$ACCOUNT --array=$C_AGG_ARRAY_STR --dependency=afterany:\$C_JOB_ID job_theorem45_agg.sh"
+        else
+            echo "  sbatch --account=$ACCOUNT --array=$C_AGG_ARRAY_STR job_theorem45_agg.sh"
+        fi
+    fi
     exit 0
 fi
 
@@ -258,7 +291,7 @@ if [ ${#C_ATTACK_TASKS[@]} -gt 0 ]; then
     echo "    Job ID: $C_JOB_ID"
 fi
 
-if [ ${#C_AGG_NEEDED[@]} -gt 0 ]; then
+if [ ${#C_EXPS_NEEDING_FINAL_AGG[@]} -gt 0 ]; then
     if [ -n "$C_JOB_ID" ]; then
         echo "  Step C (Theorem 4.5 aggregation):  --array=$C_AGG_ARRAY_STR (after $C_JOB_ID)"
         sbatch --account="$ACCOUNT" --array="$C_AGG_ARRAY_STR" --dependency=afterany:"$C_JOB_ID" job_theorem45_agg.sh

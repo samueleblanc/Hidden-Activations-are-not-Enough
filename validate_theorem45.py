@@ -298,11 +298,19 @@ def _save_per_attack_file(experiment_name, num_samples, attack_name, result):
 # ---------------------------------------------------------------------------
 
 def validate_theorem45(experiment_name, num_samples=200, attacks=None,
-                       temp_dir=None, matrix_batch_size=1800):
+                       temp_dir=None, matrix_batch_size=1800,
+                       no_aggregate=False):
     """Run Theorem 4.5 validation for one experiment.
 
+    Args:
+        no_aggregate: if True, only write per-attack files (parallel-safe);
+            skip the checkpoint + aggregate + final results write. Use this
+            when running per-attack SLURM array tasks in parallel — a
+            follow-up ``--aggregate`` call produces the canonical final file.
+
     Returns:
-        dict: full results structure.
+        dict: full results structure (or partial state when
+        ``no_aggregate=True``).
     """
     exp_config = DEFAULT_EXPERIMENTS[experiment_name]
     dataset = exp_config['dataset']
@@ -519,12 +527,16 @@ def validate_theorem45(experiment_name, num_samples=200, attacks=None,
 
         attack_times.append(elapsed)
 
-        # Save checkpoint after each attack (legacy format)
-        _save_checkpoint(ckpt_path, {
-            'experiment': experiment_name,
-            'num_samples': num_samples,
-            'per_attack': per_attack,
-        })
+        # Save checkpoint after each attack (legacy format).
+        # Skipped in no_aggregate mode: this file is not parallel-safe because
+        # concurrent per-attack SLURM tasks would clobber each other's
+        # per_attack dicts. Per-attack files below are the parallel-safe path.
+        if not no_aggregate:
+            _save_checkpoint(ckpt_path, {
+                'experiment': experiment_name,
+                'num_samples': num_samples,
+                'per_attack': per_attack,
+            })
 
         # Save per-attack file (parallel-safe)
         _save_per_attack_file(experiment_name, num_samples, attack_name,
@@ -534,6 +546,19 @@ def validate_theorem45(experiment_name, num_samples=200, attacks=None,
         del clean, adv, d_f, d_h, d_M
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+
+    # In parallel per-attack mode, stop here. Per-attack files are the only
+    # output; theorem45_results.json and checkpoint deletion are left to a
+    # follow-up `--aggregate` call, which is the race-free canonical path.
+    if no_aggregate:
+        print(f"\n  [no_aggregate] Per-attack files written; skipping "
+              f"aggregate + final results write.", flush=True)
+        return {
+            'experiment': experiment_name,
+            'num_samples': num_samples,
+            'per_attack': per_attack,
+            'aggregate': None,
+        }
 
     # Aggregate
     aggregate = {}
@@ -620,6 +645,12 @@ def parse_args():
         "--aggregate", action="store_true",
         help="Aggregate per-attack result files into final results "
              "(no GPU needed, no attack generation)."
+    )
+    parser.add_argument(
+        "--no-aggregate", dest="no_aggregate", action="store_true",
+        help="Parallel-safe per-attack mode: only write per_attack/<ATK>.json "
+             "and skip the checkpoint + final results write. Use for "
+             "concurrent SLURM array tasks; follow up with --aggregate."
     )
     return parser.parse_args()
 
@@ -745,6 +776,7 @@ def main():
         attacks=args.attacks,
         temp_dir=args.temp_dir,
         matrix_batch_size=args.matrix_batch_size,
+        no_aggregate=args.no_aggregate,
     )
 
     elapsed = time.perf_counter() - t_start
