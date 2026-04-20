@@ -1,0 +1,1855 @@
+{
+  "attack": "DeepFool",
+  "experiment": "vgg_imagenet",
+  "num_samples": 200,
+  "num_samples_d_M_exact_zero": 8,
+  "num_samples_d_M_lt_1e-12": 8,
+  "total_pattern_len": 7434240,
+  "total_maxpool_len": 1530368,
+  "per_sample": [
+    {
+      "idx": 0,
+      "d_f": 0.004227268428513828,
+      "d_M": 2.2617702787561464,
+      "relu_hamming": 1,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 1,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 1,
+      "d_f": 36.08456240825075,
+      "d_M": 69.76438325406178,
+      "relu_hamming": 119298,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 49779,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 2,
+      "d_f": 0.0033745901125786636,
+      "d_M": 0.7387020135426229,
+      "relu_hamming": 2,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 2,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 3,
+      "d_f": 0.0031229161947553836,
+      "d_M": 0.2300146648149339,
+      "relu_hamming": 4,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 0,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 4,
+      "d_f": 3.30402283810538,
+      "d_M": 41.896001539614154,
+      "relu_hamming": 8103,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 5072,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 5,
+      "d_f": 11.911985563002132,
+      "d_M": 84.00070505495606,
+      "relu_hamming": 10972,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 13408,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 6,
+      "d_f": 3.046127808385311,
+      "d_M": 70.90865167824892,
+      "relu_hamming": 10178,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 48385,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 7,
+      "d_f": 0.0019092850111179717,
+      "d_M": 2.909359879523428,
+      "relu_hamming": 5,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 2,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 8,
+      "d_f": 40.05087821145568,
+      "d_M": 61.401137066850396,
+      "relu_hamming": 36875,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 14919,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 9,
+      "d_f": 12.8383441127969,
+      "d_M": 114.76905653514723,
+      "relu_hamming": 32127,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 44251,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 10,
+      "d_f": 0.004850875072718431,
+      "d_M": 2.3929034415642394,
+      "relu_hamming": 14,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 4,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 11,
+      "d_f": 5.512945087021516,
+      "d_M": 16.928031863555535,
+      "relu_hamming": 14043,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 5975,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 12,
+      "d_f": 16.01708352355381,
+      "d_M": 214.40296680862826,
+      "relu_hamming": 63801,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 127699,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 13,
+      "d_f": 0.004057969157872826,
+      "d_M": 1.9393822294994112,
+      "relu_hamming": 5,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 11,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 14,
+      "d_f": 59.1064463747299,
+      "d_M": 86.75554663437677,
+      "relu_hamming": 74310,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 37826,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 15,
+      "d_f": 0.0034311857244825297,
+      "d_M": 0.5566527978735384,
+      "relu_hamming": 4,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 2,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 16,
+      "d_f": 31.288236405320344,
+      "d_M": 134.0662377013519,
+      "relu_hamming": 65498,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 48387,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 17,
+      "d_f": 18.055358196946123,
+      "d_M": 117.60355635699013,
+      "relu_hamming": 17102,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 9591,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 18,
+      "d_f": 0.0017720363934293879,
+      "d_M": 0.079780441132064,
+      "relu_hamming": 2,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 0,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 19,
+      "d_f": 19.9657547650403,
+      "d_M": 63.48470685077712,
+      "relu_hamming": 68584,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 63545,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 20,
+      "d_f": 68.01273057257448,
+      "d_M": 77.28376724759283,
+      "relu_hamming": 144267,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 90228,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 21,
+      "d_f": 62.651402830679324,
+      "d_M": 135.532469142178,
+      "relu_hamming": 132291,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 64085,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 22,
+      "d_f": 0.003823064069443679,
+      "d_M": 0.8911519140240545,
+      "relu_hamming": 4,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 0,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 23,
+      "d_f": 0.004348249920418198,
+      "d_M": 0.7162593785455034,
+      "relu_hamming": 3,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 0,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 24,
+      "d_f": 4.364427758116162,
+      "d_M": 56.75723700549131,
+      "relu_hamming": 17136,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 8408,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 25,
+      "d_f": 0.0031545727979795223,
+      "d_M": 0.07609115742937808,
+      "relu_hamming": 2,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 0,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 26,
+      "d_f": 67.81973165458173,
+      "d_M": 91.16904261397431,
+      "relu_hamming": 90832,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 47852,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 27,
+      "d_f": 15.096304687895275,
+      "d_M": 102.00498572468364,
+      "relu_hamming": 45289,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 29533,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 28,
+      "d_f": 63.62953993597355,
+      "d_M": 69.96665270642562,
+      "relu_hamming": 74896,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 35077,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 29,
+      "d_f": 34.55885396020562,
+      "d_M": 89.4621578087932,
+      "relu_hamming": 52310,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 26602,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 30,
+      "d_f": 11.857493449058042,
+      "d_M": 55.85094380160461,
+      "relu_hamming": 28785,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 13775,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 31,
+      "d_f": 0.002153085257607555,
+      "d_M": 0.5879351642991225,
+      "relu_hamming": 3,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 1,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 32,
+      "d_f": 4.898247240515963,
+      "d_M": 78.55484220472003,
+      "relu_hamming": 17819,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 12443,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 33,
+      "d_f": 0.004294529437457252,
+      "d_M": 0.5400953084186149,
+      "relu_hamming": 4,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 3,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 34,
+      "d_f": 12.46694339557616,
+      "d_M": 27.339674273227015,
+      "relu_hamming": 19534,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 9270,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 35,
+      "d_f": 0.00333924263303045,
+      "d_M": 1.7050596933737754,
+      "relu_hamming": 7,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 4,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 36,
+      "d_f": 0.0032869327976561076,
+      "d_M": 0.6892316479685212,
+      "relu_hamming": 5,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 1,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 37,
+      "d_f": 7.136299054132476,
+      "d_M": 51.58477150607349,
+      "relu_hamming": 21590,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 17819,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 38,
+      "d_f": 21.657438997646548,
+      "d_M": 101.24024048965016,
+      "relu_hamming": 40023,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 20595,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 39,
+      "d_f": 0.0024182008872351635,
+      "d_M": 3.865213455662356,
+      "relu_hamming": 6,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 2,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 40,
+      "d_f": 6.064186022132876,
+      "d_M": 25.294287630091763,
+      "relu_hamming": 23797,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 31960,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 41,
+      "d_f": 17.224150795657962,
+      "d_M": 132.74901390217744,
+      "relu_hamming": 43548,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 28912,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 42,
+      "d_f": 14.1511847998501,
+      "d_M": 42.853638141323636,
+      "relu_hamming": 18781,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 9530,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 43,
+      "d_f": 0.005677998195937305,
+      "d_M": 0.0,
+      "relu_hamming": 1,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 0,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 44,
+      "d_f": 2.7760998422472,
+      "d_M": 49.707207537292405,
+      "relu_hamming": 5469,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 4281,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 45,
+      "d_f": 11.276535155698312,
+      "d_M": 127.36917113726146,
+      "relu_hamming": 31802,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 38038,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 46,
+      "d_f": 35.307391195185716,
+      "d_M": 124.21749639151808,
+      "relu_hamming": 75567,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 46299,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 47,
+      "d_f": 8.673989316244631,
+      "d_M": 39.55431463218211,
+      "relu_hamming": 23427,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 14867,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 48,
+      "d_f": 0.0057069281281517895,
+      "d_M": 2.5123664102096983,
+      "relu_hamming": 3,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 1,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 49,
+      "d_f": 1.3723285573304562,
+      "d_M": 66.26375611927203,
+      "relu_hamming": 3139,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 59794,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 50,
+      "d_f": 30.690484905630377,
+      "d_M": 112.92437756179403,
+      "relu_hamming": 75976,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 63185,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 51,
+      "d_f": 2.9241567630567236,
+      "d_M": 23.462022339666266,
+      "relu_hamming": 6783,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 6236,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 52,
+      "d_f": 9.638482967256014,
+      "d_M": 88.44346444544183,
+      "relu_hamming": 28488,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 49476,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 53,
+      "d_f": 68.98972100605116,
+      "d_M": 126.66348628959004,
+      "relu_hamming": 78645,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 48947,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 54,
+      "d_f": 0.0041496562663774095,
+      "d_M": 3.3574716445442854,
+      "relu_hamming": 6,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 1,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 55,
+      "d_f": 0.963928810856284,
+      "d_M": 11.170749352968853,
+      "relu_hamming": 2457,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 1186,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 56,
+      "d_f": 7.932534539551875,
+      "d_M": 70.83639920387267,
+      "relu_hamming": 13085,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 10164,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 57,
+      "d_f": 14.348319485676578,
+      "d_M": 83.38556536773942,
+      "relu_hamming": 42849,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 30060,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 58,
+      "d_f": 0.05476107959682844,
+      "d_M": 4.1835078238915475,
+      "relu_hamming": 152,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 65,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 59,
+      "d_f": 0.0035287686902900095,
+      "d_M": 0.6286068958704722,
+      "relu_hamming": 2,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 2,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 60,
+      "d_f": 0.005142870290338457,
+      "d_M": 0.704064576335155,
+      "relu_hamming": 8,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 1,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 61,
+      "d_f": 3.433330869156962,
+      "d_M": 25.829720584914163,
+      "relu_hamming": 3942,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 2372,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 62,
+      "d_f": 8.611934749351617,
+      "d_M": 43.87797521199891,
+      "relu_hamming": 29051,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 24068,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 63,
+      "d_f": 27.977796301843057,
+      "d_M": 104.51198140366708,
+      "relu_hamming": 40558,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 55504,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 64,
+      "d_f": 0.0029390535424473575,
+      "d_M": 3.7572145768313856,
+      "relu_hamming": 3,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 3,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 65,
+      "d_f": 23.768742308179498,
+      "d_M": 98.77856783321047,
+      "relu_hamming": 67275,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 104069,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 66,
+      "d_f": 0.002478657035882135,
+      "d_M": 2.149082532658174,
+      "relu_hamming": 2,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 1,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 67,
+      "d_f": 1.4873258989602463,
+      "d_M": 12.322240100712257,
+      "relu_hamming": 1611,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 900,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 68,
+      "d_f": 2.8418788201318574,
+      "d_M": 26.386464224020035,
+      "relu_hamming": 7321,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 5163,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 69,
+      "d_f": 29.989116438688423,
+      "d_M": 90.99324719421688,
+      "relu_hamming": 41926,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 18748,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 70,
+      "d_f": 0.0024416394416721986,
+      "d_M": 0.020820357795388048,
+      "relu_hamming": 4,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 0,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 71,
+      "d_f": 24.16910776506065,
+      "d_M": 64.76406131183732,
+      "relu_hamming": 34255,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 18414,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 72,
+      "d_f": 0.003192382899677881,
+      "d_M": 0.8050745949577318,
+      "relu_hamming": 6,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 2,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 73,
+      "d_f": 1.2194365750845264,
+      "d_M": 23.772489429160235,
+      "relu_hamming": 2014,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 911,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 74,
+      "d_f": 0.0023247070363543883,
+      "d_M": 0.22807115985833606,
+      "relu_hamming": 0,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 1,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 75,
+      "d_f": 3.644090204468818,
+      "d_M": 61.82526097899457,
+      "relu_hamming": 7800,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 11828,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 76,
+      "d_f": 0.002727699231041073,
+      "d_M": 1.0330501997150179,
+      "relu_hamming": 3,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 4,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 77,
+      "d_f": 13.448278257709102,
+      "d_M": 47.820315889937405,
+      "relu_hamming": 23999,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 11328,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 78,
+      "d_f": 9.103657737892613,
+      "d_M": 71.43215415465603,
+      "relu_hamming": 5890,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 3654,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 79,
+      "d_f": 22.862649765767422,
+      "d_M": 44.45739894762959,
+      "relu_hamming": 20209,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 9629,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 80,
+      "d_f": 18.408716775183397,
+      "d_M": 105.37621301557402,
+      "relu_hamming": 46834,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 81110,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 81,
+      "d_f": 14.000490549921468,
+      "d_M": 36.03344013705944,
+      "relu_hamming": 41262,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 22534,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 82,
+      "d_f": 35.709416998199984,
+      "d_M": 266.70184135587283,
+      "relu_hamming": 102630,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 103858,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 83,
+      "d_f": 0.2384487995136132,
+      "d_M": 8.377409973394482,
+      "relu_hamming": 551,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 329,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 84,
+      "d_f": 0.0010427804841008424,
+      "d_M": 0.08049290267306296,
+      "relu_hamming": 1,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 1,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 85,
+      "d_f": 0.0026258513721911718,
+      "d_M": 0.6715991784047934,
+      "relu_hamming": 1,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 2,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 86,
+      "d_f": 24.633483690832797,
+      "d_M": 74.71027763485299,
+      "relu_hamming": 52681,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 40968,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 87,
+      "d_f": 9.849111605378623,
+      "d_M": 31.818606302474727,
+      "relu_hamming": 27485,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 14283,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 88,
+      "d_f": 0.003072035353821891,
+      "d_M": 0.4068808041157254,
+      "relu_hamming": 4,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 0,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 89,
+      "d_f": 19.284203787212462,
+      "d_M": 42.269494456188035,
+      "relu_hamming": 18727,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 8938,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 90,
+      "d_f": 37.87456215124197,
+      "d_M": 71.90434414224745,
+      "relu_hamming": 71928,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 56231,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 91,
+      "d_f": 4.96651203318282,
+      "d_M": 33.6810166611071,
+      "relu_hamming": 16318,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 10978,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 92,
+      "d_f": 27.785416515141716,
+      "d_M": 59.64524461164114,
+      "relu_hamming": 107178,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 55261,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 93,
+      "d_f": 30.985964288677987,
+      "d_M": 49.252909234370065,
+      "relu_hamming": 49314,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 22681,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 94,
+      "d_f": 0.003917043498345136,
+      "d_M": 2.546860170803038,
+      "relu_hamming": 6,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 3,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 95,
+      "d_f": 35.66250628101832,
+      "d_M": 130.57624486483252,
+      "relu_hamming": 22095,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 10607,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 96,
+      "d_f": 17.186141759760396,
+      "d_M": 104.91081802462848,
+      "relu_hamming": 59588,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 44469,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 97,
+      "d_f": 14.341481062620456,
+      "d_M": 89.13176323081753,
+      "relu_hamming": 22706,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 15136,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 98,
+      "d_f": 0.0041098701691845855,
+      "d_M": 3.173979021821858,
+      "relu_hamming": 5,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 1,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 99,
+      "d_f": 16.122487605139746,
+      "d_M": 92.17959805596256,
+      "relu_hamming": 59745,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 35503,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 100,
+      "d_f": 15.082343623948006,
+      "d_M": 50.61133321239644,
+      "relu_hamming": 29164,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 13672,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 101,
+      "d_f": 32.74890876946019,
+      "d_M": 87.70161537743228,
+      "relu_hamming": 47506,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 23407,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 102,
+      "d_f": 0.0032931371873421177,
+      "d_M": 0.4951635083004123,
+      "relu_hamming": 4,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 1,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 103,
+      "d_f": 12.38110501603888,
+      "d_M": 177.62238886563293,
+      "relu_hamming": 44586,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 47876,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 104,
+      "d_f": 38.862744101682274,
+      "d_M": 101.87528717350179,
+      "relu_hamming": 86239,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 182587,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 105,
+      "d_f": 6.980643476909967,
+      "d_M": 80.55825860814535,
+      "relu_hamming": 20188,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 55501,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 106,
+      "d_f": 32.39512580166552,
+      "d_M": 70.2399492074122,
+      "relu_hamming": 33574,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 16596,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 107,
+      "d_f": 0.0027272248823062267,
+      "d_M": 0.1836160609426361,
+      "relu_hamming": 1,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 0,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 108,
+      "d_f": 4.988066566884231,
+      "d_M": 85.79207749341906,
+      "relu_hamming": 6191,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 3163,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 109,
+      "d_f": 0.002417301546917599,
+      "d_M": 0.0,
+      "relu_hamming": 0,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 0,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 110,
+      "d_f": 8.52749336377042,
+      "d_M": 49.53043996813214,
+      "relu_hamming": 20371,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 17526,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 111,
+      "d_f": 0.002175830229819621,
+      "d_M": 0.2517530080910264,
+      "relu_hamming": 3,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 1,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 112,
+      "d_f": 40.22108105030294,
+      "d_M": 50.83448094478961,
+      "relu_hamming": 165239,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 131618,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 113,
+      "d_f": 86.06863769016088,
+      "d_M": 138.0645931109941,
+      "relu_hamming": 178207,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 103119,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 114,
+      "d_f": 0.001453824736527737,
+      "d_M": 0.0,
+      "relu_hamming": 0,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 0,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 115,
+      "d_f": 5.9478444981140965,
+      "d_M": 33.626882854925555,
+      "relu_hamming": 10870,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 9685,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 116,
+      "d_f": 22.46708615563445,
+      "d_M": 52.43194173391352,
+      "relu_hamming": 22284,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 9231,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 117,
+      "d_f": 28.897670285006022,
+      "d_M": 56.601035886937325,
+      "relu_hamming": 68058,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 200999,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 118,
+      "d_f": 0.004038923043997095,
+      "d_M": 0.0,
+      "relu_hamming": 1,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 0,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 119,
+      "d_f": 3.814855964942975,
+      "d_M": 35.310727860111605,
+      "relu_hamming": 7196,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 3704,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 120,
+      "d_f": 30.718797162872466,
+      "d_M": 57.52743059510576,
+      "relu_hamming": 89200,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 49255,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 121,
+      "d_f": 9.354229012434995,
+      "d_M": 37.809259938273236,
+      "relu_hamming": 11906,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 6149,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 122,
+      "d_f": 1.7252123137071085,
+      "d_M": 36.15899610542094,
+      "relu_hamming": 1812,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 1113,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 123,
+      "d_f": 0.00247471862745852,
+      "d_M": 0.0,
+      "relu_hamming": 1,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 0,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 124,
+      "d_f": 0.005145676931357813,
+      "d_M": 2.1100037782244914,
+      "relu_hamming": 10,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 3,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 125,
+      "d_f": 0.0028590469775413734,
+      "d_M": 0.6768050611100679,
+      "relu_hamming": 4,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 2,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 126,
+      "d_f": 22.351693607116733,
+      "d_M": 34.325810788910815,
+      "relu_hamming": 36269,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 20912,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 127,
+      "d_f": 0.002426162903387659,
+      "d_M": 0.9099966421453163,
+      "relu_hamming": 3,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 2,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 128,
+      "d_f": 27.643784175500944,
+      "d_M": 107.52912477203456,
+      "relu_hamming": 70263,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 41846,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 129,
+      "d_f": 0.0,
+      "d_M": 0.0,
+      "relu_hamming": 0,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 0,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 130,
+      "d_f": 0.001311804399792082,
+      "d_M": 0.0,
+      "relu_hamming": 0,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 0,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 131,
+      "d_f": 41.44214187854139,
+      "d_M": 102.79379876745564,
+      "relu_hamming": 70121,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 41418,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 132,
+      "d_f": 21.96580931475403,
+      "d_M": 73.80548133230297,
+      "relu_hamming": 23712,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 31322,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 133,
+      "d_f": 0.4402618123706533,
+      "d_M": 14.162813531317273,
+      "relu_hamming": 461,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 334,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 134,
+      "d_f": 10.353343032296365,
+      "d_M": 43.05149593988701,
+      "relu_hamming": 20272,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 12306,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 135,
+      "d_f": 1.2089875898202345,
+      "d_M": 46.93387769679522,
+      "relu_hamming": 5117,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 396313,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 136,
+      "d_f": 25.164117508754043,
+      "d_M": 89.53098904849047,
+      "relu_hamming": 34629,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 18061,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 137,
+      "d_f": 14.779927056553587,
+      "d_M": 56.22134767861244,
+      "relu_hamming": 24143,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 14714,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 138,
+      "d_f": 5.261876480058955,
+      "d_M": 27.087092282072536,
+      "relu_hamming": 4912,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 2177,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 139,
+      "d_f": 5.019520064973656,
+      "d_M": 33.29269643535991,
+      "relu_hamming": 15738,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 8707,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 140,
+      "d_f": 0.004738110844551809,
+      "d_M": 1.6596903852378817,
+      "relu_hamming": 10,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 4,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 141,
+      "d_f": 8.85264671227514,
+      "d_M": 60.33205485906948,
+      "relu_hamming": 19441,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 12455,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 142,
+      "d_f": 2.5568709132004526,
+      "d_M": 45.820315466582045,
+      "relu_hamming": 8841,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 9870,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 143,
+      "d_f": 7.39898246944475,
+      "d_M": 52.26603617510947,
+      "relu_hamming": 7498,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 6078,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 144,
+      "d_f": 20.89153592419133,
+      "d_M": 118.05214688907428,
+      "relu_hamming": 52325,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 53586,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 145,
+      "d_f": 0.003574531409551537,
+      "d_M": 1.816350539579442,
+      "relu_hamming": 4,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 1,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 146,
+      "d_f": 10.660222075919759,
+      "d_M": 41.47537285827052,
+      "relu_hamming": 18458,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 8877,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 147,
+      "d_f": 22.516899302739407,
+      "d_M": 67.11732353383266,
+      "relu_hamming": 49270,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 41084,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 148,
+      "d_f": 2.9171354081291208,
+      "d_M": 18.472833481337645,
+      "relu_hamming": 6466,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 3177,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 149,
+      "d_f": 0.0028291614872667753,
+      "d_M": 0.5394930999901272,
+      "relu_hamming": 7,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 2,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 150,
+      "d_f": 0.004036746264606347,
+      "d_M": 0.9056316906641448,
+      "relu_hamming": 1,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 1,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 151,
+      "d_f": 10.812963196721583,
+      "d_M": 31.730199597373296,
+      "relu_hamming": 15082,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 7567,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 152,
+      "d_f": 0.0027904760323373672,
+      "d_M": 0.6937658725012179,
+      "relu_hamming": 7,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 2,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 153,
+      "d_f": 17.056050197379037,
+      "d_M": 59.16517792802522,
+      "relu_hamming": 22480,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 10918,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 154,
+      "d_f": 0.6126594860086375,
+      "d_M": 11.093962621131551,
+      "relu_hamming": 2413,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 1596,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 155,
+      "d_f": 8.751448195256978,
+      "d_M": 46.70556282940991,
+      "relu_hamming": 21644,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 15779,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 156,
+      "d_f": 23.131565604100363,
+      "d_M": 46.83832470112443,
+      "relu_hamming": 41234,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 31987,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 157,
+      "d_f": 14.397480179168497,
+      "d_M": 39.1846319389563,
+      "relu_hamming": 20646,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 9281,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 158,
+      "d_f": 6.471435655847268,
+      "d_M": 31.829601192427877,
+      "relu_hamming": 20887,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 10891,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 159,
+      "d_f": 40.24943124279185,
+      "d_M": 63.23092666645205,
+      "relu_hamming": 37939,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 15275,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 160,
+      "d_f": 25.229726645887983,
+      "d_M": 56.81873523178131,
+      "relu_hamming": 34672,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 16999,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 161,
+      "d_f": 0.7827489178701426,
+      "d_M": 19.548446537778577,
+      "relu_hamming": 3415,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 4459,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 162,
+      "d_f": 12.302430029574753,
+      "d_M": 43.03786648885409,
+      "relu_hamming": 23771,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 12259,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 163,
+      "d_f": 6.195474809661262,
+      "d_M": 85.96092735469874,
+      "relu_hamming": 23400,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 228324,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 164,
+      "d_f": 10.604163096824111,
+      "d_M": 33.901507468460295,
+      "relu_hamming": 22646,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 12079,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 165,
+      "d_f": 0.0043445751420574195,
+      "d_M": 2.7929415120760366,
+      "relu_hamming": 5,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 4,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 166,
+      "d_f": 0.0017770210777754386,
+      "d_M": 0.667580079578438,
+      "relu_hamming": 4,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 1,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 167,
+      "d_f": 68.04203645577044,
+      "d_M": 81.82529936709129,
+      "relu_hamming": 155086,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 93309,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 168,
+      "d_f": 15.737014736132709,
+      "d_M": 80.01642448590019,
+      "relu_hamming": 35085,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 18161,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 169,
+      "d_f": 59.37005461123427,
+      "d_M": 79.34064658492518,
+      "relu_hamming": 100084,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 63156,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 170,
+      "d_f": 31.278836887426287,
+      "d_M": 59.32345439389288,
+      "relu_hamming": 50391,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 22629,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 171,
+      "d_f": 0.005242975133064521,
+      "d_M": 1.236876886061557,
+      "relu_hamming": 4,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 1,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 172,
+      "d_f": 33.54580483500209,
+      "d_M": 79.55413019720481,
+      "relu_hamming": 43270,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 24247,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 173,
+      "d_f": 14.967292472119162,
+      "d_M": 49.81373677817795,
+      "relu_hamming": 20898,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 8734,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 174,
+      "d_f": 1.5632630095221218,
+      "d_M": 26.2985472745333,
+      "relu_hamming": 6214,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 4740,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 175,
+      "d_f": 0.0053877595729354185,
+      "d_M": 3.9005952566607087,
+      "relu_hamming": 22,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 13,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 176,
+      "d_f": 0.004086240571103956,
+      "d_M": 1.347935550696013,
+      "relu_hamming": 2,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 3,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 177,
+      "d_f": 16.57593809233352,
+      "d_M": 41.77569422619701,
+      "relu_hamming": 45874,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 19443,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 178,
+      "d_f": 24.04602036866264,
+      "d_M": 98.5865333710553,
+      "relu_hamming": 41080,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 53638,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 179,
+      "d_f": 34.47883987685362,
+      "d_M": 73.33225127425517,
+      "relu_hamming": 41676,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 18204,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 180,
+      "d_f": 6.86513511585207,
+      "d_M": 44.75768680207409,
+      "relu_hamming": 11905,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 5620,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 181,
+      "d_f": 0.008775113698822244,
+      "d_M": 0.6993959734542442,
+      "relu_hamming": 5,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 0,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 182,
+      "d_f": 48.00571356953975,
+      "d_M": 154.48549122158457,
+      "relu_hamming": 114771,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 76570,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 183,
+      "d_f": 19.791595688650006,
+      "d_M": 57.891802112043216,
+      "relu_hamming": 29884,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 15823,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 184,
+      "d_f": 10.812564031337862,
+      "d_M": 43.75927287427961,
+      "relu_hamming": 21299,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 14835,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 185,
+      "d_f": 30.136844703415804,
+      "d_M": 81.4557325890705,
+      "relu_hamming": 29813,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 16979,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 186,
+      "d_f": 0.0,
+      "d_M": 0.0,
+      "relu_hamming": 0,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 0,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 187,
+      "d_f": 1.9831543041971322,
+      "d_M": 20.540669958298203,
+      "relu_hamming": 5218,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 3099,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 188,
+      "d_f": 14.62702429744726,
+      "d_M": 163.92130914642348,
+      "relu_hamming": 23711,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 16879,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 189,
+      "d_f": 0.7315794743748487,
+      "d_M": 20.114844550097718,
+      "relu_hamming": 2168,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 1557,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 190,
+      "d_f": 14.140486658536721,
+      "d_M": 41.03995063677851,
+      "relu_hamming": 56618,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 43412,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 191,
+      "d_f": 0.004903599137308275,
+      "d_M": 0.6857860633252028,
+      "relu_hamming": 8,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 2,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 192,
+      "d_f": 46.95533351073881,
+      "d_M": 167.63685176935647,
+      "relu_hamming": 57251,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 27997,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 193,
+      "d_f": 26.56436414870121,
+      "d_M": 58.75520205078623,
+      "relu_hamming": 51975,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 28636,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 194,
+      "d_f": 8.654777832236075,
+      "d_M": 26.0995160890732,
+      "relu_hamming": 7689,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 3234,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 195,
+      "d_f": 13.726187550956618,
+      "d_M": 34.892765460949825,
+      "relu_hamming": 35677,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 19927,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 196,
+      "d_f": 0.0028527696624208766,
+      "d_M": 0.5749449776094385,
+      "relu_hamming": 6,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 1,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 197,
+      "d_f": 25.387505305198797,
+      "d_M": 78.69836772581247,
+      "relu_hamming": 65134,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 45355,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 198,
+      "d_f": 12.11886382251537,
+      "d_M": 70.7599614436545,
+      "relu_hamming": 17013,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 17574,
+      "maxpool_total_positions": 1530368
+    },
+    {
+      "idx": 199,
+      "d_f": 0.002306616886147055,
+      "d_M": 1.6474202714602508,
+      "relu_hamming": 8,
+      "relu_pattern_len": 7434240,
+      "maxpool_mismatches": 3,
+      "maxpool_total_positions": 1530368
+    }
+  ],
+  "summary": {
+    "d_M_exact_zero_indices": [
+      43,
+      109,
+      114,
+      118,
+      123,
+      129,
+      130,
+      186
+    ],
+    "d_M_lt_1e-12_indices": [
+      43,
+      109,
+      114,
+      118,
+      123,
+      129,
+      130,
+      186
+    ],
+    "d_M_lt_1e-12_relu_hamming_distances": [
+      1,
+      0,
+      0,
+      1,
+      1,
+      0,
+      0,
+      0
+    ],
+    "d_M_lt_1e-12_maxpool_mismatches": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "all_d_M_zero_have_hamming_zero_and_mp_zero": false,
+    "min_d_M_across_samples_with_positive_hamming": 0.0
+  }
+}
