@@ -1,0 +1,41 @@
+{
+  "experiment": "resnet_imagenet",
+  "num_samples": 200,
+  "attack": "DeepFool",
+  "result": {
+    "num_pairs": 200,
+    "num_valid_pairs": 141,
+    "gamma_empirical": 2.2529139594193217,
+    "gamma_ci_95": [
+      2.2529139594193217,
+      2.664394685224253
+    ],
+    "bound_satisfaction_rate_note": "Tautological (gamma = min ratio, so always 1.0). See gamma_ci_95 instead.",
+    "amplification_M_median": 8.156364427896886,
+    "amplification_h_median": 0.29509898483750296,
+    "amplification_M_mean": 16.410157173504903,
+    "amplification_h_mean": 0.2924277337892788,
+    "d_M_stats": {
+      "mean": 95.9945985525937,
+      "std": 57.64476790014702,
+      "min": 7.8476065082982815,
+      "max": 342.1250063626542,
+      "median": 84.27295407359796
+    },
+    "d_h_stats": {
+      "mean": 3.887129545211792,
+      "std": 2.761575698852539,
+      "min": 0.008892679587006569,
+      "max": 12.630980491638184,
+      "median": 3.3026952743530273
+    },
+    "d_f_stats": {
+      "mean": 13.522718662830336,
+      "std": 9.793155522729945,
+      "min": 0.026621536243853286,
+      "max": 48.38573610473125,
+      "median": 11.335742346207518
+    },
+    "elapsed_seconds": 6240.586247460917
+  }
+}

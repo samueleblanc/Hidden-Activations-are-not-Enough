@@ -1,0 +1,41 @@
+{
+  "experiment": "alexnet_imagenet",
+  "num_samples": 200,
+  "attack": "FGSM",
+  "result": {
+    "num_pairs": 200,
+    "num_valid_pairs": 200,
+    "gamma_empirical": 0.7667060312996814,
+    "gamma_ci_95": [
+      0.7667060312996814,
+      1.013504206970505
+    ],
+    "bound_satisfaction_rate_note": "Tautological (gamma = min ratio, so always 1.0). See gamma_ci_95 instead.",
+    "amplification_M_median": 1.4863904582504623,
+    "amplification_h_median": 0.9023427163104973,
+    "amplification_M_mean": 1.5671142394721291,
+    "amplification_h_mean": 0.9147259456288297,
+    "d_M_stats": {
+      "mean": 134.176735126655,
+      "std": 26.67644387782042,
+      "min": 52.96876937578645,
+      "max": 209.43111470663354,
+      "median": 133.5224750948127
+    },
+    "d_h_stats": {
+      "mean": 78.99491882324219,
+      "std": 13.495145797729492,
+      "min": 45.90336608886719,
+      "max": 112.55459594726562,
+      "median": 79.13502502441406
+    },
+    "d_f_stats": {
+      "mean": 87.97266860039247,
+      "std": 19.68680183339303,
+      "min": 39.649977064083785,
+      "max": 152.37436976718325,
+      "median": 88.08047891089765
+    },
+    "elapsed_seconds": 1058.0663252361119
+  }
+}

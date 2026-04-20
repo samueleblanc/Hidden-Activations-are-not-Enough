@@ -1,0 +1,41 @@
+{
+  "experiment": "resnet_imagenet",
+  "num_samples": 200,
+  "attack": "FGSM",
+  "result": {
+    "num_pairs": 200,
+    "num_valid_pairs": 200,
+    "gamma_empirical": 1.6023851044960975,
+    "gamma_ci_95": [
+      1.6023851044960975,
+      1.7670050491723484
+    ],
+    "bound_satisfaction_rate_note": "Tautological (gamma = min ratio, so always 1.0). See gamma_ci_95 instead.",
+    "amplification_M_median": 3.275845083912002,
+    "amplification_h_median": 0.28547974907119644,
+    "amplification_M_mean": 3.6139849193451665,
+    "amplification_h_mean": 0.2852746420277869,
+    "d_M_stats": {
+      "mean": 229.27027946247085,
+      "std": 78.9821049302217,
+      "min": 86.64541244787021,
+      "max": 554.842752764212,
+      "median": 215.32545251005274
+    },
+    "d_h_stats": {
+      "mean": 18.405715942382812,
+      "std": 2.978862762451172,
+      "min": 11.348305702209473,
+      "max": 26.66386604309082,
+      "median": 18.526363372802734
+    },
+    "d_f_stats": {
+      "mean": 65.10880687508232,
+      "std": 12.921854428455857,
+      "min": 33.4813340941481,
+      "max": 102.83529215133473,
+      "median": 65.16186092824239
+    },
+    "elapsed_seconds": 3310.48549162806
+  }
+}

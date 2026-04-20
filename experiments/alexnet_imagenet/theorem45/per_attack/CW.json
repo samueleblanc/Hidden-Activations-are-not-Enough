@@ -1,0 +1,41 @@
+{
+  "experiment": "alexnet_imagenet",
+  "num_samples": 200,
+  "attack": "CW",
+  "result": {
+    "num_pairs": 200,
+    "num_valid_pairs": 110,
+    "gamma_empirical": 1.0220284212225361,
+    "gamma_ci_95": [
+      1.0220284212225361,
+      1.5882923601079453
+    ],
+    "bound_satisfaction_rate_note": "Tautological (gamma = min ratio, so always 1.0). See gamma_ci_95 instead.",
+    "amplification_M_median": 2.442459681675666,
+    "amplification_h_median": 1.0131233495304288,
+    "amplification_M_mean": 2.8666548449253635,
+    "amplification_h_mean": 1.0034234026075692,
+    "d_M_stats": {
+      "mean": 63.210111873818896,
+      "std": 23.41668715268721,
+      "min": 17.171488811766896,
+      "max": 132.95892476848329,
+      "median": 58.558203810609385
+    },
+    "d_h_stats": {
+      "mean": 25.340980529785156,
+      "std": 12.704774856567383,
+      "min": 4.726583957672119,
+      "max": 71.02540588378906,
+      "median": 22.476099014282227
+    },
+    "d_f_stats": {
+      "mean": 26.04371805786778,
+      "std": 14.814986398222997,
+      "min": 4.7372679971765566,
+      "max": 92.34118804095853,
+      "median": 22.687934447726168
+    },
+    "elapsed_seconds": 1061.272114658961
+  }
+}

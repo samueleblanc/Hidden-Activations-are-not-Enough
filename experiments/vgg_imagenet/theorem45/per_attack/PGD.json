@@ -1,0 +1,41 @@
+{
+  "experiment": "vgg_imagenet",
+  "num_samples": 200,
+  "attack": "PGD",
+  "result": {
+    "num_pairs": 200,
+    "num_valid_pairs": 200,
+    "gamma_empirical": 0.5720610778227444,
+    "gamma_ci_95": [
+      0.5720610778227444,
+      0.628452344730902
+    ],
+    "bound_satisfaction_rate_note": "Tautological (gamma = min ratio, so always 1.0). See gamma_ci_95 instead.",
+    "amplification_M_median": 0.8930556962029887,
+    "amplification_h_median": 0.4448873576772185,
+    "amplification_M_mean": 0.9410412935308008,
+    "amplification_h_mean": 0.44578035713542546,
+    "d_M_stats": {
+      "mean": 361.4437939479649,
+      "std": 83.81077821906335,
+      "min": 169.74709487273003,
+      "max": 582.2532438059076,
+      "median": 357.43816062334906
+    },
+    "d_h_stats": {
+      "mean": 175.9608154296875,
+      "std": 44.01388168334961,
+      "min": 77.00824737548828,
+      "max": 333.08837890625,
+      "median": 170.80511474609375
+    },
+    "d_f_stats": {
+      "mean": 398.872448603072,
+      "std": 105.7984198703675,
+      "min": 151.9938500787103,
+      "max": 668.0185536019407,
+      "median": 378.17025294770116
+    },
+    "elapsed_seconds": 8756.316480715992
+  }
+}

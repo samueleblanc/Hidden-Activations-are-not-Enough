@@ -1,0 +1,228 @@
+{
+  "experiment": "alexnet_imagenet",
+  "num_samples": 200,
+  "per_attack": {
+    "APGD": {
+      "num_pairs": 200,
+      "num_valid_pairs": 110,
+      "gamma_empirical": 0.47054778298198136,
+      "gamma_ci_95": [
+        0.47054778298198136,
+        0.6311409067457363
+      ],
+      "bound_satisfaction_rate_note": "Tautological (gamma = min ratio, so always 1.0). See gamma_ci_95 instead.",
+      "amplification_M_median": 0.8841424970377987,
+      "amplification_h_median": 0.7747166405290437,
+      "amplification_M_mean": 0.887301183584126,
+      "amplification_h_mean": 0.7742669562373038,
+      "d_M_stats": {
+        "mean": 205.15910871670854,
+        "std": 41.192414570040235,
+        "min": 109.00037687154737,
+        "max": 342.4770542263344,
+        "median": 204.17415588714522
+      },
+      "d_h_stats": {
+        "mean": 181.05746459960938,
+        "std": 42.11539077758789,
+        "min": 100.54744720458984,
+        "max": 320.2989807128906,
+        "median": 176.937255859375
+      },
+      "d_f_stats": {
+        "mean": 239.82236751108792,
+        "std": 68.50167262806825,
+        "min": 113.5453980022074,
+        "max": 483.38935129031205,
+        "median": 228.6645841929198
+      },
+      "elapsed_seconds": 1058.9518455290236
+    },
+    "CW": {
+      "num_pairs": 200,
+      "num_valid_pairs": 110,
+      "gamma_empirical": 1.0220284212225361,
+      "gamma_ci_95": [
+        1.0220284212225361,
+        1.5882923601079453
+      ],
+      "bound_satisfaction_rate_note": "Tautological (gamma = min ratio, so always 1.0). See gamma_ci_95 instead.",
+      "amplification_M_median": 2.442459681675666,
+      "amplification_h_median": 1.0131233495304288,
+      "amplification_M_mean": 2.8666548449253635,
+      "amplification_h_mean": 1.0034234026075692,
+      "d_M_stats": {
+        "mean": 63.210111873818896,
+        "std": 23.41668715268721,
+        "min": 17.171488811766896,
+        "max": 132.95892476848329,
+        "median": 58.558203810609385
+      },
+      "d_h_stats": {
+        "mean": 25.340980529785156,
+        "std": 12.704774856567383,
+        "min": 4.726583957672119,
+        "max": 71.02540588378906,
+        "median": 22.476099014282227
+      },
+      "d_f_stats": {
+        "mean": 26.04371805786778,
+        "std": 14.814986398222997,
+        "min": 4.7372679971765566,
+        "max": 92.34118804095853,
+        "median": 22.687934447726168
+      },
+      "elapsed_seconds": 1061.272114658961
+    },
+    "DeepFool": {
+      "num_pairs": 200,
+      "num_valid_pairs": 110,
+      "gamma_empirical": 0.7759293892137087,
+      "gamma_ci_95": [
+        0.7759293892137087,
+        1.5145108840650974
+      ],
+      "bound_satisfaction_rate_note": "Tautological (gamma = min ratio, so always 1.0). See gamma_ci_95 instead.",
+      "amplification_M_median": 3.1781772682940237,
+      "amplification_h_median": 0.975749449784505,
+      "amplification_M_mean": 4.339595817730892,
+      "amplification_h_mean": 0.9820855822112591,
+      "d_M_stats": {
+        "mean": 45.124676902384415,
+        "std": 22.028850661320384,
+        "min": 2.2209036414025163,
+        "max": 121.00626448892297,
+        "median": 41.01373581304641
+      },
+      "d_h_stats": {
+        "mean": 16.238149642944336,
+        "std": 12.538078308105469,
+        "min": 0.06451768428087234,
+        "max": 68.58241271972656,
+        "median": 12.794086456298828
+      },
+      "d_f_stats": {
+        "mean": 17.403214015897284,
+        "std": 16.19459752096013,
+        "min": 0.06167740406824916,
+        "max": 120.33350412220554,
+        "median": 13.950114885500575
+      },
+      "elapsed_seconds": 2881.493825533893
+    },
+    "FGSM": {
+      "num_pairs": 200,
+      "num_valid_pairs": 200,
+      "gamma_empirical": 0.7667060312996814,
+      "gamma_ci_95": [
+        0.7667060312996814,
+        1.013504206970505
+      ],
+      "bound_satisfaction_rate_note": "Tautological (gamma = min ratio, so always 1.0). See gamma_ci_95 instead.",
+      "amplification_M_median": 1.4863904582504623,
+      "amplification_h_median": 0.9023427163104973,
+      "amplification_M_mean": 1.5671142394721291,
+      "amplification_h_mean": 0.9147259456288297,
+      "d_M_stats": {
+        "mean": 134.176735126655,
+        "std": 26.67644387782042,
+        "min": 52.96876937578645,
+        "max": 209.43111470663354,
+        "median": 133.5224750948127
+      },
+      "d_h_stats": {
+        "mean": 78.99491882324219,
+        "std": 13.495145797729492,
+        "min": 45.90336608886719,
+        "max": 112.55459594726562,
+        "median": 79.13502502441406
+      },
+      "d_f_stats": {
+        "mean": 87.97266860039247,
+        "std": 19.68680183339303,
+        "min": 39.649977064083785,
+        "max": 152.37436976718325,
+        "median": 88.08047891089765
+      },
+      "elapsed_seconds": 1058.0663252361119
+    },
+    "PGD": {
+      "num_pairs": 200,
+      "num_valid_pairs": 200,
+      "gamma_empirical": 0.5145366974525061,
+      "gamma_ci_95": [
+        0.5145366974525061,
+        0.5320432882279406
+      ],
+      "bound_satisfaction_rate_note": "Tautological (gamma = min ratio, so always 1.0). See gamma_ci_95 instead.",
+      "amplification_M_median": 0.7634124410830594,
+      "amplification_h_median": 0.770340453517246,
+      "amplification_M_mean": 0.8042292343813358,
+      "amplification_h_mean": 0.7672079846616825,
+      "d_M_stats": {
+        "mean": 199.31548815349186,
+        "std": 42.83650422035036,
+        "min": 98.68108103659235,
+        "max": 315.8638384467741,
+        "median": 196.66118270028363
+      },
+      "d_h_stats": {
+        "mean": 191.8655242919922,
+        "std": 38.65877914428711,
+        "min": 83.21491241455078,
+        "max": 302.3019714355469,
+        "median": 191.426025390625
+      },
+      "d_f_stats": {
+        "mean": 258.769373322882,
+        "std": 73.49678636041268,
+        "min": 72.79664493155472,
+        "max": 499.2308742393447,
+        "median": 245.85666595573747
+      },
+      "elapsed_seconds": 1059.13061426091
+    },
+    "Square": {
+      "num_pairs": 200,
+      "num_valid_pairs": 110,
+      "gamma_empirical": 1.1644960677381497,
+      "gamma_ci_95": [
+        1.1644960677381497,
+        1.3392853631123882
+      ],
+      "bound_satisfaction_rate_note": "Tautological (gamma = min ratio, so always 1.0). See gamma_ci_95 instead.",
+      "amplification_M_median": 2.0935758462045397,
+      "amplification_h_median": 1.007765352640972,
+      "amplification_M_mean": 2.1947112277238046,
+      "amplification_h_mean": 1.0052666407201838,
+      "d_M_stats": {
+        "mean": 92.28801405419141,
+        "std": 28.40262221487113,
+        "min": 37.43237846353819,
+        "max": 187.6955658830831,
+        "median": 86.36521562224289
+      },
+      "d_h_stats": {
+        "mean": 44.2143669128418,
+        "std": 15.740832328796387,
+        "min": 12.123858451843262,
+        "max": 87.28402709960938,
+        "median": 43.01927185058594
+      },
+      "d_f_stats": {
+        "mean": 45.524541235891355,
+        "std": 19.797095126333705,
+        "min": 12.583655323508381,
+        "max": 114.99255508815523,
+        "median": 42.96215343438887
+      },
+      "elapsed_seconds": 1091.3953890390694
+    }
+  },
+  "aggregate": {
+    "gamma_global": 0.47054778298198136,
+    "mean_amplification_M": 1.8080263654242585,
+    "mean_amplification_h": 0.9073396603854489,
+    "ratio_M_over_h": 1.9926676242237522
+  }
+}

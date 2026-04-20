@@ -1,0 +1,41 @@
+{
+  "experiment": "resnet_imagenet",
+  "num_samples": 200,
+  "attack": "APGD",
+  "result": {
+    "num_pairs": 200,
+    "num_valid_pairs": 141,
+    "gamma_empirical": 1.1244340390448608,
+    "gamma_ci_95": [
+      1.1244340390448608,
+      1.2150258506042833
+    ],
+    "bound_satisfaction_rate_note": "Tautological (gamma = min ratio, so always 1.0). See gamma_ci_95 instead.",
+    "amplification_M_median": 2.0896364262743115,
+    "amplification_h_median": 0.26801857884337327,
+    "amplification_M_mean": 2.3302840373918157,
+    "amplification_h_mean": 0.26906543732876165,
+    "d_M_stats": {
+      "mean": 241.42412235370386,
+      "std": 69.1730715067835,
+      "min": 97.70880581580685,
+      "max": 528.9055642265446,
+      "median": 236.29380112770852
+    },
+    "d_h_stats": {
+      "mean": 30.200618743896484,
+      "std": 8.877742767333984,
+      "min": 3.4122118949890137,
+      "max": 61.14329147338867,
+      "median": 30.2335147857666
+    },
+    "d_f_stats": {
+      "mean": 115.22760428208267,
+      "std": 39.22508836713828,
+      "min": 10.660484498921186,
+      "max": 227.1522740076592,
+      "median": 115.49240813777391
+    },
+    "elapsed_seconds": 3315.017866087146
+  }
+}

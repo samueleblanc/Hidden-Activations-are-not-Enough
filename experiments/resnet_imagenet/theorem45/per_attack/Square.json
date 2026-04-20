@@ -1,0 +1,41 @@
+{
+  "experiment": "resnet_imagenet",
+  "num_samples": 200,
+  "attack": "Square",
+  "result": {
+    "num_pairs": 200,
+    "num_valid_pairs": 140,
+    "gamma_empirical": 2.3103136127778674,
+    "gamma_ci_95": [
+      2.3103136127778674,
+      2.6729818563788514
+    ],
+    "bound_satisfaction_rate_note": "Tautological (gamma = min ratio, so always 1.0). See gamma_ci_95 instead.",
+    "amplification_M_median": 5.177988929856554,
+    "amplification_h_median": 0.29661877150782195,
+    "amplification_M_mean": 5.447470303446697,
+    "amplification_h_mean": 0.296438844130463,
+    "d_M_stats": {
+      "mean": 193.39112766121502,
+      "std": 74.58214812090823,
+      "min": 53.47477818787181,
+      "max": 446.9430380635632,
+      "median": 186.08270861767375
+    },
+    "d_h_stats": {
+      "mean": 10.978500366210938,
+      "std": 3.753957509994507,
+      "min": 3.730106830596924,
+      "max": 21.140758514404297,
+      "median": 10.212562561035156
+    },
+    "d_f_stats": {
+      "mean": 37.51898433662266,
+      "std": 14.109267475415125,
+      "min": 12.154248731012743,
+      "max": 79.45382131655018,
+      "median": 34.62794266961224
+    },
+    "elapsed_seconds": 3395.1418743298855
+  }
+}
