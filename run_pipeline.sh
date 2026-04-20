@@ -36,11 +36,11 @@ A_FILES=(
     "experiments/vgg_imagenet/isomorphism/isomorphism_results.json"
 )
 
-# Step B: Teleportation
-B_NAMES=("resnet18" "vgg11_bn" "resnet50")
+# Step B: Teleportation (non-BN VGG — vgg11_bn COB drifts, see teleportation_experiment.py)
+B_NAMES=("resnet18" "vgg11" "resnet50")
 B_FILES=(
     "results/teleportation/resnet18_imagenet_teleportation.json"
-    "results/teleportation/vgg11_bn_imagenet_teleportation.json"
+    "results/teleportation/vgg11_imagenet_teleportation.json"
     "results/teleportation/resnet50_imagenet_teleportation.json"
 )
 

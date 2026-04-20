@@ -138,11 +138,35 @@ def debug_vgg_gamma_zero(attack_name, num_samples=200, temp_dir=None):
     kmc = KnowledgeMatrixComputer(model, batch_size=512, device=device)
 
     n = len(clean)
+
+    # Resume from checkpoint if available — per-sample work is slow on VGG
+    # ImageNet (~12-15s/sample), so 200 samples can exceed the SLURM
+    # walltime. Save after every sample and resume the next run.
+    out_dir = Path('experiments/vgg_imagenet/theorem45')
+    out_dir.mkdir(parents=True, exist_ok=True)
+    ckpt_file = out_dir / f'debug_gamma_zero_{attack_name}.ckpt.json'
+
     per_sample = []
     total_pattern_len = None
     total_maxpool_len = None
+    start_idx = 0
 
-    for i in range(n):
+    if ckpt_file.exists():
+        try:
+            with open(ckpt_file) as f:
+                ckpt = json.load(f)
+            if ckpt.get('attack') == attack_name and ckpt.get('num_samples') == n:
+                per_sample = ckpt.get('per_sample', [])
+                total_pattern_len = ckpt.get('total_pattern_len')
+                total_maxpool_len = ckpt.get('total_maxpool_len')
+                start_idx = len(per_sample)
+                print(f"  Resuming from checkpoint: {start_idx}/{n} samples done",
+                      flush=True)
+        except (json.JSONDecodeError, OSError) as e:
+            print(f"  WARNING: corrupt checkpoint ({e}), starting fresh.",
+                  flush=True)
+
+    for i in range(start_idx, n):
         # 3D inputs — no unsqueeze (see CLAUDE.md "Critical Patterns")
         sample_c = clean[i].to(device).float()
         sample_a = adv[i].to(device).float()
@@ -208,6 +232,20 @@ def debug_vgg_gamma_zero(attack_name, num_samples=200, temp_dir=None):
                   f"maxpool_mismatches={last['maxpool_mismatches']}/"
                   f"{last['maxpool_total_positions']}", flush=True)
 
+        # Incremental checkpoint (atomic): tmp write + rename
+        ckpt_data = {
+            'attack': attack_name,
+            'experiment': experiment_name,
+            'num_samples': n,
+            'total_pattern_len': total_pattern_len,
+            'total_maxpool_len': total_maxpool_len,
+            'per_sample': per_sample,
+        }
+        ckpt_tmp = ckpt_file.with_suffix('.tmp')
+        with open(ckpt_tmp, 'w') as f:
+            json.dump(ckpt_data, f)
+        ckpt_tmp.rename(ckpt_file)
+
     # --- Summary ---
     exact_zero_idx = [s['idx'] for s in per_sample if s['d_M'] == 0.0]
     near_zero_idx = [s['idx'] for s in per_sample if s['d_M'] < 1e-12]
@@ -248,9 +286,8 @@ def debug_vgg_gamma_zero(attack_name, num_samples=200, temp_dir=None):
     else:
         print(f"  min d_M across samples w/ ham>0      : (none)")
 
-    # --- Save ---
-    out_dir = Path('experiments/vgg_imagenet/theorem45')
-    out_dir.mkdir(parents=True, exist_ok=True)
+    # --- Save final results (ckpt file above has the same data + resumption
+    # metadata; final file is the canonical deliverable) ---
     out_file = out_dir / f'debug_gamma_zero_{attack_name}.json'
     save_data = {
         'attack': attack_name,
@@ -275,6 +312,10 @@ def debug_vgg_gamma_zero(attack_name, num_samples=200, temp_dir=None):
     with open(out_file, 'w') as f:
         json.dump(save_data, f, indent=2)
     print(f"\n  Saved: {out_file}")
+
+    # Clean up checkpoint now that the final file is written
+    if ckpt_file.exists():
+        ckpt_file.unlink()
 
 
 # ---------------------------------------------------------------------------

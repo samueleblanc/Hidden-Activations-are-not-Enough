@@ -31,6 +31,7 @@ from neuralteleportation.models.model_zoo.resnetcob import (
     resnet18COB, resnet34COB, resnet50COB, resnet101COB, resnet152COB,
 )
 from neuralteleportation.models.model_zoo.vggcob import (
+    vgg11COB, vgg13COB, vgg16COB, vgg19COB,
     vgg11_bnCOB, vgg13_bnCOB, vgg16_bnCOB, vgg19_bnCOB,
 )
 
@@ -45,6 +46,10 @@ ARCHITECTURES = {
     'resnet50':  {'factory': resnet50COB,  'penultimate_dim': 2048, 'family': 'resnet'},
     'resnet101': {'factory': resnet101COB, 'penultimate_dim': 2048, 'family': 'resnet'},
     'resnet152': {'factory': resnet152COB, 'penultimate_dim': 2048, 'family': 'resnet'},
+    'vgg11':     {'factory': vgg11COB,     'penultimate_dim': 4096, 'family': 'vgg'},
+    'vgg13':     {'factory': vgg13COB,     'penultimate_dim': 4096, 'family': 'vgg'},
+    'vgg16':     {'factory': vgg16COB,     'penultimate_dim': 4096, 'family': 'vgg'},
+    'vgg19':     {'factory': vgg19COB,     'penultimate_dim': 4096, 'family': 'vgg'},
     'vgg11_bn':  {'factory': vgg11_bnCOB,  'penultimate_dim': 4096, 'family': 'vgg'},
     'vgg13_bn':  {'factory': vgg13_bnCOB,  'penultimate_dim': 4096, 'family': 'vgg'},
     'vgg16_bn':  {'factory': vgg16_bnCOB,  'penultimate_dim': 4096, 'family': 'vgg'},
@@ -363,6 +368,8 @@ def run_experiment(args):
             'resnet18': tv_models.resnet18, 'resnet34': tv_models.resnet34,
             'resnet50': tv_models.resnet50, 'resnet101': tv_models.resnet101,
             'resnet152': tv_models.resnet152,
+            'vgg11': tv_models.vgg11, 'vgg13': tv_models.vgg13,
+            'vgg16': tv_models.vgg16, 'vgg19': tv_models.vgg19,
             'vgg11_bn': tv_models.vgg11_bn, 'vgg13_bn': tv_models.vgg13_bn,
             'vgg16_bn': tv_models.vgg16_bn, 'vgg19_bn': tv_models.vgg19_bn,
         }

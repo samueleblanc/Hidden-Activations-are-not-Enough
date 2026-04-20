@@ -11,8 +11,10 @@ mkdir -p $SLURM_SUBMIT_DIR/slurm_out
 mkdir -p $SLURM_SUBMIT_DIR/slurm_err
 
 # Map array task ID to architecture
-# COB models available: resnet18, vgg11_bn (no AlexNet COB in neuralteleportation)
-ARCHITECTURES=("resnet18" "vgg11_bn" "resnet50")
+# COB models available: resnet18, vgg11, resnet50 (no AlexNet COB in
+# neuralteleportation). Using non-BN vgg11 because vgg11_bn COB drifts
+# ~0.01 logit units and flips predictions on 83/100 teleportations.
+ARCHITECTURES=("resnet18" "vgg11" "resnet50")
 ARCH=${ARCHITECTURES[$SLURM_ARRAY_TASK_ID]}
 
 echo "Step B: Teleportation experiment for $ARCH / imagenet (task $SLURM_ARRAY_TASK_ID)"
