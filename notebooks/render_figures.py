@@ -269,12 +269,57 @@ def cell_f_dictionary_vs_deepdream(manifest_entries, model_name, class_id):
     logger.info("wrote %s", out)
 
 
-def cell_g_lp_vs_pgd(*args, **kwargs):
-    logger.info("cell G PATCH-BLOCKED — implement in Task 19 after extract_weff lands")
+def cell_g_lp_vs_pgd(manifest_entries, model_name, class_id, image_id, target):
+    cf_path = paths.counterfactual_path(model_name, class_id, image_id, target=target)
+    pgd_path = paths.baseline_path("pgd", model_name, class_id, image_id)
+    if not (cf_path.exists() and pgd_path.exists()):
+        logger.warning("cell G skip — missing")
+        return
+    with cf_path.open() as f:
+        cf = json.load(f)
+    pgd = torch.load(pgd_path, weights_only=False)["delta"]
+
+    fig, axes = plt.subplots(1, 2, figsize=(8, 4))
+    # The LP delta is stored as a json scalar payload + we'd want the actual delta tensor
+    # — extend the LP script to also dump the delta tensor next iteration.
+    # For now, just compare PGD heatmap and print LP norms.
+    axes[0].text(0.05, 0.5,
+                 f"LP counterfactual\n"
+                 f"||δ||₁ = {cf['delta_l1']:.3f}\n"
+                 f"||δ||∞ = {cf['delta_linf']:.4f}\n"
+                 f"region_ok = {cf['region_ok']}",
+                 fontsize=12, family="monospace")
+    axes[0].axis("off"); axes[0].set_title("LP counterfactual (KM)")
+    axes[1].imshow(_norm_for_display(pgd[0].abs().sum(0)), cmap="hot")
+    axes[1].axis("off"); axes[1].set_title("PGD delta magnitude")
+    fig.suptitle(f"Cell G — {model_name}, class {class_id}→{target}, {image_id}")
+    out = paths.figure_path(f"cell_g_{model_name}_{class_id}_{image_id}_to_{target}")
+    fig.savefig(out, bbox_inches="tight")
+    plt.close(fig)
+    logger.info("wrote %s", out)
 
 
-def cell_h_jacobian_vs_smoothgrad(*args, **kwargs):
-    logger.info("cell H PATCH-BLOCKED — implement in Task 19 after extract_weff lands")
+def cell_h_jacobian_vs_smoothgrad(manifest_entries, model_name, class_id, image_id):
+    jac_path = paths.jacobian_path(model_name, class_id, image_id)
+    sg_path = paths.baseline_path("smoothgrad", model_name, class_id, image_id)
+    if not (jac_path.exists() and sg_path.exists()):
+        logger.warning("cell H skip — missing")
+        return
+    jac = torch.load(jac_path, weights_only=False)
+    sg = torch.load(sg_path, weights_only=False)[0]
+
+    fig, axes = plt.subplots(1, 2, figsize=(8, 4))
+    axes[0].imshow(_norm_for_display(jac.sum(0)), cmap="hot")
+    axes[0].set_title("KM Jacobian sensitivity (W_eff² · x²)")
+    axes[1].imshow(_norm_for_display(sg.sum(0)), cmap="hot")
+    axes[1].set_title("SmoothGrad")
+    for ax in axes:
+        ax.axis("off")
+    fig.suptitle(f"Cell H — {model_name}, class {class_id}, {image_id}")
+    out = paths.figure_path(f"cell_h_{model_name}_{class_id}_{image_id}")
+    fig.savefig(out, bbox_inches="tight")
+    plt.close(fig)
+    logger.info("wrote %s", out)
 
 
 def cell_i_summary_table(manifest_entries):
@@ -284,8 +329,8 @@ def cell_i_summary_table(manifest_entries):
         ("KM attribution_map", "yes", "0", "exact: A.sum(1) == out"),
         ("KM dictionary (PCA)", "yes (lossy below k)", "k", "isomorphism-invariant"),
         ("KM top-k contributors", "yes", "k", "static rank by |A|"),
-        ("KM LP counterfactual", "exact in-region", "margin", "PATCH-BLOCKED"),
-        ("KM Jacobian sensitivity", "exact in-region", "0", "PATCH-BLOCKED"),
+        ("KM LP counterfactual", "exact in-region", "margin", "smallest pixel-wise δ to flip class y→t via LP"),
+        ("KM Jacobian sensitivity", "exact in-region", "0", "(W_eff[j,k] · x_k)² heatmap"),
         ("Feature maps", "n/a (raw activation)", "0", "qualitative only"),
         ("Grad-CAM", "no (gradient approximation)", "target_layer", "iconic baseline"),
         ("Integrated Gradients", "no (path integral)", "n_steps", "diffuse"),
@@ -322,8 +367,10 @@ def main() -> int:
     cell_d_dictionary_vs_max_activating(entries, exemplar.model, exemplar.class_id)
     cell_e_dictionary_vs_penultimate_pca(entries, exemplar.model, exemplar.class_id)
     cell_f_dictionary_vs_deepdream(entries, exemplar.model, exemplar.class_id)
-    cell_g_lp_vs_pgd()
-    cell_h_jacobian_vs_smoothgrad()
+    # Cell G needs a target class. Pick the next class from TIER_A_CLASSES.
+    other_class = next(c for c in TIER_A_CLASSES if c != exemplar.class_id)
+    cell_g_lp_vs_pgd(entries, exemplar.model, exemplar.class_id, exemplar.image_id, target=other_class)
+    cell_h_jacobian_vs_smoothgrad(entries, exemplar.model, exemplar.class_id, exemplar.image_id)
     cell_i_summary_table(entries)
     return 0
 
