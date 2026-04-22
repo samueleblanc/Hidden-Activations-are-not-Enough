@@ -78,3 +78,4 @@ urllib3==1.26.20+computecanada
 wcwidth==0.5.2+computecanada
 widgetsnbextension==4.0.15+computecanada
 zipp==3.23.0+computecanada
+captum==0.7.0
