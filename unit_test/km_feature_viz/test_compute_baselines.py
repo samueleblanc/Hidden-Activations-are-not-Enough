@@ -23,3 +23,20 @@ class TestGradCam(unittest.TestCase):
         # Grad-CAM heatmap: (1, 1, H', W') after captum
         self.assertEqual(attribution.dim(), 4)
         self.assertEqual(attribution.shape[0], 1)
+
+
+class TestIGSmoothGrad(unittest.TestCase):
+
+    def setUp(self):
+        self.model = tvm.alexnet(weights=None).eval()
+        self.x = torch.randn(1, 3, 224, 224)
+
+    def test_compute_integrated_gradients_shape(self):
+        from km_feature_viz.compute_baselines import compute_ig
+        attr = compute_ig(self.model, self.x, class_idx=0)
+        self.assertEqual(attr.shape, (1, 3, 224, 224))
+
+    def test_compute_smoothgrad_shape(self):
+        from km_feature_viz.compute_baselines import compute_smoothgrad
+        attr = compute_smoothgrad(self.model, self.x, class_idx=0, n_samples=3)
+        self.assertEqual(attr.shape, (1, 3, 224, 224))
