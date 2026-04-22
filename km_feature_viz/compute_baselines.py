@@ -74,6 +74,52 @@ def compute_smoothgrad(
     )
 
 
+def compute_feature_maps(model: nn.Module, layer: nn.Module, x: torch.Tensor) -> torch.Tensor:
+    """Forward x through model, return the activation tensor at `layer`."""
+    captured = {}
+
+    def hook(module, inp, out):
+        captured["out"] = out.detach()
+
+    handle = layer.register_forward_hook(hook)
+    try:
+        with torch.no_grad():
+            model(x)
+    finally:
+        handle.remove()
+    return captured["out"]
+
+
+def top_k_activating(activations: torch.Tensor, k: int) -> torch.Tensor:
+    """Given (N_images, N_neurons), return (N_neurons, k) of image indices with
+    highest activation per neuron.
+
+    Note: this is a notebook-side post-processing helper. It is intentionally
+    not dispatched from main() — call it after collecting feature_maps tensors
+    across the full dataset in a notebook or analysis script.
+    """
+    _, topk = activations.topk(k, dim=0)  # (k, N_neurons)
+    return topk.T  # (N_neurons, k)
+
+
+def compute_pgd(
+    model: nn.Module,
+    x: torch.Tensor,
+    class_idx: int,
+    target_class: int,
+    eps: float = 8 / 255,
+    steps: int = 20,
+) -> torch.Tensor:
+    """Run targeted PGD; return only the perturbation delta = x_adv - x."""
+    import torchattacks
+
+    atk = torchattacks.PGD(model, eps=eps, alpha=eps / steps * 2.5, steps=steps)
+    atk.set_mode_targeted_by_label(quiet=True)
+    target = torch.full((x.size(0),), target_class, dtype=torch.long, device=x.device)
+    x_adv = atk(x, target)
+    return x_adv - x
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--manifest", type=Path, required=True)
@@ -149,6 +195,56 @@ def main() -> int:
                     out_path = paths.baseline_path(method, entry.model, entry.class_id, entry.image_id)
                     out_path.parent.mkdir(parents=True, exist_ok=True)
                     torch.save(attribution.detach().cpu().to(torch.float16), out_path)
+                    state.mark_completed(paths.state_path(f"02_{method}"), key)
+                except Exception as e:
+                    state.log_error(
+                        paths.errors_path(), step=f"02_{method}", sample_id=key,
+                        error_type=type(e).__name__, message=str(e),
+                        tb=state.capture_traceback(),
+                    )
+
+        if "feature_maps" in args.methods:
+            method = "feature_maps"
+            target_layer = pick_target_layer(model, model_name)
+            completed = state.load_completed(paths.state_path(f"02_{method}"))
+            for entry in model_entries:
+                key = sample_key(entry)
+                if key in completed:
+                    continue
+                try:
+                    x = load_image(entry.image_path).unsqueeze(0).to(args.device)
+                    maps = compute_feature_maps(model, target_layer, x)
+                    out_path = paths.baseline_path(method, entry.model, entry.class_id, entry.image_id)
+                    out_path.parent.mkdir(parents=True, exist_ok=True)
+                    torch.save(maps.cpu().to(torch.float16), out_path)
+                    state.mark_completed(paths.state_path(f"02_{method}"), key)
+                except Exception as e:
+                    state.log_error(
+                        paths.errors_path(), step=f"02_{method}", sample_id=key,
+                        error_type=type(e).__name__, message=str(e),
+                        tb=state.capture_traceback(),
+                    )
+
+        if "pgd" in args.methods:
+            method = "pgd"
+            completed = state.load_completed(paths.state_path(f"02_{method}"))
+            for entry in model_entries:
+                key = sample_key(entry)
+                if key in completed:
+                    continue
+                try:
+                    x = load_image(entry.image_path).unsqueeze(0).to(args.device)
+                    # Pick target_class as next class up (cyclic) for a deterministic pair.
+                    target_class = (entry.class_id + 1) % 1000
+                    delta = compute_pgd(
+                        model, x, class_idx=entry.class_id, target_class=target_class
+                    )
+                    out_path = paths.baseline_path(method, entry.model, entry.class_id, entry.image_id)
+                    out_path.parent.mkdir(parents=True, exist_ok=True)
+                    torch.save(
+                        {"delta": delta.cpu().to(torch.float16), "target": target_class},
+                        out_path,
+                    )
                     state.mark_completed(paths.state_path(f"02_{method}"), key)
                 except Exception as e:
                     state.log_error(
