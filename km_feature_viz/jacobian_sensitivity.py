@@ -10,7 +10,6 @@ from knowledgematrix.matrix_computer import KnowledgeMatrixComputer
 
 from km_feature_viz import paths, state
 from km_feature_viz.compute_kms import build_model, load_image
-from km_feature_viz.counterfactual_lp import extract_weff_and_beff
 from km_feature_viz.manifest import read_manifest, sample_key
 
 logger = logging.getLogger(__name__)
@@ -22,8 +21,14 @@ def patch_available() -> bool:
 
 
 def sensitivity_heatmap(model, x: torch.Tensor, predicted_class: int) -> torch.Tensor:
-    """Return (W_eff[j, k] * x_k)^2 reshaped to (C, H, W) for j=predicted_class."""
-    W_eff, _ = extract_weff_and_beff(model, x)
+    """Return (W_eff[j, k] * x_k)^2 reshaped to (C, H, W) for j=predicted_class.
+
+    Only needs W_eff — skips the standard knowledge-matrix forward that
+    extract_weff_and_beff in counterfactual_lp also does (saves one full
+    forward pass, i.e., halves the compute for this step).
+    """
+    computer = KnowledgeMatrixComputer(model, batch_size=512)
+    W_eff = computer.forward(x, extract_weff=True)
     j = predicted_class
     s = (W_eff[j] * x.flatten()) ** 2
     return s.reshape(x.shape)

@@ -131,17 +131,29 @@ def main() -> int:
     for (model_name, source_class), samples in by_model_class.items():
         model = build_model(model_name, args.device)
         for e in samples[: args.n_source_images]:
-            x = load_image(e.image_path).to(args.device)
+            # W_eff extraction is the expensive part — wrap it separately so
+            # we don't recompute for each target. If it fails, skip the whole
+            # source image; if LP fails for one target, continue to the next.
             try:
+                x = load_image(e.image_path).to(args.device)
                 W_eff, b_eff = extract_weff_and_beff(model, x)
                 out_true = model.forward(x).flatten()
-                # Pick targets: the n_targets_per_source other classes from TIER_A_CLASSES
-                target_pool = [c for c in TIER_A_CLASSES if c != source_class]
-                targets = target_pool[: args.n_targets_per_source]
-                for target in targets:
-                    key = f"{sample_key(e)}__to_{target}"
-                    if key in completed:
-                        continue
+            except Exception as exc:
+                state.log_error(
+                    paths.errors_path(), step="05_counterfactual",
+                    sample_id=sample_key(e),
+                    error_type=type(exc).__name__, message=str(exc),
+                    tb=state.capture_traceback(),
+                )
+                continue
+
+            target_pool = [c for c in TIER_A_CLASSES if c != source_class]
+            targets = target_pool[: args.n_targets_per_source]
+            for target in targets:
+                key = f"{sample_key(e)}__to_{target}"
+                if key in completed:
+                    continue
+                try:
                     delta = solve_l1_lp(
                         W_eff, b_eff, x.flatten(), out_true,
                         source=source_class, target=target, margin=args.margin,
@@ -165,13 +177,13 @@ def main() -> int:
                         json.dump(payload, f, indent=2)
                     state.mark_completed(paths.state_path("05_counterfactual"), key)
                     logger.info("done %s", key)
-            except Exception as exc:
-                state.log_error(
-                    paths.errors_path(), step="05_counterfactual",
-                    sample_id=sample_key(e),
-                    error_type=type(exc).__name__, message=str(exc),
-                    tb=state.capture_traceback(),
-                )
+                except Exception as exc:
+                    state.log_error(
+                        paths.errors_path(), step="05_counterfactual",
+                        sample_id=key,
+                        error_type=type(exc).__name__, message=str(exc),
+                        tb=state.capture_traceback(),
+                    )
         del model
         if args.device.startswith("cuda"):
             torch.cuda.empty_cache()
