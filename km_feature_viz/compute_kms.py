@@ -1,0 +1,152 @@
+"""Step 01: compute knowledge matrices for every entry in the manifest.
+
+Slices the KM down to the in-scope class rows before saving (storage
+optimization; see spec §6).
+"""
+import argparse
+import json
+import logging
+import sys
+from pathlib import Path
+from typing import List, Tuple
+
+import torch
+import torchvision.transforms as T
+from PIL import Image
+
+from km_feature_viz import paths, state
+from km_feature_viz.manifest import (
+    Entry,
+    TIER_A_CLASSES,
+    read_manifest,
+    sample_key,
+)
+
+logger = logging.getLogger(__name__)
+
+
+# torchvision pretrained ImageNet preprocessing (standard)
+IMAGENET_MEAN = [0.485, 0.456, 0.406]
+IMAGENET_STD = [0.229, 0.224, 0.225]
+IMAGENET_TRANSFORM = T.Compose(
+    [
+        T.Resize(256),
+        T.CenterCrop(224),
+        T.ToTensor(),
+        T.Normalize(IMAGENET_MEAN, IMAGENET_STD),
+    ]
+)
+
+
+def slice_class_rows(km: torch.Tensor, in_scope_classes: List[int]) -> torch.Tensor:
+    """Return only the rows of the KM corresponding to in-scope classes."""
+    return km[in_scope_classes]
+
+
+def save_km(path: Path, tensor: torch.Tensor, in_scope_classes: List[int]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save({"km": tensor, "classes": in_scope_classes}, path)
+
+
+def load_km_slice(path: Path) -> Tuple[torch.Tensor, List[int]]:
+    payload = torch.load(path, weights_only=False)
+    return payload["km"], payload["classes"]
+
+
+def load_image(image_path: Path) -> torch.Tensor:
+    img = Image.open(image_path).convert("RGB")
+    return IMAGENET_TRANSFORM(img)  # (3, 224, 224)
+
+
+def build_model(model_name: str, device: str) -> torch.nn.Module:
+    """Wrap a pretrained torchvision model in the knowledgematrix NN."""
+    from knowledgematrix.models.alexnet import AlexNet
+    from knowledgematrix.models.resnet18 import ResNet18
+    from knowledgematrix.models.vgg11 import VGG11
+
+    factory = {"alexnet": AlexNet, "resnet18": ResNet18, "vgg11": VGG11}[model_name]
+    model = factory(input_shape=(3, 224, 224), num_classes=1000, pretrained=True, device=device)
+    model.eval()
+    model.to(device)
+    return model
+
+
+def compute_one(
+    entry: Entry,
+    model: torch.nn.Module,
+    in_scope_classes: List[int],
+    batch_size: int,
+    device: str,
+) -> torch.Tensor:
+    from knowledgematrix.matrix_computer import KnowledgeMatrixComputer
+
+    x = load_image(entry.image_path).to(device)
+    computer = KnowledgeMatrixComputer(model, batch_size=batch_size, device=device)
+    full = computer.forward(x)  # (1000, 150529)
+    return slice_class_rows(full, in_scope_classes).to(torch.float16)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--manifest", type=Path, required=True)
+    parser.add_argument("--batch-size", type=int, default=512)
+    parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    parser.add_argument("--limit-models", nargs="*", default=None,
+                        help="Only run these model names (default: all in manifest)")
+    args = parser.parse_args()
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+
+    entries = read_manifest(args.manifest)
+    if args.limit_models is not None:
+        entries = [e for e in entries if e.model in args.limit_models]
+    completed = state.load_completed(paths.state_path("01_compute_kms"))
+    todo = [e for e in entries if sample_key(e) not in completed]
+    logger.info("Completed: %d  Todo: %d", len(completed), len(todo))
+
+    # Group by model so we only build each model once.
+    by_model = {}
+    for e in todo:
+        by_model.setdefault(e.model, []).append(e)
+
+    for model_name, model_entries in by_model.items():
+        logger.info("Loading model %s", model_name)
+        model = build_model(model_name, args.device)
+        for entry in model_entries:
+            try:
+                km = compute_one(entry, model, TIER_A_CLASSES, args.batch_size, args.device)
+                save_km(
+                    paths.km_path(entry.model, entry.class_id, entry.image_id),
+                    km,
+                    in_scope_classes=TIER_A_CLASSES,
+                )
+                state.mark_completed(paths.state_path("01_compute_kms"), sample_key(entry))
+                logger.info("done %s", sample_key(entry))
+            except torch.cuda.OutOfMemoryError as e:
+                state.log_error(
+                    paths.errors_path(),
+                    step="01_compute_kms",
+                    sample_id=sample_key(entry),
+                    error_type="OOM",
+                    message=str(e),
+                    tb=state.capture_traceback(),
+                )
+                torch.cuda.empty_cache()
+            except Exception as e:
+                state.log_error(
+                    paths.errors_path(),
+                    step="01_compute_kms",
+                    sample_id=sample_key(entry),
+                    error_type=type(e).__name__,
+                    message=str(e),
+                    tb=state.capture_traceback(),
+                )
+        del model
+        if args.device.startswith("cuda"):
+            torch.cuda.empty_cache()
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
