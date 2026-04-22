@@ -21,12 +21,19 @@ logger = logging.getLogger(__name__)
 
 
 def stack_class_rows(km_paths: List[Path], target_class_idx_in_slice: int) -> torch.Tensor:
-    """Load each KM file and pull the row at target_class_idx_in_slice.
-    Returns (N_images, 150529)."""
+    """Load each KM file, pull the row at target_class_idx_in_slice, and drop
+    the trailing bias column so the row corresponds to pixel contributions only.
+
+    Returns (N_images, C*H*W) — e.g., (N, 150528) for (3, 224, 224) inputs.
+    """
     rows = []
     for p in km_paths:
         km, _ = load_km_slice(p)
-        rows.append(km[target_class_idx_in_slice].to(torch.float32))
+        row = km[target_class_idx_in_slice].to(torch.float32)
+        # Drop the bias column (last entry) so the row is C*H*W and reshape-able to the input.
+        if row.shape[0] % 2 == 1:  # odd length → has bias column
+            row = row[:-1]
+        rows.append(row)
     return torch.stack(rows)
 
 

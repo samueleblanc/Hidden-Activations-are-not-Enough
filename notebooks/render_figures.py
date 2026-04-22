@@ -240,8 +240,6 @@ def cell_f_dictionary_vs_deepdream(manifest_entries, model_name, class_id):
         logger.warning("cell F skip — missing %s", dict_components_path)
         return
     components = torch.load(dict_components_path, weights_only=False)
-    pca = components["pca"][:3]
-
     # Pull 3 DeepDream renderings for this model (any layer/neuron)
     dd_dir = Path(paths.RESULTS_ROOT / "deepdream" / model_name)
     if not dd_dir.exists():
@@ -252,8 +250,12 @@ def cell_f_dictionary_vs_deepdream(manifest_entries, model_name, class_id):
         logger.warning("cell F skip — no deepdream files")
         return
 
-    fig, axes = plt.subplots(2, 3, figsize=(12, 8))
-    for i in range(3):
+    # Show min(num components, num deepdream files, 3) side-by-side pairs.
+    n_cols = min(components["pca"].shape[0], len(dd_files), 3)
+    pca = components["pca"][:n_cols]
+
+    fig, axes = plt.subplots(2, n_cols, figsize=(4 * n_cols, 8), squeeze=False)
+    for i in range(n_cols):
         comp = pca[i].reshape(3, 224, 224).sum(0)
         axes[0, i].imshow(_norm_for_display(comp), cmap="seismic")
         axes[0, i].set_title(f"KM-PCA comp {i}")
