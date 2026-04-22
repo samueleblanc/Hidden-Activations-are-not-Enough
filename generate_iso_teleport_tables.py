@@ -25,14 +25,15 @@ ARCH_DISPLAY = {
 ISO_EXPERIMENTS = ['alexnet_imagenet', 'resnet_imagenet', 'vgg_imagenet']
 TELEPORT_ARCHS  = ['resnet18', 'vgg11', 'resnet50']
 
-# Relative errors captured from `--debug` isomorphism reruns.
-# Only populated for architectures where we actually ran --debug.
-#   resnet_imagenet: cluster job 12456822 measured
-#     seed=42 mean_rel_err=5.04e-4, seed=43 mean_rel_err=1.92e-4
-# alexnet_imagenet and vgg_imagenet still need --debug reruns to
-# measure their relative errors — do NOT invent these values.
+# Relative errors measured via `--debug` iso reruns (2 perms x 20 samples
+# each). Cluster jobs: 12456822 (resnet), 12557544 (alexnet + vgg).
+# AlexNet and VGG sit at float32 single-matmul precision (~machine eps
+# 1.19e-7). ResNet's deep conv-channel permutation produces ~3000x more
+# accumulated precision loss but is still ~0.05% of the matrix norm.
 KNOWN_REL_ERRORS = {
-    'resnet_imagenet': 3.48e-4,   # mean of seed=42 (5.04e-4) + seed=43 (1.92e-4)
+    'alexnet_imagenet': 1.146e-7,  # mean of seed=42 (1.145e-7) + seed=43 (1.146e-7)
+    'resnet_imagenet':  3.48e-4,   # mean of seed=42 (5.04e-4) + seed=43 (1.92e-4)
+    'vgg_imagenet':     1.231e-7,  # mean of seed=42 (1.232e-7) + seed=43 (1.231e-7)
 }
 
 
