@@ -1,8 +1,14 @@
-"""Tests for manifest enumeration."""
+"""Tests for manifest enumeration.
+
+The real loader uses `utils.utils.get_imagenet_val_dataset` to auto-detect
+ImageFolder vs flat layout. We patch that loader with a fake (image_paths,
+labels) pair so the tests don't need an actual ImageNet dataset on disk.
+"""
 import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from km_feature_viz.manifest import (
     TIER_A_CLASSES,
@@ -18,16 +24,27 @@ from km_feature_viz.manifest import (
 )
 
 
-class FakeImageNetDir:
-    """Stand-in for an ImageNet val directory: per-class subdirs of jpegs."""
+class _FakeFlatDataset:
+    """Mimic ImageNetVal: has .image_paths and .labels."""
+    def __init__(self, image_paths, labels):
+        self.image_paths = image_paths
+        self.labels = labels
 
-    def __init__(self, root: Path, classes: list, images_per_class: int):
-        self.root = root
-        for c in classes:
-            class_dir = root / str(c)
-            class_dir.mkdir(parents=True)
-            for i in range(images_per_class):
-                (class_dir / f"img_{i:05d}.JPEG").write_bytes(b"fake")
+
+def _make_fake_loader(root: Path, classes: list, images_per_class: int):
+    """Build a fake loader that yields (paths, labels) covering `classes`."""
+    paths, labels = [], []
+    for c in classes:
+        for i in range(images_per_class):
+            p = root / f"ILSVRC2012_val_{c:04d}_{i:05d}.JPEG"
+            p.write_bytes(b"fake")
+            paths.append(str(p))
+            labels.append(c)
+
+    def fake_loader(data_path, *args, **kwargs):
+        return None, _FakeFlatDataset(paths, labels)
+
+    return fake_loader
 
 
 class TestManifest(unittest.TestCase):
@@ -35,9 +52,17 @@ class TestManifest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.imagenet_root = Path(self.tmp.name)
-        FakeImageNetDir(self.imagenet_root, TIER_A_CLASSES, images_per_class=200)
+        # 200 images per class × 10 classes — enough headroom for sampling tests
+        self.fake_loader = _make_fake_loader(
+            self.imagenet_root, TIER_A_CLASSES, images_per_class=200
+        )
+        self._patcher = patch(
+            "utils.utils.get_imagenet_val_dataset", self.fake_loader
+        )
+        self._patcher.start()
 
     def tearDown(self):
+        self._patcher.stop()
         self.tmp.cleanup()
 
     def test_enumerate_entries_count(self):

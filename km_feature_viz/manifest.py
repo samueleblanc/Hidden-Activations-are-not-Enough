@@ -2,18 +2,26 @@
 
 A single source of truth: every downstream script consumes this manifest
 and verifies its hash. Hash mismatch on rsync → notebook refuses to render.
+
+ImageNet layout: uses the same convention as other experiments in this repo
+(theorem45, isomorphism, teleportation) — `get_imagenet_val_dataset` from
+`utils/utils.py` auto-detects ImageFolder (synset subdirs) vs flat
+ILSVRC2012_val_*.JPEG + ground-truth file. Default base path on nibi:
+`/datashare/imagenet/ILSVRC2012`.
 """
 import hashlib
 import json
+import os
 import random
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List
+from typing import List, Tuple
 
 TIER_A_CLASSES = [0, 1, 2, 282, 207, 340, 386, 546, 717, 963]
 TIER_A_IMAGES_PER_CLASS = 50
 TIER_A_SEED = 20260421
 TIER_A_MODELS = ["alexnet", "resnet18", "vgg11"]
+NIBI_IMAGENET_ROOT = "/datashare/imagenet/ILSVRC2012"
 
 
 @dataclass(frozen=True)
@@ -29,14 +37,22 @@ def sample_key(entry: Entry) -> str:
     return f"{entry.model}/{entry.class_id}/{entry.image_id}"
 
 
-def _list_class_images(class_dir: Path) -> List[str]:
-    """Return sorted image filenames (without extension) in a class subdir."""
-    if not class_dir.exists():
-        raise FileNotFoundError(f"Class directory missing: {class_dir}")
-    images = sorted(p.stem for p in class_dir.iterdir() if p.suffix.lower() in (".jpeg", ".jpg", ".png"))
-    if not images:
-        raise FileNotFoundError(f"No images found in {class_dir}")
-    return images
+def _load_paths_and_labels(imagenet_root: Path) -> Tuple[List[str], List[int]]:
+    """Use the repo's existing imagenet val loader; return (image_paths, labels).
+
+    Auto-detects ImageFolder (synset subdirs) vs flat (ILSVRC2012_val_*.JPEG +
+    ground-truth file) — same as `utils.utils.get_imagenet_val_dataset`."""
+    from utils.utils import get_imagenet_val_dataset
+    _, val_set = get_imagenet_val_dataset(str(imagenet_root))
+    if hasattr(val_set, "image_paths"):
+        # ImageNetVal (flat format)
+        paths = list(val_set.image_paths)
+        labels = list(val_set.labels)
+    else:
+        # torchvision.datasets.ImageFolder (synset subdirs)
+        paths = [s[0] for s in val_set.samples]
+        labels = [s[1] for s in val_set.samples]
+    return paths, labels
 
 
 def enumerate_entries(
@@ -47,25 +63,34 @@ def enumerate_entries(
     models: List[str],
 ) -> List[Entry]:
     """Build the manifest by selecting `images_per_class` images per class
-    deterministically given the seed, and crossing with the model list."""
+    deterministically given the seed, and crossing with the model list.
+
+    `imagenet_val_dir` is the BASE imagenet path (e.g.,
+    `/datashare/imagenet/ILSVRC2012`), not the val subdir directly — matches
+    the convention used by other experiments in this repo.
+    """
     entries: List[Entry] = []
+    paths, labels = _load_paths_and_labels(imagenet_val_dir)
+
+    # Group image paths by class label (0–999, matching ImageNet class indices).
+    by_class: dict = {}
+    for path, label in zip(paths, labels):
+        by_class.setdefault(int(label), []).append(path)
+    for c in by_class:
+        by_class[c].sort()  # deterministic ordering before sampling
+
     rng = random.Random(seed)
     for class_id in classes:
-        class_dir = imagenet_val_dir / str(class_id)
-        all_imgs = _list_class_images(class_dir)
-        if len(all_imgs) < images_per_class:
+        class_paths = by_class.get(class_id, [])
+        if len(class_paths) < images_per_class:
             raise ValueError(
                 f"Class {class_id}: requested {images_per_class} images, "
-                f"only {len(all_imgs)} present in {class_dir}"
+                f"only {len(class_paths)} present (base={imagenet_val_dir})"
             )
-        chosen = rng.sample(all_imgs, images_per_class)
-        for image_id in chosen:
-            ext = next(
-                p.suffix
-                for p in class_dir.iterdir()
-                if p.stem == image_id and p.suffix.lower() in (".jpeg", ".jpg", ".png")
-            )
-            image_path = class_dir / f"{image_id}{ext}"
+        chosen = rng.sample(class_paths, images_per_class)
+        for path in chosen:
+            image_path = Path(path)
+            image_id = image_path.stem
             for model in models:
                 entries.append(
                     Entry(

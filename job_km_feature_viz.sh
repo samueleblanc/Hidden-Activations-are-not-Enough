@@ -1,8 +1,7 @@
 #!/bin/bash
-#SBATCH --account=def-jcbus
 #SBATCH --gpus=h100:1
-#SBATCH --cpus-per-task=8
-#SBATCH --mem=128G
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=64G
 #SBATCH --time=08:00:00
 #SBATCH --output=slurm_out/km_feature_viz_%j.out
 #SBATCH --error=slurm_err/km_feature_viz_%j.err
@@ -19,9 +18,11 @@ MANIFEST=results/km-feature-viz/manifest.json
 mkdir -p results/km-feature-viz
 mkdir -p slurm_out slurm_err
 
-# Step 0: regenerate manifest (cheap; idempotent)
+# Step 0: regenerate manifest (cheap; idempotent).
+# IMAGENET_ROOT defaults to nibi's standard location (matches validate_theorem45.py
+# and teleportation_experiment.py). Override via env var if needed.
 python -m km_feature_viz.manifest_cli \
-    --imagenet-val "${IMAGENET_VAL_DIR:-$SLURM_TMPDIR/imagenet/val}" \
+    --imagenet-root "${IMAGENET_ROOT:-/datashare/imagenet/ILSVRC2012}" \
     --output "$MANIFEST"
 
 # Step 01: KMs (heaviest)
