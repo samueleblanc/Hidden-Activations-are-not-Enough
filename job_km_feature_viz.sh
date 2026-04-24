@@ -45,4 +45,36 @@ python -m km_feature_viz.counterfactual_lp || \
 python -m km_feature_viz.jacobian_sensitivity || \
     echo "jacobian_sensitivity skipped (patch not available)"
 
+# Step 07: bundle for laptop — only if every state file is complete.
+python - <<'PY' && \
+    tar -cf km-feature-viz.tar -C results km-feature-viz && \
+    echo "bundle: km-feature-viz.tar ($(du -h km-feature-viz.tar | cut -f1))" \
+  || echo "bundle: skipped (pipeline incomplete — see message above)"
+import json, sys
+base = 'results/km-feature-viz'
+checks = {
+    'state/01_compute_kms.json': 1500,
+    'state/02_gradcam.json':     1500,
+    'state/02_ig.json':          1500,
+    'state/02_smoothgrad.json':  1500,
+    'state/02_feature_maps.json':1500,
+    'state/02_pgd.json':         1500,
+    'state/03_deepdream.json':   None,   # existence only
+}
+missing = []
+for rel, expected in checks.items():
+    p = f'{base}/{rel}'
+    try:
+        data = json.load(open(p))
+    except FileNotFoundError:
+        missing.append(f'{rel}: MISSING'); continue
+    if expected is not None and len(data) != expected:
+        missing.append(f'{rel}: {len(data)}/{expected}')
+if missing:
+    print('INCOMPLETE (skipping bundle):')
+    for m in missing: print('  -', m)
+    sys.exit(1)
+print('All state files complete — ready to bundle.')
+PY
+
 echo "Done."

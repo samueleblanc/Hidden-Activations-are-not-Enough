@@ -13,6 +13,11 @@ def km_path(model: str, class_id: int, image_id: str) -> Path:
     return RESULTS_ROOT / "kms" / model / str(class_id) / f"{image_id}.pt"
 
 
+def image_path(class_id: int, image_id: str) -> Path:
+    """Unnormalized 224×224 uint8 RGB tensor — shared across all models."""
+    return RESULTS_ROOT / "images" / str(class_id) / f"{image_id}.pt"
+
+
 def baseline_path(method: str, model: str, class_id: int, image_id: str) -> Path:
     return RESULTS_ROOT / "baselines" / method / model / str(class_id) / f"{image_id}.pt"
 

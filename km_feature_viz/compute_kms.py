@@ -36,6 +36,10 @@ IMAGENET_TRANSFORM = T.Compose(
         T.Normalize(IMAGENET_MEAN, IMAGENET_STD),
     ]
 )
+# Same crop, no Normalize — what we save for side-by-side paper figures.
+IMAGENET_TRANSFORM_RAW = T.Compose(
+    [T.Resize(256), T.CenterCrop(224), T.ToTensor()]
+)
 
 
 def slice_class_rows(km: torch.Tensor, in_scope_classes: List[int]) -> torch.Tensor:
@@ -58,6 +62,15 @@ def load_image(image_path: Path) -> torch.Tensor:
     return IMAGENET_TRANSFORM(img)  # (3, 224, 224)
 
 
+def save_raw_image(src: Path, dst: Path) -> None:
+    """Save the 224×224 center-cropped uint8 RGB tensor at `dst` (idempotent)."""
+    if dst.exists():
+        return
+    raw = IMAGENET_TRANSFORM_RAW(Image.open(src).convert("RGB"))
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    torch.save((raw * 255).round().clamp(0, 255).to(torch.uint8), dst)
+
+
 def build_model(model_name: str, device: str) -> torch.nn.Module:
     """Wrap a pretrained torchvision model in the knowledgematrix NN."""
     from knowledgematrix.models.alexnet import AlexNet
@@ -66,8 +79,14 @@ def build_model(model_name: str, device: str) -> torch.nn.Module:
 
     factory = {"alexnet": AlexNet, "resnet18": ResNet18, "vgg11": VGG11}[model_name]
     model = factory(input_shape=(3, 224, 224), num_classes=1000, pretrained=True, device=device)
-    model.eval()
     model.to(device)
+    # knowledgematrix stores residual projection modules inside plain Python lists
+    # under nn.ModuleDict values, so model.to(device) misses them. Move explicitly.
+    for entries in getattr(model, "residuals", {}).values():
+        for _start, projection in entries:
+            for sub in projection:
+                sub.to(device)
+    model.eval()
     return model
 
 
@@ -114,6 +133,7 @@ def main() -> int:
         model = build_model(model_name, args.device)
         for entry in model_entries:
             try:
+                save_raw_image(entry.image_path, paths.image_path(entry.class_id, entry.image_id))
                 km = compute_one(entry, model, TIER_A_CLASSES, args.batch_size, args.device)
                 save_km(
                     paths.km_path(entry.model, entry.class_id, entry.image_id),
