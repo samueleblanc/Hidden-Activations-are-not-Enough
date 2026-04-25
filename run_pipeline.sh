@@ -331,6 +331,15 @@ for i in 0 1 2; do
     fi
 done
 
+# Build D-line array strings + boolean-as-string substitutions for state JSON
+D1_ARRAY_STR=""
+D3_ARRAY_STR=""
+[ ${#D1_NEEDED[@]} -gt 0 ] && D1_ARRAY_STR=$(join_array "${D1_NEEDED[@]}")
+[ ${#D3_NEEDED[@]} -gt 0 ] && D3_ARRAY_STR=$(join_array "${D3_NEEDED[@]}")
+D2_SUB=$([ "$D2_NEEDED" = true ] && echo "yes" || echo "none")
+D4_SUB=$([ "$D4_NEEDED" = true ] && echo "yes" || echo "none")
+D5_SUB=$([ "$D5_NEEDED" = true ] && echo "yes" || echo "none")
+
 A_ARRAY_STR=""
 B_ARRAY_STR=""
 C_ATTACK_ARRAY_STR=""
@@ -360,11 +369,29 @@ printf '%s\n' '{
     "1_'"${C_NAMES[1]}"'": "'"${C_STATUS[1]}"'",
     "2_'"${C_NAMES[2]}"'": "'"${C_STATUS[2]}"'"
   },
+  "step_D1_kms": {
+    "0_'"${D_MODELS[0]}"'": "'"${D1_STATUS[0]}"'",
+    "1_'"${D_MODELS[1]}"'": "'"${D1_STATUS[1]}"'",
+    "2_'"${D_MODELS[2]}"'": "'"${D1_STATUS[2]}"'"
+  },
+  "step_D2_baselines": "'"$D2_STATUS"'",
+  "step_D3_deepdream": {
+    "0_'"${D_MODELS[0]}"'": "'"${D3_STATUS[0]}"'",
+    "1_'"${D_MODELS[1]}"'": "'"${D3_STATUS[1]}"'",
+    "2_'"${D_MODELS[2]}"'": "'"${D3_STATUS[2]}"'"
+  },
+  "step_D4_formulations": "'"$D4_STATUS"'",
+  "step_D5_bundle": "'"$D5_STATUS"'",
   "submitted": {
     "step_A": "'"${A_ARRAY_STR:-none}"'",
     "step_B": "'"${B_ARRAY_STR:-none}"'",
     "step_C_attacks": "'"${C_ATTACK_ARRAY_STR:-none}"'",
-    "step_C_aggregate": "'"${C_AGG_ARRAY_STR:-none}"'"
+    "step_C_aggregate": "'"${C_AGG_ARRAY_STR:-none}"'",
+    "step_D1": "'"${D1_ARRAY_STR:-none}"'",
+    "step_D2": "'"$D2_SUB"'",
+    "step_D3": "'"${D3_ARRAY_STR:-none}"'",
+    "step_D4": "'"$D4_SUB"'",
+    "step_D5": "'"$D5_SUB"'"
   }
 }' > "$TMP_FILE"
 mv "$TMP_FILE" "$STATE_FILE"
@@ -376,27 +403,60 @@ echo ""
 # Phase 2: Submit
 # ==============================================================
 C_TOTAL_JOBS=$(( ${#C_ATTACK_TASKS[@]} + ${#C_EXPS_NEEDING_FINAL_AGG[@]} ))
-TOTAL_NEEDED=$(( ${#A_NEEDED[@]} + ${#B_NEEDED[@]} + C_TOTAL_JOBS ))
-# Count fully done: A(3) + B(3) + C(3 experiments)
+D2_JOBS=$([ "$D2_NEEDED" = true ] && echo 1 || echo 0)
+D4_JOBS=$([ "$D4_NEEDED" = true ] && echo 1 || echo 0)
+D5_JOBS=$([ "$D5_NEEDED" = true ] && echo 1 || echo 0)
+TOTAL_NEEDED=$(( ${#A_NEEDED[@]} + ${#B_NEEDED[@]} + C_TOTAL_JOBS \
+                + ${#D1_NEEDED[@]} + D2_JOBS + ${#D3_NEEDED[@]} + D4_JOBS + D5_JOBS ))
+
+# Count fully done: A(3) + B(3) + C(3) + D1(3) + D2(1) + D3(3) + D4(1) + D5(1) = 15
+# But the user-facing tally counts whole workstreams done out of 14 named slots.
 C_DONE=0
 for i in 0 1 2; do [ "${C_STATUS[$i]}" = "done" ] && C_DONE=$((C_DONE + 1)); done
-TOTAL_DONE=$(( 3 - ${#A_NEEDED[@]} + 3 - ${#B_NEEDED[@]} + C_DONE ))
+D1_DONE=0
+for i in 0 1 2; do [ "${D1_STATUS[$i]}" = "done" ] && D1_DONE=$((D1_DONE + 1)); done
+D3_DONE=0
+for i in 0 1 2; do [ "${D3_STATUS[$i]}" = "done" ] && D3_DONE=$((D3_DONE + 1)); done
+D2_DONE=$([ "$D2_STATUS" = "done" ] && echo 1 || echo 0)
+D4_DONE=$([ "$D4_STATUS" = "done" ] && echo 1 || echo 0)
+D5_DONE=$([ "$D5_STATUS" = "done" ] && echo 1 || echo 0)
+TOTAL_DONE=$(( 3 - ${#A_NEEDED[@]} + 3 - ${#B_NEEDED[@]} + C_DONE \
+              + D1_DONE + D2_DONE + D3_DONE + D4_DONE + D5_DONE ))
 
 echo "========================================"
-echo "  SUMMARY: $TOTAL_DONE/9 done, $TOTAL_NEEDED jobs to submit"
+echo "  SUMMARY: $TOTAL_DONE/14 done, $TOTAL_NEEDED jobs to submit"
 if [ ${#C_ATTACK_TASKS[@]} -gt 0 ]; then
     echo "  Step C: ${#C_ATTACK_TASKS[@]} per-attack jobs"
 fi
 if [ ${#C_EXPS_NEEDING_FINAL_AGG[@]} -gt 0 ]; then
     echo "  Step C: ${#C_EXPS_NEEDING_FINAL_AGG[@]} aggregation jobs"
 fi
+[ ${#D1_NEEDED[@]} -gt 0 ] && echo "  Step D1: ${#D1_NEEDED[@]} per-model jobs"
+[ "$D2_NEEDED" = true ]    && echo "  Step D2: 1 baselines job"
+[ ${#D3_NEEDED[@]} -gt 0 ] && echo "  Step D3: ${#D3_NEEDED[@]} per-model jobs"
+[ "$D4_NEEDED" = true ]    && echo "  Step D4: 1 formulations job"
+[ "$D5_NEEDED" = true ]    && echo "  Step D5: 1 bundle job"
 echo "========================================"
 echo ""
 
 if [ "$TOTAL_NEEDED" -eq 0 ]; then
-    echo "All 9 tasks are complete. Nothing to submit."
+    echo "All 14 tasks are complete. Nothing to submit."
     exit 0
 fi
+
+build_d5_dep_dryrun() {
+    # Build a placeholder dep string for the dry-run banner.
+    local deps=()
+    [ ${#D1_NEEDED[@]} -gt 0 ] && deps+=("\$D1_JOB_ID")
+    [ "$D2_NEEDED" = true ]    && deps+=("\$D2_JOB_ID")
+    [ ${#D3_NEEDED[@]} -gt 0 ] && deps+=("\$D3_JOB_ID")
+    [ "$D4_NEEDED" = true ]    && deps+=("\$D4_JOB_ID")
+    if [ ${#deps[@]} -eq 0 ]; then
+        echo ""
+    else
+        local IFS=':'; echo "--dependency=afterany:${deps[*]}"
+    fi
+}
 
 if [ "$DRY_RUN" = true ]; then
     echo "[DRY RUN] Would submit (account=$ACCOUNT):"
@@ -408,6 +468,24 @@ if [ "$DRY_RUN" = true ]; then
             echo "  sbatch --account=$ACCOUNT --array=$C_AGG_ARRAY_STR --dependency=afterany:\$C_JOB_ID job_theorem45_agg.sh"
         else
             echo "  sbatch --account=$ACCOUNT --array=$C_AGG_ARRAY_STR job_theorem45_agg.sh"
+        fi
+    fi
+    [ ${#D1_NEEDED[@]} -gt 0 ] && echo "  sbatch --account=$ACCOUNT --array=$D1_ARRAY_STR job_kmfv_kms.sh"
+    [ "$D2_NEEDED" = true ]    && echo "  sbatch --account=$ACCOUNT job_kmfv_baselines.sh"
+    [ ${#D3_NEEDED[@]} -gt 0 ] && echo "  sbatch --account=$ACCOUNT --array=$D3_ARRAY_STR job_kmfv_deepdream.sh"
+    if [ "$D4_NEEDED" = true ]; then
+        if [ ${#D1_NEEDED[@]} -gt 0 ]; then
+            echo "  sbatch --account=$ACCOUNT --dependency=afterok:\$D1_JOB_ID job_kmfv_formulations.sh"
+        else
+            echo "  sbatch --account=$ACCOUNT job_kmfv_formulations.sh"
+        fi
+    fi
+    if [ "$D5_NEEDED" = true ]; then
+        D5_DEP=$(build_d5_dep_dryrun)
+        if [ -n "$D5_DEP" ]; then
+            echo "  sbatch --account=$ACCOUNT $D5_DEP job_kmfv_bundle.sh"
+        else
+            echo "  sbatch --account=$ACCOUNT job_kmfv_bundle.sh"
         fi
     fi
     exit 0
@@ -440,6 +518,58 @@ if [ ${#C_EXPS_NEEDING_FINAL_AGG[@]} -gt 0 ]; then
     else
         echo "  Step C (Theorem 4.5 aggregation):  --array=$C_AGG_ARRAY_STR"
         sbatch --account="$ACCOUNT" --array="$C_AGG_ARRAY_STR" job_theorem45_agg.sh
+    fi
+fi
+
+# ---- D-line submissions ----
+D1_JOB_ID=""
+D2_JOB_ID=""
+D3_JOB_ID=""
+D4_JOB_ID=""
+
+if [ ${#D1_NEEDED[@]} -gt 0 ]; then
+    echo "  Step D1 (km-feature-viz kms): --array=$D1_ARRAY_STR"
+    D1_JOB_ID=$(sbatch --parsable --account="$ACCOUNT" --array="$D1_ARRAY_STR" job_kmfv_kms.sh)
+    echo "    Job ID: $D1_JOB_ID"
+fi
+
+if [ "$D2_NEEDED" = true ]; then
+    echo "  Step D2 (km-feature-viz baselines): single"
+    D2_JOB_ID=$(sbatch --parsable --account="$ACCOUNT" job_kmfv_baselines.sh)
+    echo "    Job ID: $D2_JOB_ID"
+fi
+
+if [ ${#D3_NEEDED[@]} -gt 0 ]; then
+    echo "  Step D3 (km-feature-viz deepdream): --array=$D3_ARRAY_STR"
+    D3_JOB_ID=$(sbatch --parsable --account="$ACCOUNT" --array="$D3_ARRAY_STR" job_kmfv_deepdream.sh)
+    echo "    Job ID: $D3_JOB_ID"
+fi
+
+if [ "$D4_NEEDED" = true ]; then
+    if [ -n "$D1_JOB_ID" ]; then
+        echo "  Step D4 (km-feature-viz formulations): single (after $D1_JOB_ID)"
+        D4_JOB_ID=$(sbatch --parsable --account="$ACCOUNT" --dependency=afterok:"$D1_JOB_ID" job_kmfv_formulations.sh)
+    else
+        echo "  Step D4 (km-feature-viz formulations): single"
+        D4_JOB_ID=$(sbatch --parsable --account="$ACCOUNT" job_kmfv_formulations.sh)
+    fi
+    echo "    Job ID: $D4_JOB_ID"
+fi
+
+if [ "$D5_NEEDED" = true ]; then
+    # Bundle depends (afterany) on whichever D1–D4 jobs were queued in this run.
+    D5_DEPS=()
+    [ -n "$D1_JOB_ID" ] && D5_DEPS+=("$D1_JOB_ID")
+    [ -n "$D2_JOB_ID" ] && D5_DEPS+=("$D2_JOB_ID")
+    [ -n "$D3_JOB_ID" ] && D5_DEPS+=("$D3_JOB_ID")
+    [ -n "$D4_JOB_ID" ] && D5_DEPS+=("$D4_JOB_ID")
+    if [ ${#D5_DEPS[@]} -gt 0 ]; then
+        DEP_STR="afterany:$(IFS=:; echo "${D5_DEPS[*]}")"
+        echo "  Step D5 (km-feature-viz bundle): single (--dependency=$DEP_STR)"
+        sbatch --account="$ACCOUNT" --dependency="$DEP_STR" job_kmfv_bundle.sh
+    else
+        echo "  Step D5 (km-feature-viz bundle): single"
+        sbatch --account="$ACCOUNT" job_kmfv_bundle.sh
     fi
 fi
 
