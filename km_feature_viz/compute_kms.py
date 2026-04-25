@@ -105,6 +105,16 @@ def compute_one(
     return slice_class_rows(full, in_scope_classes).to(torch.float16)
 
 
+def state_step_name(suffix: str) -> str:
+    """Build the state-file step name, suffixed by `suffix` if non-empty.
+
+    Lets per-model SLURM array tasks write to disjoint state files
+    (`01_compute_kms_<model>.json`) so concurrent tasks don't race on
+    `state.mark_completed`'s read-modify-write.
+    """
+    return "01_compute_kms" + (f"_{suffix}" if suffix else "")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--manifest", type=Path, required=True)
@@ -112,6 +122,8 @@ def main() -> int:
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--limit-models", nargs="*", default=None,
                         help="Only run these model names (default: all in manifest)")
+    parser.add_argument("--state-suffix", default=None,
+                        help="Suffix appended to the state-file step name (e.g., 'alexnet')")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
@@ -119,7 +131,8 @@ def main() -> int:
     entries = read_manifest(args.manifest)
     if args.limit_models is not None:
         entries = [e for e in entries if e.model in args.limit_models]
-    completed = state.load_completed(paths.state_path("01_compute_kms"))
+    state_file = paths.state_path(state_step_name(args.state_suffix))
+    completed = state.load_completed(state_file)
     todo = [e for e in entries if sample_key(e) not in completed]
     logger.info("Completed: %d  Todo: %d", len(completed), len(todo))
 
@@ -140,12 +153,12 @@ def main() -> int:
                     km,
                     in_scope_classes=TIER_A_CLASSES,
                 )
-                state.mark_completed(paths.state_path("01_compute_kms"), sample_key(entry))
+                state.mark_completed(state_file, sample_key(entry))
                 logger.info("done %s", sample_key(entry))
             except torch.cuda.OutOfMemoryError as e:
                 state.log_error(
                     paths.errors_path(),
-                    step="01_compute_kms",
+                    step=state_step_name(args.state_suffix),
                     sample_id=sample_key(entry),
                     error_type="OOM",
                     message=str(e),
@@ -155,7 +168,7 @@ def main() -> int:
             except Exception as e:
                 state.log_error(
                     paths.errors_path(),
-                    step="01_compute_kms",
+                    step=state_step_name(args.state_suffix),
                     sample_id=sample_key(entry),
                     error_type=type(e).__name__,
                     message=str(e),
