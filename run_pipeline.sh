@@ -409,14 +409,12 @@ D5_JOBS=$([ "$D5_NEEDED" = true ] && echo 1 || echo 0)
 TOTAL_NEEDED=$(( ${#A_NEEDED[@]} + ${#B_NEEDED[@]} + C_TOTAL_JOBS \
                 + ${#D1_NEEDED[@]} + D2_JOBS + ${#D3_NEEDED[@]} + D4_JOBS + D5_JOBS ))
 
-# Count fully done: A(3) + B(3) + C(3) + D1(3) + D2(1) + D3(3) + D4(1) + D5(1) = 15
-# But the user-facing tally counts whole workstreams done out of 14 named slots.
+# Count fully-done workstreams (atomic): A(3) + B(3) + C(3) + D1(1) + D2(1) + D3(1) + D4(1) + D5(1) = 14.
+# A/B/C are scored per-experiment (matches existing pattern); D1/D3 are scored 1 iff ALL models done.
 C_DONE=0
 for i in 0 1 2; do [ "${C_STATUS[$i]}" = "done" ] && C_DONE=$((C_DONE + 1)); done
-D1_DONE=0
-for i in 0 1 2; do [ "${D1_STATUS[$i]}" = "done" ] && D1_DONE=$((D1_DONE + 1)); done
-D3_DONE=0
-for i in 0 1 2; do [ "${D3_STATUS[$i]}" = "done" ] && D3_DONE=$((D3_DONE + 1)); done
+D1_DONE=$([ ${#D1_NEEDED[@]} -eq 0 ] && echo 1 || echo 0)
+D3_DONE=$([ ${#D3_NEEDED[@]} -eq 0 ] && echo 1 || echo 0)
 D2_DONE=$([ "$D2_STATUS" = "done" ] && echo 1 || echo 0)
 D4_DONE=$([ "$D4_STATUS" = "done" ] && echo 1 || echo 0)
 D5_DONE=$([ "$D5_STATUS" = "done" ] && echo 1 || echo 0)
