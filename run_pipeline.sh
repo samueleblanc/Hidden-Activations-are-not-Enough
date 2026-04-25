@@ -16,6 +16,11 @@
 # ==============================================================
 set -euo pipefail
 
+# ---- Cluster account ----
+# Edit this on the cluster to the real account (e.g., "def-bruestle_gpu").
+# Locally it stays as the placeholder so the value isn't checked in.
+ACCOUNT="def-xxxx"
+
 DRY_RUN=false
 for arg in "$@"; do
     case "$arg" in
@@ -25,6 +30,19 @@ for arg in "$@"; do
 done
 
 TIMESTAMP=$(date -Iseconds)
+
+# ==============================================================
+# Phase 0: Inline manifest regen for km-feature-viz (D-line)
+# ==============================================================
+# The manifest is a deterministic listing of (model, class, image) triples
+# from the ImageNet val set; cheap (milliseconds) and CPU-only. Running it
+# inline lets Phase 1 use the manifest to count expected work counts.
+mkdir -p results/km-feature-viz
+echo "Phase 0: regenerating km-feature-viz manifest..."
+python -m km_feature_viz.manifest_cli \
+    --imagenet-root "${IMAGENET_ROOT:-/datashare/imagenet/ILSVRC2012}" \
+    --output results/km-feature-viz/manifest.json
+echo ""
 
 # ---- Task definitions ----
 
@@ -253,8 +271,6 @@ if [ "$TOTAL_NEEDED" -eq 0 ]; then
     echo "All 9 tasks are complete. Nothing to submit."
     exit 0
 fi
-
-ACCOUNT="def-bruestle_gpu"
 
 if [ "$DRY_RUN" = true ]; then
     echo "[DRY RUN] Would submit (account=$ACCOUNT):"
