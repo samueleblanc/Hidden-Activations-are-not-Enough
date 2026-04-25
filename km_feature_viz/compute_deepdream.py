@@ -8,7 +8,7 @@ import argparse
 import logging
 import sys
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 import torch
 import torch.nn as nn
@@ -109,16 +109,29 @@ def get_layer_by_name(model: nn.Module, name: str) -> nn.Module:
     return layer
 
 
+def state_step_name(suffix: Optional[str]) -> str:
+    """Build the state-file step name, suffixed by `suffix` if non-empty.
+
+    Lets per-model SLURM array tasks write to disjoint state files
+    (`03_deepdream_<model>.json`) so concurrent tasks don't race on
+    `state.mark_completed`'s read-modify-write.
+    """
+    return "03_deepdream" + (f"_{suffix}" if suffix else "")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--steps", type=int, default=200)
     parser.add_argument("--models", nargs="+", default=["alexnet", "resnet18", "vgg11"])
+    parser.add_argument("--state-suffix", default=None,
+                        help="Suffix appended to the state-file step name (e.g., 'alexnet')")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 
-    completed = state.load_completed(paths.state_path("03_deepdream"))
+    state_file = paths.state_path(state_step_name(args.state_suffix))
+    completed = state.load_completed(state_file)
 
     for model_name in args.models:
         model = build_torchvision_model(model_name, args.device)
@@ -134,11 +147,11 @@ def main() -> int:
                 out_path = paths.deepdream_path(model_name, layer_name, neuron)
                 out_path.parent.mkdir(parents=True, exist_ok=True)
                 torch.save(img.to(torch.float16), out_path)
-                state.mark_completed(paths.state_path("03_deepdream"), key)
+                state.mark_completed(state_file, key)
                 logger.info("done %s", key)
             except Exception as e:
                 state.log_error(
-                    paths.errors_path(), step="03_deepdream", sample_id=key,
+                    paths.errors_path(), step=state_step_name(args.state_suffix), sample_id=key,
                     error_type=type(e).__name__, message=str(e),
                     tb=state.capture_traceback(),
                 )
