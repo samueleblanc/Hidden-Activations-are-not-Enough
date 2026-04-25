@@ -20,6 +20,5 @@ elif sys.path[0] != _root:
 
 # Pre-import the real km_feature_viz package into sys.modules so pytest's
 # later insertion of unit_test/ onto sys.path cannot shadow it.
-import importlib
 import km_feature_viz  # noqa: E402  (project root is now first on sys.path)
 import km_feature_viz.compute_kms  # noqa: E402
