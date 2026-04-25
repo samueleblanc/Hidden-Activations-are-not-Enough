@@ -75,6 +75,38 @@ C_CHECKPOINTS=(
     "experiments/vgg_imagenet/theorem45/theorem45_checkpoint.json"
 )
 
+# Step D: km-feature-viz (5 sub-steps)
+D_MODELS=("alexnet" "resnet18" "vgg11")
+
+# D1: compute_kms — per-model state files, 500 entries each
+D1_STATE_FILES=(
+    "results/km-feature-viz/state/01_compute_kms_alexnet.json"
+    "results/km-feature-viz/state/01_compute_kms_resnet18.json"
+    "results/km-feature-viz/state/01_compute_kms_vgg11.json"
+)
+D1_EXPECTED=500
+
+# D2: compute_baselines — 5 per-method state files, 1500 entries each
+D2_METHODS=("gradcam" "ig" "smoothgrad" "feature_maps" "pgd")
+D2_EXPECTED=1500
+
+# D3: compute_deepdream — per-model state files, 15 entries each
+D3_STATE_FILES=(
+    "results/km-feature-viz/state/03_deepdream_alexnet.json"
+    "results/km-feature-viz/state/03_deepdream_resnet18.json"
+    "results/km-feature-viz/state/03_deepdream_vgg11.json"
+)
+D3_EXPECTED=15
+
+# D4: formulations — existence-only (patch-blocked may produce empty file)
+D4_STATE_FILES=(
+    "results/km-feature-viz/state/05_counterfactual_lp.json"
+    "results/km-feature-viz/state/06_jacobian_sensitivity.json"
+)
+
+# D5: bundle — single tarball at repo root
+D5_BUNDLE_PATH="km-feature-viz.tar"
+
 # ==============================================================
 # Phase 1: Scan
 # ==============================================================
@@ -171,6 +203,100 @@ print('true' if '$ATK' in d.get('per_attack',{}) else 'false')
         fi
     fi
 done
+echo ""
+
+# ---- D1 scan: compute_kms (per-model) ----
+declare -a D1_STATUS
+D1_NEEDED=()  # array task IDs (model indices) needing submission
+
+count_state_entries() {
+    # $1 = path to state json file. Echoes the entry count, or 0 if missing.
+    local f="$1"
+    if [ ! -f "$f" ]; then
+        echo 0
+        return
+    fi
+    python3 -c "
+import json
+with open('$f') as f: d = json.load(f)
+print(len(d))
+" 2>/dev/null || echo 0
+}
+
+echo "Step D1: km-feature-viz compute_kms"
+for i in 0 1 2; do
+    COUNT=$(count_state_entries "${D1_STATE_FILES[$i]}")
+    if [ "$COUNT" -ge "$D1_EXPECTED" ]; then
+        D1_STATUS[$i]="done"
+        echo "  [$i] ${D_MODELS[$i]}: DONE (${COUNT}/${D1_EXPECTED})"
+    else
+        D1_STATUS[$i]="pending"
+        D1_NEEDED+=("$i")
+        echo "  [$i] ${D_MODELS[$i]}: ${COUNT}/${D1_EXPECTED}"
+    fi
+done
+echo ""
+
+# ---- D2 scan: compute_baselines ----
+D2_STATUS="done"
+D2_NEEDED=false
+echo "Step D2: km-feature-viz compute_baselines"
+for method in "${D2_METHODS[@]}"; do
+    F="results/km-feature-viz/state/02_${method}.json"
+    COUNT=$(count_state_entries "$F")
+    if [ "$COUNT" -lt "$D2_EXPECTED" ]; then
+        D2_STATUS="pending"
+        D2_NEEDED=true
+        echo "  ${method}: ${COUNT}/${D2_EXPECTED}"
+    else
+        echo "  ${method}: DONE (${COUNT}/${D2_EXPECTED})"
+    fi
+done
+echo ""
+
+# ---- D3 scan: compute_deepdream (per-model) ----
+declare -a D3_STATUS
+D3_NEEDED=()
+echo "Step D3: km-feature-viz compute_deepdream"
+for i in 0 1 2; do
+    COUNT=$(count_state_entries "${D3_STATE_FILES[$i]}")
+    if [ "$COUNT" -ge "$D3_EXPECTED" ]; then
+        D3_STATUS[$i]="done"
+        echo "  [$i] ${D_MODELS[$i]}: DONE (${COUNT}/${D3_EXPECTED})"
+    else
+        D3_STATUS[$i]="pending"
+        D3_NEEDED+=("$i")
+        echo "  [$i] ${D_MODELS[$i]}: ${COUNT}/${D3_EXPECTED}"
+    fi
+done
+echo ""
+
+# ---- D4 scan: formulations (existence only — patch-blocked tolerant) ----
+D4_STATUS="done"
+D4_NEEDED=false
+echo "Step D4: km-feature-viz formulations"
+for f in "${D4_STATE_FILES[@]}"; do
+    if [ -f "$f" ]; then
+        echo "  $(basename "$f"): EXISTS"
+    else
+        D4_STATUS="pending"
+        D4_NEEDED=true
+        echo "  $(basename "$f"): MISSING"
+    fi
+done
+echo ""
+
+# ---- D5 scan: bundle ----
+echo "Step D5: km-feature-viz bundle"
+if [ -f "$D5_BUNDLE_PATH" ]; then
+    D5_STATUS="done"
+    D5_NEEDED=false
+    echo "  $D5_BUNDLE_PATH: EXISTS"
+else
+    D5_STATUS="pending"
+    D5_NEEDED=true
+    echo "  $D5_BUNDLE_PATH: MISSING"
+fi
 echo ""
 
 # ==============================================================
