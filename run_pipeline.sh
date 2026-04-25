@@ -116,6 +116,20 @@ echo "  $(date)"
 echo "========================================"
 echo ""
 
+count_state_entries() {
+    # $1 = path to state json file. Echoes the entry count, or 0 if missing.
+    local path="$1"
+    if [ ! -f "$path" ]; then
+        echo 0
+        return
+    fi
+    python3 -c "
+import json
+with open('$path') as f: d = json.load(f)
+print(len(d))
+" 2>/dev/null || echo 0
+}
+
 A_NEEDED=()
 B_NEEDED=()
 C_NEEDED=()
@@ -209,20 +223,6 @@ echo ""
 declare -a D1_STATUS
 D1_NEEDED=()  # array task IDs (model indices) needing submission
 
-count_state_entries() {
-    # $1 = path to state json file. Echoes the entry count, or 0 if missing.
-    local f="$1"
-    if [ ! -f "$f" ]; then
-        echo 0
-        return
-    fi
-    python3 -c "
-import json
-with open('$f') as f: d = json.load(f)
-print(len(d))
-" 2>/dev/null || echo 0
-}
-
 echo "Step D1: km-feature-viz compute_kms"
 for i in 0 1 2; do
     COUNT=$(count_state_entries "${D1_STATE_FILES[$i]}")
@@ -275,13 +275,13 @@ echo ""
 D4_STATUS="done"
 D4_NEEDED=false
 echo "Step D4: km-feature-viz formulations"
-for f in "${D4_STATE_FILES[@]}"; do
-    if [ -f "$f" ]; then
-        echo "  $(basename "$f"): EXISTS"
+for state_file in "${D4_STATE_FILES[@]}"; do
+    if [ -f "$state_file" ]; then
+        echo "  $(basename "$state_file"): EXISTS"
     else
         D4_STATUS="pending"
         D4_NEEDED=true
-        echo "  $(basename "$f"): MISSING"
+        echo "  $(basename "$state_file"): MISSING"
     fi
 done
 echo ""
