@@ -8,7 +8,7 @@ import json
 import logging
 import sys
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import torch
 import torchvision.transforms as T
@@ -105,7 +105,7 @@ def compute_one(
     return slice_class_rows(full, in_scope_classes).to(torch.float16)
 
 
-def state_step_name(suffix: str) -> str:
+def state_step_name(suffix: Optional[str]) -> str:
     """Build the state-file step name, suffixed by `suffix` if non-empty.
 
     Lets per-model SLURM array tasks write to disjoint state files
