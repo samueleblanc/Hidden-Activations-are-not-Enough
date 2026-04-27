@@ -256,22 +256,161 @@ def permute_conv_penultimate(model, seed=42):
     return permuted, perm
 
 
-def permute_network(model, seed=42):
+def permute_resnet_wide_face(model, seed=42):
+    """Permute every layer in the network whose channel face matches the
+    final Linear's `in_features`.
+
+    This is the correct isomorphism strategy for *bottleneck* ResNets
+    (ResNet50/101/152), where the existing `permute_conv_penultimate`
+    walker breaks early at the bottleneck's expansion 1×1 conv and leaves
+    the per-block residual ADDs with mismatched orderings on each side.
+
+    The strategy: pick `n_channels = final_linear.in_features` (assumes
+    AdaptiveAvgPool2d collapses spatial dims to 1×1, so `in_features`
+    equals the final block's channel count). Then for every Conv2d /
+    BatchNorm2d in `model.layers` AND every residual projection layer,
+    apply the SAME permutation to every n_channels-wide face:
+
+      * Conv2d.out_channels == n_channels  →  permute weight rows + bias
+      * Conv2d.in_channels  == n_channels  →  permute weight cols
+      * BatchNorm2d.num_features == n_channels →  permute all 4 params
+
+    Plus the final Linear's input columns. Because every n_channels-wide
+    tensor in the network is consistently permuted, identity residuals
+    (where both ends are at the wide face) stay consistent, and bottleneck
+    interiors (narrower faces, e.g. 512 channels in ResNet152's layer4)
+    are untouched. The function is exactly preserved.
+
+    Compared to `permute_conv_penultimate`:
+      * That walker stops at the first "boundary" Conv2d where in_channels
+        != out_channels == n_channels, missing the deeper expansion convs
+        of subsequent bottleneck blocks. It works on ResNet18 (BasicBlock
+        keeps n_channels uniform throughout each block) but produces
+        broken residual ADDs on bottleneck variants.
+      * This strategy permutes the ENTIRE wide tail uniformly and works
+        on both BasicBlock and Bottleneck families.
+
+    Args:
+        model: a knowledgematrix NN model with a single final Linear.
+        seed: random seed for reproducibility.
+
+    Returns:
+        (permuted_model, perm) tuple.
+    """
+    permuted = copy.deepcopy(model)
+
+    linear_indices = find_linear_layer_indices(permuted)
+    if not linear_indices:
+        raise ValueError("No Linear layers found in model.")
+    final_linear = permuted.layers[linear_indices[-1]]
+    n_channels = final_linear.in_features
+
+    rng = torch.Generator()
+    rng.manual_seed(seed)
+    perm = torch.randperm(n_channels, generator=rng)
+
+    def _permute_conv(layer):
+        if layer.out_channels == n_channels:
+            layer.weight.data = layer.weight.data[perm]
+            if layer.bias is not None:
+                layer.bias.data = layer.bias.data[perm]
+        if layer.in_channels == n_channels:
+            layer.weight.data = layer.weight.data[:, perm]
+
+    def _permute_bn(layer):
+        if layer.num_features == n_channels:
+            layer.weight.data = layer.weight.data[perm]
+            layer.bias.data = layer.bias.data[perm]
+            layer.running_mean.data = layer.running_mean.data[perm]
+            layer.running_var.data = layer.running_var.data[perm]
+
+    with torch.no_grad():
+        for layer in permuted.layers:
+            if isinstance(layer, nn.Conv2d):
+                _permute_conv(layer)
+            elif isinstance(layer, nn.BatchNorm2d):
+                _permute_bn(layer)
+
+        if hasattr(permuted, 'residuals'):
+            for connections in permuted.residuals.values():
+                for _, proj_layers in connections:
+                    for proj in proj_layers:
+                        if isinstance(proj, nn.Conv2d):
+                            _permute_conv(proj)
+                        elif isinstance(proj, nn.BatchNorm2d):
+                            _permute_bn(proj)
+
+        # Final Linear input columns. Assumes spatial size 1 after pool;
+        # raise if that doesn't hold (would need block-permutation otherwise).
+        if final_linear.in_features != n_channels:
+            raise ValueError(
+                f"Final Linear in_features={final_linear.in_features} != "
+                f"n_channels={n_channels}; AdaptiveAvgPool2d to (1,1) is "
+                f"assumed but the architecture's pool spatial output "
+                f"differs."
+            )
+        final_linear.weight.data = final_linear.weight.data[:, perm]
+
+    return permuted, perm
+
+
+# Architectures with concat-based topology (DenseNet's dense connections,
+# GoogLeNet's Inception-block parallel branches) cannot be neuron-permuted
+# at the post-pool boundary without coordinated surgery into the
+# `concat_skips` / `branch_inputs` structures. For Pillar 1 evidence on
+# those architectures, the paper relies on Step B (teleportation, see
+# `teleportation_experiment.py` and commit 369c9dc).
+_STEP_A_UNSUPPORTED_MODELS = {
+    'densenet121': (
+        "DenseNet's dense connections produce the post-pool channel vector "
+        "via implicit concatenation (knowledgematrix model.concat_skips); "
+        "channels 0..1023 have specific provenance (each denselayer "
+        "contributes a fixed slice) and are not interchangeable. A simple "
+        "permutation at the BN+Linear boundary does not preserve the "
+        "function. Pillar-1 evidence for DenseNet121 comes from Step B."
+    ),
+    'googlenet': (
+        "GoogLeNet's last Inception block produces the post-pool 1024 "
+        "channels by concatenating 4 parallel branches with distinct "
+        "channel counts (256+320+128+128 or similar, see "
+        "knowledgematrix model.branch_inputs); the branches are not "
+        "interchangeable along their joint channel axis. Pillar-1 "
+        "evidence for GoogLeNet comes from Step B."
+    ),
+}
+
+
+def permute_network(model, seed=42, model_name=None):
     """Apply a neuron permutation to create an isomorphic network.
 
-    Automatically selects the right permutation strategy based on the
-    number of Linear layers:
-      - >= 2 Linear layers: permute the penultimate Linear pair.
-      - 1 Linear layer: permute the last Conv2d channels.
+    Dispatch precedence:
+      1. If `model_name` is in the Pillar-3 explicit set:
+         - resnet152 → wide-face walker (correct for bottleneck-resnets).
+         - densenet121 / googlenet → raise NotImplementedError with the
+           reason; callers should skip these from Step A.
+      2. Otherwise (legacy AlexNet/ResNet18/VGG11 path):
+         - >= 2 Linear layers → permute the penultimate Linear pair.
+         -  1 Linear layer    → existing channel-group walker
+                                (works for ResNet18-style BasicBlocks).
 
     Args:
         model: a knowledgematrix NN model.
         seed: random seed.
+        model_name: optional Pillar-3 model identifier (resnet152,
+            densenet121, googlenet) routed through DEFAULT_EXPERIMENTS.
+            None for legacy experiments.
 
     Returns:
-        permuted_model: deep copy with permuted weights.
-        perm: the permutation tensor used.
+        (permuted_model, perm) tuple.
     """
+    if model_name in _STEP_A_UNSUPPORTED_MODELS:
+        raise NotImplementedError(
+            f"Step A (random neuron permutation) is not implemented for "
+            f"model_name={model_name!r}. {_STEP_A_UNSUPPORTED_MODELS[model_name]}"
+        )
+    if model_name == 'resnet152':
+        return permute_resnet_wide_face(model, seed=seed)
+
     linear_indices = find_linear_layer_indices(model)
     if len(linear_indices) >= 2:
         return permute_penultimate_layer(model, seed=seed)
@@ -445,8 +584,22 @@ def run_isomorphism_experiment(experiment_name, num_permutations=5,
     """
     exp_config = DEFAULT_EXPERIMENTS[experiment_name]
     dataset = exp_config['dataset']
-    arch_idx = exp_config['architecture_index']
+    # Pillar 3 archs use 'model_name' instead of 'architecture_index' to route
+    # through km_feature_viz.compute_kms.build_model (see constants.py comment).
+    model_name = exp_config.get('model_name')
+    arch_idx = exp_config.get('architecture_index')
     epoch = exp_config['epochs']
+
+    # Hard fail upfront on unsupported Pillar 3 archs — Step A's
+    # neuron-permutation experiment is infeasible for densenet121/googlenet
+    # (concat-based topology, see _STEP_A_UNSUPPORTED_MODELS). Pillar-1
+    # evidence on those models comes from Step B (teleportation).
+    if model_name in _STEP_A_UNSUPPORTED_MODELS:
+        raise NotImplementedError(
+            f"Step A is not implemented for experiment={experiment_name!r} "
+            f"(model_name={model_name!r}). "
+            f"{_STEP_A_UNSUPPORTED_MODELS[model_name]}"
+        )
 
     input_shape = get_input_shape(dataset)
     num_classes = get_num_classes(dataset)
@@ -456,7 +609,14 @@ def run_isomorphism_experiment(experiment_name, num_permutations=5,
             if temp_dir else f'experiments/{experiment_name}')
 
     # Load model
-    if exp_config.get('pretrained', False) and epoch == 0:
+    if model_name is not None:
+        # Pillar 3 path: knowledgematrix wrappers loaded via km_feature_viz
+        # factories (resnet152/densenet121/googlenet). Pretrained-only.
+        from km_feature_viz.compute_kms import build_model as _kmfv_build_model
+        print(f"Using km_feature_viz factory for model_name={model_name!r}",
+              flush=True)
+        model = _kmfv_build_model(model_name, str(device))
+    elif exp_config.get('pretrained', False) and epoch == 0:
         print("Using pretrained torchvision weights (no local weight file)",
               flush=True)
         model = get_architecture(
@@ -510,7 +670,8 @@ def run_isomorphism_experiment(experiment_name, num_permutations=5,
         t0 = time.perf_counter()
 
         # Create permuted model
-        permuted_model, perm = permute_network(model, seed=seed)
+        permuted_model, perm = permute_network(model, seed=seed,
+                                               model_name=model_name)
         permuted_model.to(device)
         _move_residuals_to_device(permuted_model, device)
         permuted_model.eval()
@@ -603,7 +764,14 @@ def run_isomorphism_experiment(experiment_name, num_permutations=5,
     save_data = {
         'experiment': experiment_name,
         'dataset': dataset,
+        # Pillar 3 archs use model_name (architecture_index is None).
         'architecture_index': arch_idx,
+        'model_name': model_name,
+        'permutation_strategy': (
+            'wide_face' if model_name == 'resnet152'
+            else ('penultimate_linear_pair' if len(find_linear_layer_indices(model)) >= 2
+                  else 'channel_group_walker')
+        ),
         'num_permutations': num_permutations,
         'num_samples': num_samples,
         'num_matrix_samples': num_matrix_samples,

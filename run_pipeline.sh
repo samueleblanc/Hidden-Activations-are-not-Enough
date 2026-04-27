@@ -6,7 +6,7 @@
 # Phase 2: Submit only the SLURM jobs that are still needed
 #
 # Steps:
-#   A: Isomorphism    (job_isomorphism.sh,  array 0-2)
+#   A: Isomorphism    (job_isomorphism.sh,  array 0-0 — only resnet152)
 #   B: Teleportation  (job_teleportation.sh, array 0-2)
 #   C: Theorem 4.5    (job_theorem45.sh,    array 0-2)
 #
@@ -46,12 +46,12 @@ echo ""
 
 # ---- Task definitions ----
 
-# Step A: Isomorphism
-A_NAMES=("alexnet_imagenet" "resnet_imagenet" "vgg_imagenet")
+# Step A: Isomorphism — Pillar 3 archs (matches Step B / D-line; commit 369c9dc)
+A_NAMES=("resnet152_imagenet" "densenet121_imagenet" "googlenet_imagenet")
 A_FILES=(
-    "experiments/alexnet_imagenet/isomorphism/isomorphism_results.json"
-    "experiments/resnet_imagenet/isomorphism/isomorphism_results.json"
-    "experiments/vgg_imagenet/isomorphism/isomorphism_results.json"
+    "experiments/resnet152_imagenet/isomorphism/isomorphism_results.json"
+    "experiments/densenet121_imagenet/isomorphism/isomorphism_results.json"
+    "experiments/googlenet_imagenet/isomorphism/isomorphism_results.json"
 )
 
 # Step B: Teleportation (non-BN VGG — vgg11_bn COB drifts, see teleportation_experiment.py)
@@ -62,17 +62,17 @@ B_FILES=(
     "results/teleportation/resnet50_imagenet_teleportation.json"
 )
 
-# Step C: Theorem 4.5
-C_NAMES=("alexnet_imagenet" "resnet_imagenet" "vgg_imagenet")
+# Step C: Theorem 4.5 — Pillar 3 archs (matches Step B / D-line; commit 369c9dc)
+C_NAMES=("resnet152_imagenet" "densenet121_imagenet" "googlenet_imagenet")
 C_RESULTS=(
-    "experiments/alexnet_imagenet/theorem45/theorem45_results.json"
-    "experiments/resnet_imagenet/theorem45/theorem45_results.json"
-    "experiments/vgg_imagenet/theorem45/theorem45_results.json"
+    "experiments/resnet152_imagenet/theorem45/theorem45_results.json"
+    "experiments/densenet121_imagenet/theorem45/theorem45_results.json"
+    "experiments/googlenet_imagenet/theorem45/theorem45_results.json"
 )
 C_CHECKPOINTS=(
-    "experiments/alexnet_imagenet/theorem45/theorem45_checkpoint.json"
-    "experiments/resnet_imagenet/theorem45/theorem45_checkpoint.json"
-    "experiments/vgg_imagenet/theorem45/theorem45_checkpoint.json"
+    "experiments/resnet152_imagenet/theorem45/theorem45_checkpoint.json"
+    "experiments/densenet121_imagenet/theorem45/theorem45_checkpoint.json"
+    "experiments/googlenet_imagenet/theorem45/theorem45_checkpoint.json"
 )
 
 # Step D: km-feature-viz (5 sub-steps) — Pillar 3 launch with 3 archs.
@@ -143,7 +143,11 @@ C_NEEDED=()
 declare -a A_STATUS B_STATUS C_STATUS
 
 echo "Step A: Isomorphism"
-for i in 0 1 2; do
+# Only index 0 (resnet152) is runnable; densenet121 and googlenet are
+# documented as NOT_SUPPORTED in Step A — Pillar-1 evidence on those archs
+# comes from Step B (teleportation). See job_isomorphism.sh and
+# isomorphism_experiment.py:_STEP_A_UNSUPPORTED_MODELS for the rationale.
+for i in 0; do
     if [ -f "${A_FILES[$i]}" ]; then
         A_STATUS[$i]="done"
         echo "  [$i] ${A_NAMES[$i]}: DONE"
@@ -153,6 +157,10 @@ for i in 0 1 2; do
         echo "  [$i] ${A_NAMES[$i]}: PENDING"
     fi
 done
+A_STATUS[1]="not_supported"
+A_STATUS[2]="not_supported"
+echo "  [1] ${A_NAMES[1]}: NOT_SUPPORTED (concat topology — see Step B)"
+echo "  [2] ${A_NAMES[2]}: NOT_SUPPORTED (concat topology — see Step B)"
 echo ""
 
 echo "Step B: Teleportation"
@@ -415,8 +423,9 @@ D5_JOBS=$([ "$D5_NEEDED" = true ] && echo 1 || echo 0)
 TOTAL_NEEDED=$(( ${#A_NEEDED[@]} + ${#B_NEEDED[@]} + C_TOTAL_JOBS \
                 + ${#D1_NEEDED[@]} + D2_JOBS + ${#D3_NEEDED[@]} + D4_JOBS + D5_JOBS ))
 
-# Count fully-done workstreams (atomic): A(3) + B(3) + C(3) + D1(1) + D2(1) + D3(1) + D4(1) + D5(1) = 14.
-# A/B/C are scored per-experiment (matches existing pattern); D1/D3 are scored 1 iff ALL models done.
+# Count fully-done workstreams (atomic): A(1) + B(3) + C(3) + D1(1) + D2(1) + D3(1) + D4(1) + D5(1) = 12.
+# A is scored 1 (resnet152 only — densenet121/googlenet are NOT_SUPPORTED).
+# B/C are scored per-experiment; D1/D3 are scored 1 iff ALL models done.
 C_DONE=0
 for i in 0 1 2; do [ "${C_STATUS[$i]}" = "done" ] && C_DONE=$((C_DONE + 1)); done
 D1_DONE=$([ ${#D1_NEEDED[@]} -eq 0 ] && echo 1 || echo 0)
@@ -424,11 +433,11 @@ D3_DONE=$([ ${#D3_NEEDED[@]} -eq 0 ] && echo 1 || echo 0)
 D2_DONE=$([ "$D2_STATUS" = "done" ] && echo 1 || echo 0)
 D4_DONE=$([ "$D4_STATUS" = "done" ] && echo 1 || echo 0)
 D5_DONE=$([ "$D5_STATUS" = "done" ] && echo 1 || echo 0)
-TOTAL_DONE=$(( 3 - ${#A_NEEDED[@]} + 3 - ${#B_NEEDED[@]} + C_DONE \
+TOTAL_DONE=$(( 1 - ${#A_NEEDED[@]} + 3 - ${#B_NEEDED[@]} + C_DONE \
               + D1_DONE + D2_DONE + D3_DONE + D4_DONE + D5_DONE ))
 
 echo "========================================"
-echo "  SUMMARY: $TOTAL_DONE/14 done, $TOTAL_NEEDED jobs to submit"
+echo "  SUMMARY: $TOTAL_DONE/12 done, $TOTAL_NEEDED jobs to submit"
 if [ ${#C_ATTACK_TASKS[@]} -gt 0 ]; then
     echo "  Step C: ${#C_ATTACK_TASKS[@]} per-attack jobs"
 fi
@@ -444,7 +453,7 @@ echo "========================================"
 echo ""
 
 if [ "$TOTAL_NEEDED" -eq 0 ]; then
-    echo "All 14 tasks are complete. Nothing to submit."
+    echo "All 12 tasks are complete. Nothing to submit."
     exit 0
 fi
 
