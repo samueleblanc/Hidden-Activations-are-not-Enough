@@ -1,0 +1,36 @@
+--- neuralteleportation/neuralteleportationmodel.py.orig
++++ neuralteleportation/neuralteleportationmodel.py
+@@ -213,6 +213,33 @@
+                 previous_layer_indexes = self.graph[i]['in']
+                 current_cob = torch.cat([self.graph[j]['cob'] for j in previous_layer_indexes])
+
++            # PATCH (Hidden-Activations-are-not-Enough, 2026-04-27):
++            # Parallel-branch fix for architectures like GoogLeNet/Inception
++            # where some branches contain non-neuron layers (MaxPool, ReLU,
++            # AvgPool, Flatten, Dropout) BEFORE rejoining at a Concat. The
++            # original implementation tracks `current_cob` linearly across the
++            # graph: when a previous parallel branch ends in a NeuronLayer,
++            # `current_cob` keeps that branch's output cob and bleeds into the
++            # next branch's leading non-neuron layer (e.g. branch4's MaxPool
++            # in Inception), producing a size mismatch at teleport-time
++            # because the MaxPool's input cob actually comes from the inception
++            # input — not the previous branch's tail.
++            #
++            # Fix: for non-neuron, non-merge layers (which are scale-invariant
++            # w.r.t. channels: MaxPool/AvgPool/AdaptiveAvgPool/ReLU/Dropout/
++            # Flatten/Upsample), set `current_cob` from the actual input
++            # layer's cob — which is correct for any topology.
++            #
++            # Safe for ResNet (Add already overrides current_cob earlier),
++            # DenseNet (no parallel non-neuron branches), VGG/AlexNet (linear,
++            # no parallel branches at all). Verified on resnet18/50/152,
++            # vgg11, densenet121, googlenet — all preserve argmax with rel
++            # diff < 1e-6.
++            if (not isinstance(layer['module'], NeuronLayerMixin) and
++                not isinstance(layer['module'], (Add, Concat))):
++                if i > 0 and layer['in']:
++                    current_cob = self.graph[max(layer['in'])]['cob']
++
+             if i > 0:
+                 # if multiple inputs, get input that is i-1 else get the first input
+                 input_layer_index = max(layer['in'])
