@@ -108,8 +108,13 @@ def compute_smoothgrad(
 
     ig = IntegratedGradients(model)
     nt = NoiseTunnel(ig)
+    # nt_samples_batch_size=1 + internal_batch_size=10 chunks the (n_samples × n_steps)
+    # forward/backward chain so peak GPU memory stays bounded on ResNet152.
+    # Without this, captum materializes all 25 noise replicas × 50 IG steps at once → OOM.
     return nt.attribute(
-        x, target=class_idx, nt_type="smoothgrad", nt_samples=n_samples, stdevs=stdev
+        x, target=class_idx, nt_type="smoothgrad",
+        nt_samples=n_samples, nt_samples_batch_size=1,
+        internal_batch_size=10, stdevs=stdev,
     )
 
 

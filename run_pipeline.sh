@@ -106,8 +106,8 @@ D3_EXPECTED=15
 
 # D4: formulations — existence-only (patch-blocked may produce empty file)
 D4_STATE_FILES=(
-    "results/km-feature-viz/state/05_counterfactual_lp.json"
-    "results/km-feature-viz/state/06_jacobian_sensitivity.json"
+    "results/km-feature-viz/state/05_counterfactual.json"
+    "results/km-feature-viz/state/06_jacobian.json"
 )
 
 # D5: bundle — single tarball at repo root
