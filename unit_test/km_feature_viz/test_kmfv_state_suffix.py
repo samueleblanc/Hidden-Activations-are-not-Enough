@@ -20,8 +20,11 @@ def test_kms_step_name_no_suffix_keeps_legacy_name():
 
 
 def test_kms_step_name_with_suffix_appends_underscore():
-    assert kms_step_name("alexnet") == "01_compute_kms_alexnet"
-    assert kms_step_name("resnet18") == "01_compute_kms_resnet18"
+    assert kms_step_name("resnet152") == "01_compute_kms_resnet152"
+    # Forward-looking: when DenseNet/Inception arrive, the same suffix
+    # contract must hold — these checks document the API for future
+    # architectures without coupling to weight availability.
+    assert kms_step_name("densenet201") == "01_compute_kms_densenet201"
 
 
 @pytest.mark.skipif(not HAS_DEEPDREAM_HELPER, reason="Task 2 not yet implemented")
@@ -32,5 +35,5 @@ def test_deepdream_step_name_no_suffix_keeps_legacy_name():
 
 @pytest.mark.skipif(not HAS_DEEPDREAM_HELPER, reason="Task 2 not yet implemented")
 def test_deepdream_step_name_with_suffix_appends_underscore():
-    assert deepdream_step_name("alexnet") == "03_deepdream_alexnet"
-    assert deepdream_step_name("vgg11") == "03_deepdream_vgg11"
+    assert deepdream_step_name("resnet152") == "03_deepdream_resnet152"
+    assert deepdream_step_name("inception_v3") == "03_deepdream_inception_v3"

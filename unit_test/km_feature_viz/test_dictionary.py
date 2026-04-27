@@ -17,11 +17,14 @@ class TestDictionary(unittest.TestCase):
     def test_stack_class_rows_shape(self):
         with tempfile.TemporaryDirectory() as d:
             tmp = Path(d)
-            # 3 fake KMs each with 5 in-scope classes, 100-dim
+            # 3 fake KMs each with 5 in-scope classes, 100-dim.
+            # fp32 storage matches the new pipeline contract — fp16 caused
+            # inf overflow on ResNet18 KMs (M(x).sum(1) != f(x)) and is
+            # banned everywhere downstream of compute_kms.
             for i in range(3):
                 fpath = tmp / f"sample_{i}.pt"
                 torch.save(
-                    {"km": torch.randn(5, 100, dtype=torch.float16), "classes": [0, 1, 2, 3, 4]},
+                    {"km": torch.randn(5, 100, dtype=torch.float32), "classes": [0, 1, 2, 3, 4]},
                     fpath,
                 )
             stacked = stack_class_rows(

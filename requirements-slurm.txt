@@ -28,7 +28,7 @@ jupyter_client==8.8.0+computecanada
 jupyter_core==5.9.1+computecanada
 jupyterlab_widgets==3.0.16+computecanada
 kiwisolver==1.4.9+computecanada
-knowledgematrix @ git+https://github.com/MarcoArmenta/knowledgematrix-cluster.git@b8204221d12ca83b027b7b9aede9cafc1951f862
+knowledgematrix @ git+https://github.com/MarcoArmenta/knowledgematrix-cluster.git@fe64a13ea49f2a1405f1f95de1b59676a8fecadb
 Mako==1.3.10+computecanada
 MarkupSafe==2.1.5+computecanada
 matplotlib==3.10.8+computecanada

@@ -87,13 +87,13 @@ def main() -> int:
         out_components = paths.dictionary_path(model_name, class_id, "components")
         out_var = paths.dictionary_path(model_name, class_id, "explained_variance")
         out_components.parent.mkdir(parents=True, exist_ok=True)
-        torch.save({"pca": pca_comp.to(torch.float16)}, out_components)
+        torch.save({"pca": pca_comp.to(torch.float32)}, out_components)
         torch.save({"pca": pca_var.to(torch.float32)}, out_var)
 
         # NMF
         nmf_comp, nmf_err = nmf_top_k(X, k=args.top_k)
         existing = torch.load(out_components, weights_only=False)
-        existing["nmf"] = nmf_comp.to(torch.float16)
+        existing["nmf"] = nmf_comp.to(torch.float32)
         torch.save(existing, out_components)
         existing_var = torch.load(out_var, weights_only=False)
         existing_var["nmf_err"] = nmf_err

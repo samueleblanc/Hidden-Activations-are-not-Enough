@@ -20,30 +20,61 @@ from km_feature_viz.manifest import read_manifest, sample_key
 logger = logging.getLogger(__name__)
 
 
+# Architecture dispatchers for the *plain torchvision* path used by Grad-CAM,
+# IG, SmoothGrad, feature-maps, and PGD. Keep these in sync with
+# KM_MODEL_FACTORIES in compute_kms.py and DEEPDREAM_LAYER_NAMES in
+# compute_deepdream.py.
+#
+# `googlenet` factory is wrapped in a lambda to pass `aux_logits=False` and
+# `transform_input=False`:
+#  - aux_logits: the auxiliary classifier branches are training-time only;
+#    disabling them at construction matches eval-mode use and keeps the
+#    gradient flow simple for Grad-CAM / IG / PGD.
+#  - transform_input: the IMAGENET1K_V1 weights default to True, which makes
+#    the model internally re-shift inputs (BGR-style mean shift). Our
+#    pipeline already applies the standard ImageNet normalization via
+#    IMAGENET_TRANSFORM in compute_kms.py, so we MUST disable the model's
+#    internal transform to avoid double-normalization (silent correctness
+#    bug affecting Grad-CAM / IG / SmoothGrad / PGD for googlenet only).
+TV_MODEL_FACTORIES = {
+    "resnet152":   (tvm.resnet152,                                          tvm.ResNet152_Weights.IMAGENET1K_V2),
+    "densenet121": (tvm.densenet121,                                        tvm.DenseNet121_Weights.IMAGENET1K_V1),
+    "googlenet":   (lambda weights=None: tvm.googlenet(weights=weights, aux_logits=False, transform_input=False),
+                                                                            tvm.GoogLeNet_Weights.IMAGENET1K_V1),
+}
+
+# Standard last-conv (or last-bottleneck) layer for Grad-CAM per architecture.
+# - ResNet152: last Bottleneck of stage 4 (matches the Selvaraju 2017 convention).
+# - DenseNet121: the final dense block (denseblock4); aggregates all stage-4
+#   feature maps via dense concatenation.
+# - GoogLeNet: the final inception module (inception5b); the deepest
+#   multi-branch feature stage before the global avg-pool.
+GRADCAM_TARGET_LAYERS = {
+    "resnet152":   lambda model: model.layer4[-1],
+    "densenet121": lambda model: model.features.denseblock4,
+    "googlenet":   lambda model: model.inception5b,
+}
+
+
 def pick_target_layer(model: nn.Module, model_name: str) -> nn.Module:
     """Choose the standard last-conv layer for Grad-CAM per architecture."""
-    if model_name == "alexnet":
-        return model.features[10]  # last conv before AvgPool
-    if model_name == "resnet18":
-        return model.layer4[-1]    # last bottleneck
-    if model_name == "vgg11":
-        return model.features[18]  # last conv
-    raise ValueError(f"Unknown model: {model_name}")
+    if model_name not in GRADCAM_TARGET_LAYERS:
+        raise ValueError(
+            f"Unknown model: {model_name!r}; "
+            f"available: {sorted(GRADCAM_TARGET_LAYERS)}"
+        )
+    return GRADCAM_TARGET_LAYERS[model_name](model)
 
 
 def build_torchvision_model(model_name: str, device: str) -> nn.Module:
     """Build a *plain* torchvision model (NOT the knowledgematrix wrapper).
     Used by Grad-CAM/IG/SmoothGrad which need standard nn.Module forward."""
-    factory = {
-        "alexnet": tvm.alexnet,
-        "resnet18": tvm.resnet18,
-        "vgg11": tvm.vgg11,
-    }[model_name]
-    weights_enum = {
-        "alexnet": tvm.AlexNet_Weights.IMAGENET1K_V1,
-        "resnet18": tvm.ResNet18_Weights.IMAGENET1K_V1,
-        "vgg11": tvm.VGG11_Weights.IMAGENET1K_V1,
-    }[model_name]
+    if model_name not in TV_MODEL_FACTORIES:
+        raise ValueError(
+            f"Unknown model: {model_name!r}; "
+            f"available: {sorted(TV_MODEL_FACTORIES)}"
+        )
+    factory, weights_enum = TV_MODEL_FACTORIES[model_name]
     model = factory(weights=weights_enum).to(device).eval()
     return model
 
@@ -152,7 +183,7 @@ def main() -> int:
                     attribution = compute_gradcam(model, target_layer, x, class_idx=entry.class_id)
                     out_path = paths.baseline_path(method, entry.model, entry.class_id, entry.image_id)
                     out_path.parent.mkdir(parents=True, exist_ok=True)
-                    torch.save(attribution.detach().cpu().to(torch.float16), out_path)
+                    torch.save(attribution.detach().cpu().to(torch.float32), out_path)
                     state.mark_completed(paths.state_path(f"02_{method}"), key)
                 except Exception as e:
                     state.log_error(
@@ -173,7 +204,7 @@ def main() -> int:
                     attribution = compute_ig(model, x, class_idx=entry.class_id)
                     out_path = paths.baseline_path(method, entry.model, entry.class_id, entry.image_id)
                     out_path.parent.mkdir(parents=True, exist_ok=True)
-                    torch.save(attribution.detach().cpu().to(torch.float16), out_path)
+                    torch.save(attribution.detach().cpu().to(torch.float32), out_path)
                     state.mark_completed(paths.state_path(f"02_{method}"), key)
                 except Exception as e:
                     state.log_error(
@@ -194,7 +225,7 @@ def main() -> int:
                     attribution = compute_smoothgrad(model, x, class_idx=entry.class_id)
                     out_path = paths.baseline_path(method, entry.model, entry.class_id, entry.image_id)
                     out_path.parent.mkdir(parents=True, exist_ok=True)
-                    torch.save(attribution.detach().cpu().to(torch.float16), out_path)
+                    torch.save(attribution.detach().cpu().to(torch.float32), out_path)
                     state.mark_completed(paths.state_path(f"02_{method}"), key)
                 except Exception as e:
                     state.log_error(
@@ -216,7 +247,7 @@ def main() -> int:
                     maps = compute_feature_maps(model, target_layer, x)
                     out_path = paths.baseline_path(method, entry.model, entry.class_id, entry.image_id)
                     out_path.parent.mkdir(parents=True, exist_ok=True)
-                    torch.save(maps.cpu().to(torch.float16), out_path)
+                    torch.save(maps.cpu().to(torch.float32), out_path)
                     state.mark_completed(paths.state_path(f"02_{method}"), key)
                 except Exception as e:
                     state.log_error(
@@ -242,7 +273,7 @@ def main() -> int:
                     out_path = paths.baseline_path(method, entry.model, entry.class_id, entry.image_id)
                     out_path.parent.mkdir(parents=True, exist_ok=True)
                     torch.save(
-                        {"delta": delta.cpu().to(torch.float16), "target": target_class},
+                        {"delta": delta.cpu().to(torch.float32), "target": target_class},
                         out_path,
                     )
                     state.mark_completed(paths.state_path(f"02_{method}"), key)

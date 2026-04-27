@@ -23,7 +23,7 @@ class TestSliceAndSave(unittest.TestCase):
 
     def test_slice_class_rows(self):
         # full KM is (1000, 150529); slice down to in-scope class ids
-        full = torch.randn(1000, 150529, dtype=torch.float16)
+        full = torch.randn(1000, 150529, dtype=torch.float32)
         in_scope = [0, 207, 282]
         sliced = slice_class_rows(full, in_scope)
         self.assertEqual(sliced.shape, (3, 150529))
@@ -33,7 +33,7 @@ class TestSliceAndSave(unittest.TestCase):
     def test_save_and_load_roundtrip(self):
         with tempfile.TemporaryDirectory() as d:
             tmp_path = Path(d) / "km.pt"
-            tensor = torch.randn(10, 1000, dtype=torch.float16)
+            tensor = torch.randn(10, 1000, dtype=torch.float32)
             in_scope = list(range(10))
             save_km(tmp_path, tensor, in_scope_classes=in_scope)
             loaded_tensor, loaded_classes = load_km_slice(tmp_path)

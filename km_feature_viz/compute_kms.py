@@ -71,14 +71,70 @@ def save_raw_image(src: Path, dst: Path) -> None:
     torch.save((raw * 255).round().clamp(0, 255).to(torch.uint8), dst)
 
 
+def _build_resnet152(device: str) -> torch.nn.Module:
+    from knowledgematrix.models.resnet152 import ResNet152
+
+    return ResNet152(
+        input_shape=(3, 224, 224),
+        num_classes=1000,
+        pretrained=True,
+        device=device,
+    )
+
+
+def _build_densenet121(device: str) -> torch.nn.Module:
+    # Lazy import: the knowledgematrix wrapper isn't always present locally
+    # (cluster-only pin in requirements-slurm.txt). Importing inside the
+    # factory means module-load doesn't fail on dev machines that don't
+    # have the wrapper installed.
+    from knowledgematrix.models.densenet import DenseNet
+
+    return DenseNet(
+        input_shape=(3, 224, 224),
+        num_classes=1000,
+        pretrained=True,
+        device=device,
+    )
+
+
+def _build_googlenet(device: str) -> torch.nn.Module:
+    # Lazy import: the GoogLeNet (InceptionV1) wrapper is being added in a
+    # parallel knowledgematrix branch and may not resolve until the
+    # requirements pin is bumped. Keep the import inside the factory so
+    # the module still loads on machines without the new wrapper.
+    from knowledgematrix.models.googlenet import GoogLeNet
+
+    return GoogLeNet(
+        input_shape=(3, 224, 224),
+        num_classes=1000,
+        pretrained=True,
+        device=device,
+    )
+
+
+# Architecture dispatcher: name -> factory(device) -> knowledgematrix NN.
+# Each factory must return a knowledgematrix NN already constructed with
+# pretrained ImageNet weights and (3, 224, 224) inputs. Pillar 3 launches
+# with these three architectures (residual / dense / inception family
+# coverage); extend by adding a new factory and dict entry here, plus
+# matching entries in compute_baselines.TV_MODEL_FACTORIES,
+# compute_baselines.GRADCAM_TARGET_LAYERS, and
+# compute_deepdream.DEEPDREAM_LAYER_NAMES.
+KM_MODEL_FACTORIES = {
+    "resnet152":   _build_resnet152,
+    "densenet121": _build_densenet121,
+    "googlenet":   _build_googlenet,
+}
+
+
 def build_model(model_name: str, device: str) -> torch.nn.Module:
     """Wrap a pretrained torchvision model in the knowledgematrix NN."""
-    from knowledgematrix.models.alexnet import AlexNet
-    from knowledgematrix.models.resnet18 import ResNet18
-    from knowledgematrix.models.vgg11 import VGG11
-
-    factory = {"alexnet": AlexNet, "resnet18": ResNet18, "vgg11": VGG11}[model_name]
-    model = factory(input_shape=(3, 224, 224), num_classes=1000, pretrained=True, device=device)
+    if model_name not in KM_MODEL_FACTORIES:
+        raise ValueError(
+            f"Unknown model {model_name!r}; "
+            f"available: {sorted(KM_MODEL_FACTORIES)}"
+        )
+    model = KM_MODEL_FACTORIES[model_name](device)
     model.to(device)
     # knowledgematrix stores residual projection modules inside plain Python lists
     # under nn.ModuleDict values, so model.to(device) misses them. Move explicitly.
@@ -102,7 +158,9 @@ def compute_one(
     x = load_image(entry.image_path).to(device)
     computer = KnowledgeMatrixComputer(model, batch_size=batch_size, device=device)
     full = computer.forward(x)  # (1000, 150529)
-    return slice_class_rows(full, in_scope_classes).to(torch.float16)
+    # fp32 is non-negotiable here: fp16 storage caused inf overflow on
+    # ResNet18 KMs and broke the M(x).sum(1) == f(x) completeness invariant.
+    return slice_class_rows(full, in_scope_classes).to(torch.float32)
 
 
 def state_step_name(suffix: Optional[str]) -> str:
@@ -123,7 +181,7 @@ def main() -> int:
     parser.add_argument("--limit-models", nargs="*", default=None,
                         help="Only run these model names (default: all in manifest)")
     parser.add_argument("--state-suffix", default=None,
-                        help="Suffix appended to the state-file step name (e.g., 'alexnet')")
+                        help="Suffix appended to the state-file step name (e.g., 'resnet152')")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")

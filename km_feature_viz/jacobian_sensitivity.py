@@ -68,7 +68,7 @@ def main() -> int:
                 s = sensitivity_heatmap(model, x, predicted_class=pred)
                 out_path = paths.jacobian_path(model_name, class_id, e.image_id)
                 out_path.parent.mkdir(parents=True, exist_ok=True)
-                torch.save(s.cpu().to(torch.float16), out_path)
+                torch.save(s.cpu().to(torch.float32), out_path)
                 state.mark_completed(paths.state_path("06_jacobian"), key)
                 logger.info("done %s", key)
             except Exception as exc:

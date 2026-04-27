@@ -23,28 +23,59 @@ python - <<'PY' && \
   || echo "bundle: skipped (pipeline incomplete — see message above)"
 import json, sys
 base = 'results/km-feature-viz'
-checks = {
-    'state/01_compute_kms_alexnet.json':   500,
-    'state/01_compute_kms_resnet18.json':  500,
-    'state/01_compute_kms_vgg11.json':     500,
-    'state/02_gradcam.json':              1500,
-    'state/02_ig.json':                   1500,
-    'state/02_smoothgrad.json':           1500,
-    'state/02_feature_maps.json':         1500,
-    'state/02_pgd.json':                  1500,
-    'state/03_deepdream_alexnet.json':      15,
-    'state/03_deepdream_resnet18.json':     15,
-    'state/03_deepdream_vgg11.json':        15,
+# Pillar 3 launch: 3 archs (resnet152, densenet121, googlenet), 3 classes
+# (207, 282, 340), 7+7+6 = 20 images per arch.
+#
+# Baselines run all archs in one process via the manifest, so per-method
+# counts = (#archs × #images) = 3 × 20 = 60.
+# DeepDream is per-arch, 5 neurons × 3 layers = 15 entries per arch.
+# Neuron-selection (03a) is a single-document state file per arch (not
+# entry-counted) — verified via existence + JSON parse + presence of a
+# 'method' key.
+#
+# IMPORTANT: D_MODELS in run_pipeline.sh is the source of truth for the
+# arch list. Keep this gate in sync if D_MODELS changes.
+counted = {
+    'state/01_compute_kms_resnet152.json':    20,
+    'state/01_compute_kms_densenet121.json':  20,
+    'state/01_compute_kms_googlenet.json':    20,
+    'state/02_gradcam.json':                  60,
+    'state/02_ig.json':                       60,
+    'state/02_smoothgrad.json':               60,
+    'state/02_feature_maps.json':             60,
+    'state/02_pgd.json':                      60,
+    'state/03_deepdream_resnet152.json':      15,
+    'state/03_deepdream_densenet121.json':    15,
+    'state/03_deepdream_googlenet.json':      15,
 }
+# Existence-only state files: single-document JSON (not a dict-of-entries).
+# Validity = file exists, parses as JSON, and has a 'method' key.
+existence_only = [
+    'state/03a_neuron_selection_resnet152.json',
+    'state/03a_neuron_selection_densenet121.json',
+    'state/03a_neuron_selection_googlenet.json',
+]
 missing = []
-for rel, expected in checks.items():
+for rel, expected in counted.items():
     p = f'{base}/{rel}'
     try:
         data = json.load(open(p))
     except FileNotFoundError:
         missing.append(f'{rel}: MISSING'); continue
+    except json.JSONDecodeError as e:
+        missing.append(f'{rel}: INVALID JSON ({e})'); continue
     if expected is not None and len(data) != expected:
         missing.append(f'{rel}: {len(data)}/{expected}')
+for rel in existence_only:
+    p = f'{base}/{rel}'
+    try:
+        data = json.load(open(p))
+    except FileNotFoundError:
+        missing.append(f'{rel}: MISSING'); continue
+    except json.JSONDecodeError as e:
+        missing.append(f'{rel}: INVALID JSON ({e})'); continue
+    if not (isinstance(data, dict) and 'method' in data):
+        missing.append(f"{rel}: missing 'method' key")
 if missing:
     print('INCOMPLETE (skipping bundle):')
     for m in missing: print('  -', m)

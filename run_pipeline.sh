@@ -75,26 +75,32 @@ C_CHECKPOINTS=(
     "experiments/vgg_imagenet/theorem45/theorem45_checkpoint.json"
 )
 
-# Step D: km-feature-viz (5 sub-steps)
-D_MODELS=("alexnet" "resnet18" "vgg11")
+# Step D: km-feature-viz (5 sub-steps) — Pillar 3 launch with 3 archs.
+# D_MODELS is the source of truth for the arch list; the bundle gate in
+# job_kmfv_bundle.sh and the MODELS arrays in job_kmfv_kms.sh /
+# job_kmfv_deepdream.sh must be kept in sync.
+D_MODELS=("resnet152" "densenet121" "googlenet")
 
-# D1: compute_kms — per-model state files, 500 entries each
+# D1: compute_kms — per-model state files, 20 entries each
+# (3 classes × 7+7+6 = 20 ImageNet-val images per arch).
 D1_STATE_FILES=(
-    "results/km-feature-viz/state/01_compute_kms_alexnet.json"
-    "results/km-feature-viz/state/01_compute_kms_resnet18.json"
-    "results/km-feature-viz/state/01_compute_kms_vgg11.json"
+    "results/km-feature-viz/state/01_compute_kms_resnet152.json"
+    "results/km-feature-viz/state/01_compute_kms_densenet121.json"
+    "results/km-feature-viz/state/01_compute_kms_googlenet.json"
 )
-D1_EXPECTED=500
+D1_EXPECTED=20
 
-# D2: compute_baselines — 5 per-method state files, 1500 entries each
+# D2: compute_baselines — 5 per-method state files, 60 entries each
+# (#archs × #images = 3 × 20 = 60 per method).
 D2_METHODS=("gradcam" "ig" "smoothgrad" "feature_maps" "pgd")
-D2_EXPECTED=1500
+D2_EXPECTED=60
 
 # D3: compute_deepdream — per-model state files, 15 entries each
+# (5 selected channels × 3 layers per arch).
 D3_STATE_FILES=(
-    "results/km-feature-viz/state/03_deepdream_alexnet.json"
-    "results/km-feature-viz/state/03_deepdream_resnet18.json"
-    "results/km-feature-viz/state/03_deepdream_vgg11.json"
+    "results/km-feature-viz/state/03_deepdream_resnet152.json"
+    "results/km-feature-viz/state/03_deepdream_densenet121.json"
+    "results/km-feature-viz/state/03_deepdream_googlenet.json"
 )
 D3_EXPECTED=15
 
