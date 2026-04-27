@@ -16,24 +16,38 @@ from pathlib import Path
 
 
 ARCH_DISPLAY = {
-    'alexnet': 'AlexNet',
-    'resnet':  'ResNet18',   # the iso experiment uses resnet18 via arch_idx=-2
-    'vgg':     'VGG11',      # iso uses vgg11 via arch_idx=-1
+    'alexnet':     'AlexNet',
+    'resnet':      'ResNet18',   # iso (legacy) uses resnet18 via arch_idx=-2
+    'resnet152':   'ResNet152',  # Pillar 3 (commit 5cf31fc): wide-face permutation
+    'densenet121': 'DenseNet121',
+    'googlenet':   'GoogLeNet',
+    'vgg':         'VGG11',      # iso (legacy) uses vgg11 via arch_idx=-1
+    'vgg11':       'VGG11',
+    'resnet18':    'ResNet18',
+    'resnet50':    'ResNet50',
 }
 
 
-ISO_EXPERIMENTS = ['alexnet_imagenet', 'resnet_imagenet', 'vgg_imagenet']
-TELEPORT_ARCHS  = ['resnet18', 'vgg11', 'resnet50']
+# Pillar 3 alignment: Step A (iso) is now resnet152-only because densenet121
+# and googlenet have concat-based topologies that don't admit simple post-pool
+# neuron permutations (see isomorphism_experiment.py:_STEP_A_UNSUPPORTED_MODELS).
+# Pillar-1 evidence on densenet121/googlenet comes from Step B teleportation
+# (which DOES support all three architectures via neuralteleportation COB).
+ISO_EXPERIMENTS = ['resnet152_imagenet']
+TELEPORT_ARCHS  = ['resnet152', 'densenet121', 'googlenet']
 
-# Relative errors measured via `--debug` iso reruns (2 perms x 20 samples
-# each). Cluster jobs: 12456822 (resnet), 12557544 (alexnet + vgg).
-# AlexNet and VGG sit at float32 single-matmul precision (~machine eps
-# 1.19e-7). ResNet's deep conv-channel permutation produces ~3000x more
-# accumulated precision loss but is still ~0.05% of the matrix norm.
+# Relative errors measured via `--debug` iso reruns. Updated 2026-04-27:
+# legacy {alexnet,resnet18,vgg11} numbers retained for reference but no
+# longer surfaced in the table (since ISO_EXPERIMENTS no longer includes
+# them). Pillar 3 entry will be populated once the resnet152 cluster job
+# runs with --debug; until then the value is None and the table prints '---'.
 KNOWN_REL_ERRORS = {
+    # Legacy (kept for reference):
     'alexnet_imagenet': 1.146e-7,  # mean of seed=42 (1.145e-7) + seed=43 (1.146e-7)
     'resnet_imagenet':  3.48e-4,   # mean of seed=42 (5.04e-4) + seed=43 (1.92e-4)
     'vgg_imagenet':     1.231e-7,  # mean of seed=42 (1.232e-7) + seed=43 (1.231e-7)
+    # Pillar 3 (TODO — populate after the cluster --debug run on resnet152):
+    'resnet152_imagenet': None,
 }
 
 
@@ -150,8 +164,9 @@ def generate_teleport_table(output_dir):
             if not r['output_equivalence']['all_predictions_match']
         )
         match_cell = 'yes' if fails == 0 else f"{nt - fails}/{nt}"
+        arch_display = ARCH_DISPLAY.get(arch, arch)
         lines.append(
-            f"{arch} & {agg['train']['mean_of_means']:.3f} "
+            f"{arch_display} & {agg['train']['mean_of_means']:.3f} "
             f"& {agg['test']['mean_of_means']:.3f} "
             f"& {agg['random']['mean_of_means']:.3f} "
             f"& {match_cell} \\\\"

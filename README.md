@@ -50,12 +50,10 @@ D1 and D3 are SLURM array jobs (`--array=0-2`) — one task per architecture (`r
 
 ### Isomorphism Invariance
 
-Demonstrates that knowledge matrices are invariant under neuron permutations while penultimate activations are not.
+Demonstrates that knowledge matrices are invariant under neuron permutations while penultimate activations are not. Pillar 3 alignment (commit `5cf31fc`): Step A is run on `resnet152_imagenet` only — DenseNet-121 and GoogLeNet have concat-based topologies (dense connections / Inception parallel branches) that don't admit a simple post-pool neuron permutation. Pillar-1 evidence on those architectures comes from Step B (teleportation).
 
 ```bash
-python isomorphism_experiment.py --experiment alexnet_imagenet
-python isomorphism_experiment.py --experiment resnet_imagenet
-python isomorphism_experiment.py --experiment vgg_imagenet
+python isomorphism_experiment.py --experiment resnet152_imagenet
 ```
 
 ### Theorem 4.5 Validation
@@ -64,16 +62,16 @@ Empirical validation of the distance lower bound. Generates adversarial pairs on
 
 The attack set is `IMAGENET_ATTACKS` in `constants/constants.py`: FGSM, PGD, CW, DeepFool, APGD, Square.
 
-Per-experiment attack hyperparameters are overridden in `ATTACK_OVERRIDES` (`validate_theorem45.py:56`). For pretrained ResNet-ImageNet, DeepFool uses `steps=200`, APGD uses `steps=50, loss='dlr'`, and Square uses `n_queries=20000` — the torchattacks defaults yield ~zero perturbations on these three attacks.
+Per-experiment attack hyperparameters are overridden in `ATTACK_OVERRIDES` (`validate_theorem45.py`). For pretrained ResNet-ImageNet, DeepFool uses `steps=200`, APGD uses `steps=50, loss='dlr'`, and Square uses `n_queries=20000` — the torchattacks defaults yield ~zero perturbations on these three attacks. The Pillar-3 archs ({resnet152, densenet121, googlenet}_imagenet) inherit the same overrides as a starting point; tune if smoke runs reveal `n_exact_zero` high.
 
 A forward-pass diagnostic inside `generate_adversarial_pairs` prints `||adv - clean||` (L_inf and L_2) for every run, so it is immediately visible whether an attack silently noop'd. If all logit distances for an attack collapse to ~0 the result is written to `per_attack/{attack}_SKIPPED.json` rather than polluting the aggregate.
 
 ```bash
 # Run one attack for one experiment (what each SLURM array task does)
-python validate_theorem45.py --experiment resnet_imagenet --attacks FGSM --num_samples 200
+python validate_theorem45.py --experiment resnet152_imagenet --attacks FGSM --num_samples 200
 
 # Aggregate all 6 per-attack files for one experiment (Step C-agg.)
-python validate_theorem45.py --experiment resnet_imagenet --aggregate
+python validate_theorem45.py --experiment resnet152_imagenet --aggregate
 ```
 
 ### Teleportation Experiment
@@ -81,18 +79,18 @@ python validate_theorem45.py --experiment resnet_imagenet --aggregate
 Demonstrates penultimate activation instability under neural teleportation (quiver isomorphism via the `neuralteleportation` library). Run per architecture:
 
 ```bash
-python teleportation_experiment.py --architecture resnet18  --dataset imagenet --pretrained \
+python teleportation_experiment.py --architecture resnet152   --dataset imagenet --pretrained \
     --num_teleportations 100 --num_samples 500 --data_dir /datashare/imagenet/ILSVRC2012
-python teleportation_experiment.py --architecture vgg11_bn  --dataset imagenet --pretrained \
+python teleportation_experiment.py --architecture densenet121 --dataset imagenet --pretrained \
     --num_teleportations 100 --num_samples 500 --data_dir /datashare/imagenet/ILSVRC2012
-python teleportation_experiment.py --architecture resnet50  --dataset imagenet --pretrained \
+python teleportation_experiment.py --architecture googlenet   --dataset imagenet --pretrained \
     --num_teleportations 100 --num_samples 500 --data_dir /datashare/imagenet/ILSVRC2012
 ```
 
 ### Generate LaTeX Tables
 
 ```bash
-python generate_theorem45_tables.py --experiments alexnet_imagenet resnet_imagenet vgg_imagenet --output tables/
+python generate_theorem45_tables.py --experiments resnet152_imagenet densenet121_imagenet googlenet_imagenet --output tables/
 ```
 
 ### Pillar 3: KM as canonical saliency (`km_feature_viz/`)
