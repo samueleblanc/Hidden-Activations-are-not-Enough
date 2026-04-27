@@ -25,22 +25,30 @@ logger = logging.getLogger(__name__)
 # KM_MODEL_FACTORIES in compute_kms.py and DEEPDREAM_LAYER_NAMES in
 # compute_deepdream.py.
 #
-# `googlenet` factory is wrapped in a lambda to pass `aux_logits=False` and
-# `transform_input=False`:
-#  - aux_logits: the auxiliary classifier branches are training-time only;
-#    disabling them at construction matches eval-mode use and keeps the
-#    gradient flow simple for Grad-CAM / IG / PGD.
+# `googlenet` factory needs special handling for two reasons:
+#  - aux_logits: the auxiliary classifier branches are training-time only.
+#    Torchvision REJECTS `aux_logits=False` when pretrained weights are
+#    requested (the IMAGENET1K_V1 checkpoint contains aux head weights), so
+#    we must build with `aux_logits=True` (default for IMAGENET1K_V1) and
+#    drop the heads post-load: aux_logits=False, aux1=None, aux2=None.
 #  - transform_input: the IMAGENET1K_V1 weights default to True, which makes
 #    the model internally re-shift inputs (BGR-style mean shift). Our
 #    pipeline already applies the standard ImageNet normalization via
 #    IMAGENET_TRANSFORM in compute_kms.py, so we MUST disable the model's
 #    internal transform to avoid double-normalization (silent correctness
 #    bug affecting Grad-CAM / IG / SmoothGrad / PGD for googlenet only).
+def _build_googlenet_for_baselines(weights=None):
+    m = tvm.googlenet(weights=weights, transform_input=False)
+    m.aux_logits = False
+    m.aux1 = None
+    m.aux2 = None
+    return m
+
+
 TV_MODEL_FACTORIES = {
-    "resnet152":   (tvm.resnet152,                                          tvm.ResNet152_Weights.IMAGENET1K_V2),
-    "densenet121": (tvm.densenet121,                                        tvm.DenseNet121_Weights.IMAGENET1K_V1),
-    "googlenet":   (lambda weights=None: tvm.googlenet(weights=weights, aux_logits=False, transform_input=False),
-                                                                            tvm.GoogLeNet_Weights.IMAGENET1K_V1),
+    "resnet152":   (tvm.resnet152,                tvm.ResNet152_Weights.IMAGENET1K_V2),
+    "densenet121": (tvm.densenet121,              tvm.DenseNet121_Weights.IMAGENET1K_V1),
+    "googlenet":   (_build_googlenet_for_baselines, tvm.GoogLeNet_Weights.IMAGENET1K_V1),
 }
 
 # Standard last-conv (or last-bottleneck) layer for Grad-CAM per architecture.
