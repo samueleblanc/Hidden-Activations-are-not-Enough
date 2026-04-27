@@ -29,6 +29,7 @@ module load StdEnv/2023 python/3.11.5 scipy-stack/2025a
 source env/bin/activate
 
 python -m km_feature_viz.compute_deepdream \
+    --manifest results/km-feature-viz/manifest.json \
     --models "$MODEL" \
     --state-suffix "$MODEL"
 
