@@ -38,13 +38,27 @@ TIMESTAMP=$(date -Iseconds)
 # from the ImageNet val set; cheap (milliseconds) and CPU-only. Running it
 # inline lets Phase 1 use the manifest to count expected work counts.
 #
-# Login-node Python doesn't carry torch — auto-activate the project venv if
-# it isn't already on PATH. Idempotent (no-op if `python` already resolves
-# to env/bin/python). The SLURM jobs do their own module-load + activate.
-if ! command -v python >/dev/null 2>&1 || ! python -c "import torch" >/dev/null 2>&1; then
+# Login-node Python doesn't carry torch — auto-load the cluster modules
+# (Compute Canada `+computecanada` wheels like typing_extensions only resolve
+# when `scipy-stack` is loaded) and activate the project venv. Idempotent
+# (no-op if torch is already importable). The SLURM jobs do the same dance
+# inside each job; this block handles the orchestrator's preflight.
+if ! python -c "import torch" >/dev/null 2>&1; then
+    if type module >/dev/null 2>&1; then
+        module load StdEnv/2023 python/3.11.5 scipy-stack/2025a 2>/dev/null || true
+    fi
     if [ -f env/bin/activate ]; then
         # shellcheck disable=SC1091
         source env/bin/activate
+    fi
+    if ! python -c "import torch" >/dev/null 2>&1; then
+        echo "ERROR: torch not importable after module load + venv activate." >&2
+        echo "  On the cluster, run interactively first:" >&2
+        echo "    module load StdEnv/2023 python/3.11.5 scipy-stack/2025a" >&2
+        echo "    source env/bin/activate" >&2
+        echo "    pip install -r requirements-slurm.txt" >&2
+        echo "  Then retry: bash run_pipeline.sh" >&2
+        exit 1
     fi
 fi
 mkdir -p results/km-feature-viz
