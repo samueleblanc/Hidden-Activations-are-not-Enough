@@ -36,7 +36,11 @@ python validate_theorem45.py \
     --experiment $EXPERIMENT \
     --attacks $ATTACK \
     --num_samples 200 \
-    --matrix_batch_size 1800 \
+    --matrix_batch_size 256 \
     --no-aggregate
+# matrix_batch_size lowered from 1800 → 256: resnet152's KM tensor is ~2×
+# ResNet18's, and the Pillar 3 D1 jobs already run KMs at batch_size=512
+# for a single model. Step C holds one model + KM forward; 256 is a safe
+# margin under H100's 80 GB.
 
 echo "Task $SLURM_ARRAY_TASK_ID ($EXPERIMENT / $ATTACK) completed"

@@ -45,6 +45,8 @@ python isomorphism_experiment.py \
     --num_permutations 5 \
     --num_samples 500 \
     --num_matrix_samples 50 \
-    --matrix_batch_size 1800
+    --matrix_batch_size 200    # Step A keeps TWO KnowledgeMatrixComputers in
+                                # GPU memory at once (orig + permuted model);
+                                # 1800 OOMed at ~78 GB on H100 for resnet152.
 
 echo "Task $SLURM_ARRAY_TASK_ID ($EXPERIMENT) completed"
