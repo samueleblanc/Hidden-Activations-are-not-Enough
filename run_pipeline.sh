@@ -37,6 +37,16 @@ TIMESTAMP=$(date -Iseconds)
 # The manifest is a deterministic listing of (model, class, image) triples
 # from the ImageNet val set; cheap (milliseconds) and CPU-only. Running it
 # inline lets Phase 1 use the manifest to count expected work counts.
+#
+# Login-node Python doesn't carry torch — auto-activate the project venv if
+# it isn't already on PATH. Idempotent (no-op if `python` already resolves
+# to env/bin/python). The SLURM jobs do their own module-load + activate.
+if ! command -v python >/dev/null 2>&1 || ! python -c "import torch" >/dev/null 2>&1; then
+    if [ -f env/bin/activate ]; then
+        # shellcheck disable=SC1091
+        source env/bin/activate
+    fi
+fi
 mkdir -p results/km-feature-viz
 echo "Phase 0: regenerating km-feature-viz manifest..."
 python -m km_feature_viz.manifest_cli \
