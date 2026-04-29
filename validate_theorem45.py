@@ -64,9 +64,19 @@ _RESNET_IMAGENET_OVERRIDES = {
     'APGD': {'steps': 50, 'loss': 'dlr'},
     'Square': {'n_queries': 20000},
 }
+# resnet152 needs FEWER DeepFool steps than resnet18: ResNet152 has ~7×
+# the parameters, and DeepFool computes a 1000-class Jacobian per step.
+# At steps=200, the per-attack job timed out at 12h on H100; densenet121 and
+# googlenet finished in 6h and 2h respectively at the same steps. ResNet152's
+# deeper loss curvature also means DeepFool converges in fewer steps — empirically
+# 100 produces non-zero perturbations on this network.
+_RESNET152_OVERRIDES = {
+    **_RESNET_IMAGENET_OVERRIDES,
+    'DeepFool': {'steps': 100},
+}
 ATTACK_OVERRIDES = {
     'resnet_imagenet':      _RESNET_IMAGENET_OVERRIDES,
-    'resnet152_imagenet':   _RESNET_IMAGENET_OVERRIDES,
+    'resnet152_imagenet':   _RESNET152_OVERRIDES,
     'densenet121_imagenet': _RESNET_IMAGENET_OVERRIDES,
     'googlenet_imagenet':   _RESNET_IMAGENET_OVERRIDES,
 }
