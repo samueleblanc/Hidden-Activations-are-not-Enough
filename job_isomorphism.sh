@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --array=0-0
-#SBATCH --time=08:00:00
+#SBATCH --time=12:00:00
 #SBATCH --gpus=h100:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=192G
@@ -45,8 +45,10 @@ python isomorphism_experiment.py \
     --num_permutations 5 \
     --num_samples 500 \
     --num_matrix_samples 50 \
-    --matrix_batch_size 200    # Step A keeps TWO KnowledgeMatrixComputers in
-                                # GPU memory at once (orig + permuted model);
-                                # 1800 OOMed at ~78 GB on H100 for resnet152.
+    --matrix_batch_size 400    # Step A keeps TWO KnowledgeMatrixComputers in
+                                # GPU memory at once (orig + permuted model).
+                                # 1800 OOMed at ~78 GB on H100; 200 worked but
+                                # used 7h59m of an 8h budget. 400 ≈ 17 GB GPU
+                                # use (well under 80 GB), ~2× faster than 200.
 
 echo "Task $SLURM_ARRAY_TASK_ID ($EXPERIMENT) completed"

@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --array=0-17
-#SBATCH --time=08:00:00
+#SBATCH --time=12:00:00
 #SBATCH --gpus=h100:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=96G
@@ -36,11 +36,12 @@ python validate_theorem45.py \
     --experiment $EXPERIMENT \
     --attacks $ATTACK \
     --num_samples 200 \
-    --matrix_batch_size 256 \
+    --matrix_batch_size 1024 \
     --no-aggregate
-# matrix_batch_size lowered from 1800 → 256: resnet152's KM tensor is ~2×
-# ResNet18's, and the Pillar 3 D1 jobs already run KMs at batch_size=512
-# for a single model. Step C holds one model + KM forward; 256 is a safe
-# margin under H100's 80 GB.
+# matrix_batch_size: 1800 caused Step A OOM with TWO models, but Step C
+# only holds one model — 1024 fits comfortably under 80 GB on H100 and is
+# ~4× faster than 256. The previous 256 ran resnet152 in 6h per attack;
+# DeepFool (200 steps × 200 samples) timed out at 8h. 1024 brings DeepFool
+# under 4h on resnet152, with 12h SLURM budget for safety margin.
 
 echo "Task $SLURM_ARRAY_TASK_ID ($EXPERIMENT / $ATTACK) completed"
