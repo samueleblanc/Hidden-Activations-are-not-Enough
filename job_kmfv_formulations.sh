@@ -23,15 +23,30 @@ echo "Step D4: counterfactual_lp + jacobian_sensitivity"
 module load StdEnv/2023 python/3.11.5 scipy-stack/2025a
 source env/bin/activate
 
-# Both formulations are patch-blocked when the knowledgematrix extract_weff
-# patch is unavailable. Tolerate exit 2; the bundle's completeness check
-# already skips gracefully when the formulation outputs are missing.
+# Both formulations may be patch-blocked when the knowledgematrix extract_weff
+# patch is unavailable, OR may legitimately fail per-sample. We track exit
+# codes per script and only fail the SLURM job if BOTH return non-zero —
+# this surfaces full-formulation failure in seff while tolerating one
+# subscript failing on its own. Each script returns:
+#   0  if at least one sample completed (or all were already done)
+#   1  if zero samples completed this run (hard failure)
+#   2  if the knowledgematrix extract_weff patch is missing
+rc_cf=0
+rc_jc=0
 python -m km_feature_viz.counterfactual_lp \
     --manifest results/km-feature-viz/manifest.json \
-    || echo "counterfactual_lp skipped (patch not available)"
+    || rc_cf=$?
 
 python -m km_feature_viz.jacobian_sensitivity \
     --manifest results/km-feature-viz/manifest.json \
-    || echo "jacobian_sensitivity skipped (patch not available)"
+    || rc_jc=$?
 
-echo "D4 completed"
+[ "$rc_cf" -ne 0 ] && echo "WARNING: counterfactual_lp exited $rc_cf"
+[ "$rc_jc" -ne 0 ] && echo "WARNING: jacobian_sensitivity exited $rc_jc"
+
+if [ "$rc_cf" -ne 0 ] && [ "$rc_jc" -ne 0 ]; then
+    echo "ERROR: both formulations failed (rc_cf=$rc_cf rc_jc=$rc_jc)"
+    exit 1
+fi
+
+echo "D4 completed (rc_cf=$rc_cf rc_jc=$rc_jc)"

@@ -47,21 +47,31 @@ def solve_l1_lp(
     target: int,
     margin: float,
 ) -> torch.Tensor:
-    """Solve min ||delta||_1 s.t. (W[t] - W[y]) . delta >= m - (f[t] - f[y]),
-    with delta + x in [0, 1]. Return delta as a torch tensor."""
+    """Solve  min ||delta||_1  s.t.  (W[t] - W[s]) . delta >= m - (f[t] - f[s]).
+
+    No box constraint on (x + delta): the returned delta is the L1-minimal
+    direction in input-space that, *within the source's linear region*,
+    achieves the target margin. It is a mathematical direction in M(x)-space
+    (analogous to a logit-lens projection), not a valid pixel-space
+    perturbation. Whether x + delta stays in the source's linear region is
+    a separate question, answered by the caller via in_region().
+
+    Without the box, the LP is trivially feasible whenever (W[t] - W[s]) is
+    not the zero vector — the closed-form optimum is delta = (swing / |c_k|)
+    e_k, k = argmax |c|. We still solve it via linprog so the same code path
+    handles edge cases (swing <= 0 ⇒ delta = 0).
+    """
     n = W_eff.shape[1]
     swing = (margin - (out_true[target] - out_true[source])).item()
     constraint = (W_eff[target] - W_eff[source]).cpu().numpy()
-    x_np = x_flat.cpu().numpy()
 
-    # Use linprog with the L1 trick: delta = delta+ - delta-, both >= 0.
+    # L1 trick: delta = delta+ - delta-, both >= 0.
     # Variables: [delta+ (n), delta- (n)]. Objective: sum(delta+ + delta-).
     c = np.ones(2 * n)
     A_ub = -np.concatenate([constraint, -constraint]).reshape(1, 2 * n)
     b_ub = np.array([-swing])
-    bounds = [(0, 1.0 - x_i) for x_i in x_np] + [(0, x_i) for x_i in x_np]
+    bounds = [(0, None)] * (2 * n)
 
-    # Use HiGHS if available (scipy >= 1.7), fall back to interior-point.
     _scipy_version = tuple(int(v) for v in scipy.__version__.split(".")[:2])
     lp_method = "highs" if _scipy_version >= (1, 7) else "interior-point"
     res = scipy.optimize.linprog(c, A_ub=A_ub, b_ub=b_ub, bounds=bounds, method=lp_method)
@@ -128,6 +138,9 @@ def main() -> int:
 
     completed = state.load_completed(paths.state_path("05_counterfactual"))
 
+    n_attempted = 0
+    n_success = 0
+
     for (model_name, source_class), samples in by_model_class.items():
         model = build_model(model_name, args.device)
         for e in samples[: args.n_source_images]:
@@ -153,12 +166,20 @@ def main() -> int:
                 key = f"{sample_key(e)}__to_{target}"
                 if key in completed:
                     continue
+                n_attempted += 1
                 try:
                     delta = solve_l1_lp(
                         W_eff, b_eff, x.flatten(), out_true,
                         source=source_class, target=target, margin=args.margin,
                     )
-                    x_perturbed = (x.flatten() + delta).reshape(x.shape).clamp(0, 1)
+                    # No clamp: x_perturbed = x + delta is reported in the
+                    # same input-space coordinate frame as x, but is not
+                    # constrained to [0,1]. Clamping would silently re-introduce
+                    # a box the LP did not enforce, making new_logits and
+                    # region_ok misleading. The caller interprets delta as a
+                    # mathematical direction (logit-lens-style), not a pixel
+                    # perturbation.
+                    x_perturbed = (x.flatten() + delta).reshape(x.shape)
                     region_ok = in_region(model, x, x_perturbed)
                     new_logits = model.forward(x_perturbed).flatten()
                     out_path = paths.counterfactual_path(
@@ -176,6 +197,7 @@ def main() -> int:
                     with out_path.open("w") as f:
                         json.dump(payload, f, indent=2)
                     state.mark_completed(paths.state_path("05_counterfactual"), key)
+                    n_success += 1
                     logger.info("done %s", key)
                 except Exception as exc:
                     state.log_error(
@@ -187,6 +209,13 @@ def main() -> int:
         del model
         if args.device.startswith("cuda"):
             torch.cuda.empty_cache()
+
+    print(f"counterfactual_lp: {n_success}/{n_attempted} succeeded "
+          f"(prior completed: {len(completed)})", flush=True)
+    if n_attempted > 0 and n_success == 0:
+        print("ERROR: zero samples completed this run; failing the step.",
+              flush=True)
+        return 1
     return 0
 
 

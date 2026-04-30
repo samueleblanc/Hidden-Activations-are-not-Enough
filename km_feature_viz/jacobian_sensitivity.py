@@ -55,12 +55,16 @@ def main() -> int:
 
     completed = state.load_completed(paths.state_path("06_jacobian"))
 
+    n_attempted = 0
+    n_success = 0
+
     for (model_name, class_id), samples in list(by_model_class.items())[: args.n_classes * 3]:
         model = build_model(model_name, args.device)
         for e in samples[: args.n_images_per_class]:
             key = sample_key(e)
             if key in completed:
                 continue
+            n_attempted += 1
             try:
                 x = load_image(e.image_path).to(args.device)
                 with torch.no_grad():
@@ -70,6 +74,7 @@ def main() -> int:
                 out_path.parent.mkdir(parents=True, exist_ok=True)
                 torch.save(s.cpu().to(torch.float32), out_path)
                 state.mark_completed(paths.state_path("06_jacobian"), key)
+                n_success += 1
                 logger.info("done %s", key)
             except Exception as exc:
                 state.log_error(
@@ -80,6 +85,13 @@ def main() -> int:
         del model
         if args.device.startswith("cuda"):
             torch.cuda.empty_cache()
+
+    print(f"jacobian_sensitivity: {n_success}/{n_attempted} succeeded "
+          f"(prior completed: {len(completed)})", flush=True)
+    if n_attempted > 0 and n_success == 0:
+        print("ERROR: zero samples completed this run; failing the step.",
+              flush=True)
+        return 1
     return 0
 
 
