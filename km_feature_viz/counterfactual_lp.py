@@ -1,4 +1,25 @@
-"""Step 05: closed-form L1 counterfactual via the patched extract_weff API."""
+"""Step 05: box-constrained closed-form L1 counterfactual via extract_weff.
+
+The LP is `min ‖δ‖₁ s.t. ⟨W_eff[t] - W_eff[s], δ⟩ ≥ swing` with the
+*corrected* per-coord box `δ_i ∈ [-x_pixel_i / std_c, (1 - x_pixel_i) / std_c]`,
+which makes `x_pixel + δ_pixel ∈ [0, 1]` element-wise — i.e., `x + δ` is a
+valid pixel image after un-normalization.
+
+Solved via a greedy multi-coord saturation (closed form; no LP solver):
+sort coordinates by |c_i| descending, saturate each in the helpful direction
+until swing is delivered. Provably the L1-min optimum because the cost-per-
+unit-swing of each coord is `1 / |c_i|`, independent of the bound (the bound
+sets the magnitude of the contribution, not the marginal rate).
+
+Methodology note: the box ensures δ corresponds to a renderable pixel
+perturbation (visualizable as an image — the saturated pixels show "where
+the model is sensitive"). However, with `region_ok = False` for ~all samples
+on ImageNet (Round 7 evidence), the linearization breaks well before x+δ
+reaches the LP optimum, so f(x+δ) is governed by a different W_eff than
+the one solved against. The δ is a faithful M(x)-direction-with-pixel-box,
+not a guaranteed model-flipping perturbation. See in_region() for the per-
+sample faithfulness check.
+"""
 import argparse
 import inspect
 import json
@@ -12,7 +33,12 @@ import torch
 from knowledgematrix.matrix_computer import KnowledgeMatrixComputer
 
 from km_feature_viz import paths, state
-from km_feature_viz.compute_kms import build_model, load_image
+from km_feature_viz.compute_kms import (
+    IMAGENET_MEAN,
+    IMAGENET_STD,
+    build_model,
+    load_image,
+)
 from km_feature_viz.manifest import (
     TIER_A_CLASSES,
     read_manifest,
@@ -45,35 +71,113 @@ def solve_l1_lp(
     target: int,
     margin: float,
 ) -> torch.Tensor:
-    """Closed-form L1-minimal direction satisfying  ⟨c, δ⟩ ≥ swing,  no box.
+    """Box-constrained closed-form L1-minimal direction.
 
-    For c = W_eff[t] - W_eff[s] and swing = margin - (f[t] - f[s]):
-      * swing ≤ 0 ⇒ δ = 0 is feasible and optimal.
-      * swing > 0 ⇒ optimum is single-coordinate:  δ_k = swing / c_k,  where
-        k = argmax |c|, and all other coords are 0. Then ‖δ‖₁ = swing/|c_k|;
-        any other choice has a strictly larger L1 cost (1/|c_j| ≥ 1/|c_k|).
+    LP:  min ‖δ‖₁  s.t.  ⟨c, δ⟩ ≥ swing,  δ_i ∈ [δ_min_i, δ_max_i]
+    with c = W_eff[t] - W_eff[s], swing = margin - (f[t] - f[s]), and per-coord
+    bounds derived from `x_pixel + δ_pixel ∈ [0, 1]`:
 
-    Equivalent to the LP `min ‖δ‖₁ s.t. ⟨c, δ⟩ ≥ swing` solved previously via
-    scipy.optimize.linprog with the L1 doubling trick. Closed form is O(n)
-    on GPU vs. scipy presolve/simplex bookkeeping over 2n=~300k variables —
-    the LP solver was the bottleneck of the prior 1-hour SLURM timeout.
+        δ_max_i = (1 - x_pixel_i) / std_c   (≥ 0 since x_pixel ≤ 1)
+        δ_min_i = -x_pixel_i / std_c        (≤ 0 since x_pixel ≥ 0)
+
+    where x_pixel_i = x_normalized_i · std_c + mean_c  (per-channel).
+
+    Greedy closed-form: rank coordinates by |c_i| descending and saturate
+    each in the helpful direction (sign(c_i)) until swing is delivered. This
+    is provably L1-optimal because the cost-per-unit-swing of every coord is
+    `1 / |c_i|` — independent of the bound. Shorter |c_i| ⇒ more L1 cost per
+    unit of margin movement, so the top-|c| coords come first.
+
+    Vectorized on GPU: argsort + cumsum + searchsorted. ~ms on a 150k-dim
+    constraint vector. Replaces the prior unbounded single-coord closed form,
+    which produced ‖δ‖_∞ ≈ 70 (way outside [0,1] pixel space). With the
+    corrected box, ‖δ‖_∞ ≤ max_c (1/std_c) ≈ 4.4, and δ corresponds to a
+    valid renderable pixel image.
     """
+    device = W_eff.device
+    dtype = W_eff.dtype
     n = W_eff.shape[1]
-    swing = (margin - (out_true[target] - out_true[source])).item()
-    if swing <= 0:
-        return torch.zeros(n, dtype=W_eff.dtype, device=W_eff.device)
 
-    constraint = W_eff[target] - W_eff[source]
+    swing = float(margin - (out_true[target] - out_true[source]).item())
+    if swing <= 0:
+        return torch.zeros(n, dtype=dtype, device=device)
+
+    constraint = W_eff[target] - W_eff[source]                              # (n,)
     abs_c = constraint.abs()
-    k = int(abs_c.argmax().item())
-    c_k = constraint[k].item()
-    if abs(c_k) < 1e-12:
+
+    # Per-coord pixel value: x is CHW-flat (3·H·W,), 50176 coords per channel.
+    n_per_channel = n // 3
+    if n_per_channel * 3 != n:
         raise RuntimeError(
-            f"Constraint vector (W[t]-W[s]) is effectively zero: |c|_max={abs(c_k):.3e}"
+            f"Expected n divisible by 3 (CHW input); got n={n}. "
+            f"This solver assumes 3-channel inputs."
+        )
+    mean_t = torch.tensor(IMAGENET_MEAN, dtype=dtype, device=device)
+    std_t = torch.tensor(IMAGENET_STD, dtype=dtype, device=device)
+    coord_idx = torch.arange(n, device=device)
+    channel = coord_idx // n_per_channel                                    # 0..2
+    mean_per_coord = mean_t[channel]
+    std_per_coord = std_t[channel]
+
+    x_pixel = x_flat * std_per_coord + mean_per_coord                       # ≈ [0, 1]
+    # Clamp pos_max/neg_max ≥ 0 to absorb float-noise where x_pixel slips
+    # outside [0, 1] by epsilon (numerical inverse of the Normalize transform).
+    pos_max = ((1.0 - x_pixel) / std_per_coord).clamp(min=0)                # +δ cap
+    neg_max = (x_pixel / std_per_coord).clamp(min=0)                        # |-δ cap|
+
+    # Helpful displacement magnitude per coord (always ≥ 0):
+    helpful_disp = torch.where(constraint >= 0, pos_max, neg_max)
+    max_contribution = abs_c * helpful_disp                                 # ≥ 0
+
+    # Sort coords by |c| descending; greedy fill until cumsum reaches swing.
+    sorted_abs_c, sorted_idx = abs_c.sort(descending=True)
+    sorted_max_contrib = max_contribution[sorted_idx]
+    cumsum = sorted_max_contrib.cumsum(dim=0)
+
+    total_possible = float(cumsum[-1].item())
+    if total_possible < swing:
+        raise RuntimeError(
+            f"Box-constrained LP infeasible: max swing achievable in [0,1]-"
+            f"pixel box is {total_possible:.3e}, but (margin - logit_gap) "
+            f"requires {swing:.3e}. Either decrease --margin, or accept that "
+            f"this (source={source}, target={target}) pair cannot be flipped "
+            f"within the linearization."
         )
 
-    delta = torch.zeros(n, dtype=W_eff.dtype, device=W_eff.device)
-    delta[k] = swing / c_k
+    # First k where cumsum[k] ≥ swing. searchsorted returns the leftmost
+    # insertion point i such that cumsum[i-1] < swing ≤ cumsum[i].
+    k = int(torch.searchsorted(
+        cumsum, torch.tensor(swing, dtype=dtype, device=device)
+    ).item())
+
+    delta = torch.zeros(n, dtype=dtype, device=device)
+
+    # Coords sorted_idx[:k] are fully saturated in helpful direction.
+    if k > 0:
+        full_idx = sorted_idx[:k]
+        sign_full = torch.where(
+            constraint[full_idx] >= 0,
+            torch.ones_like(constraint[full_idx]),
+            -torch.ones_like(constraint[full_idx]),
+        )
+        delta[full_idx] = sign_full * helpful_disp[full_idx]
+
+    # Coord sorted_idx[k] is partially saturated to deliver the leftover.
+    delivered_so_far = float(cumsum[k - 1].item()) if k > 0 else 0.0
+    leftover = swing - delivered_so_far
+    if leftover > 0:
+        partial_i = int(sorted_idx[k].item())
+        c_partial = float(constraint[partial_i].item())
+        abs_c_partial = abs(c_partial)
+        if abs_c_partial < 1e-12:
+            # Should not happen given total_possible ≥ swing, but guard.
+            raise RuntimeError(
+                f"Greedy fill landed on a |c|=0 coord with leftover={leftover:.3e}. "
+                f"This indicates a numerical bug in cumsum/searchsorted alignment."
+            )
+        partial_disp = leftover / abs_c_partial
+        delta[partial_i] = partial_disp if c_partial > 0 else -partial_disp
+
     return delta
 
 
