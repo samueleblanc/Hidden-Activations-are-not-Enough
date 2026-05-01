@@ -70,14 +70,27 @@ for PATCH_NAME in neuralteleportation_pytorch2_compat.patch neuralteleportation_
 done
 cd "$ORIGINAL_CWD"
 
-# Copy GoogLeNetCOB module
+# Install GoogLeNetCOB module (idempotent + race-safe).
+# Issue under concurrent SLURM array tasks: vanilla `cp` failed with "File
+# exists" — typically caused by a `cp -i` alias on Compute Canada systems
+# that turns plain `cp` into interactive mode (non-tty → fail). Plus three
+# array tasks racing on the same destination amplifies the surface.
+#
+# Fix: cmp-then-cp. If the destination already matches the source byte-for-
+# byte, skip the cp entirely. Otherwise force-overwrite via `command cp -f`,
+# which bypasses any shell alias and explicitly removes the destination
+# first if it's read-only or held by another writer.
 GOOGLENET_SRC="$SCRIPT_DIR/googlenetcob.py"
 GOOGLENET_DST="$SITE_PACKAGES/models/model_zoo/googlenetcob.py"
 if [ ! -f "$GOOGLENET_SRC" ]; then
     echo "ERROR: googlenetcob.py not found at $GOOGLENET_SRC"
     exit 1
 fi
-echo "Installing googlenetcob.py at: $GOOGLENET_DST"
-cp "$GOOGLENET_SRC" "$GOOGLENET_DST"
+if [ -f "$GOOGLENET_DST" ] && cmp -s "$GOOGLENET_SRC" "$GOOGLENET_DST"; then
+    echo "googlenetcob.py already installed (identical at $GOOGLENET_DST)"
+else
+    echo "Installing googlenetcob.py at: $GOOGLENET_DST"
+    command cp -f "$GOOGLENET_SRC" "$GOOGLENET_DST"
+fi
 
 echo "Done."
