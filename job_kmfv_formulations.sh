@@ -4,9 +4,15 @@
 # manifest. Per-arch W_eff is (1000, 150529) fp32 ≈ 600 MB; the LP and
 # Jacobian-sensitivity steps hold W_eff in memory plus solver/gradient
 # intermediates. Mem bumped 32G → 48G to absorb the 3-arch fp32 W_eff plus
-# solver intermediates. Time held at 1h (20 samples per arch; both steps
-# are per-sample).
-#SBATCH --time=01:00:00
+# solver intermediates.
+#
+# Time bumped 1h → 4h after job 13073434 timed out at 1h with zero LPs
+# completed. Closed-form LP (no scipy.linprog) makes the LP itself ~ms,
+# but W_eff extraction on resnet152 was likely the bottleneck. 4h gives
+# headroom for: 27 W_eff extractions × ~2-5min each + the LP/post work.
+# If we again see a timeout with the per-stage timing prints in stdout,
+# that pinpoints the slow path for the next fix.
+#SBATCH --time=04:00:00
 #SBATCH --gpus=h100:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=48G

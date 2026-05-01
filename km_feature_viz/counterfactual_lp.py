@@ -1,15 +1,13 @@
-"""Step 05: LP counterfactual via the patched extract_weff API."""
+"""Step 05: closed-form L1 counterfactual via the patched extract_weff API."""
 import argparse
 import inspect
 import json
 import logging
 import sys
+import time
 from pathlib import Path
 from typing import Tuple
 
-import numpy as np
-import scipy
-import scipy.optimize
 import torch
 from knowledgematrix.matrix_computer import KnowledgeMatrixComputer
 
@@ -47,38 +45,36 @@ def solve_l1_lp(
     target: int,
     margin: float,
 ) -> torch.Tensor:
-    """Solve  min ||delta||_1  s.t.  (W[t] - W[s]) . delta >= m - (f[t] - f[s]).
+    """Closed-form L1-minimal direction satisfying  ⟨c, δ⟩ ≥ swing,  no box.
 
-    No box constraint on (x + delta): the returned delta is the L1-minimal
-    direction in input-space that, *within the source's linear region*,
-    achieves the target margin. It is a mathematical direction in M(x)-space
-    (analogous to a logit-lens projection), not a valid pixel-space
-    perturbation. Whether x + delta stays in the source's linear region is
-    a separate question, answered by the caller via in_region().
+    For c = W_eff[t] - W_eff[s] and swing = margin - (f[t] - f[s]):
+      * swing ≤ 0 ⇒ δ = 0 is feasible and optimal.
+      * swing > 0 ⇒ optimum is single-coordinate:  δ_k = swing / c_k,  where
+        k = argmax |c|, and all other coords are 0. Then ‖δ‖₁ = swing/|c_k|;
+        any other choice has a strictly larger L1 cost (1/|c_j| ≥ 1/|c_k|).
 
-    Without the box, the LP is trivially feasible whenever (W[t] - W[s]) is
-    not the zero vector — the closed-form optimum is delta = (swing / |c_k|)
-    e_k, k = argmax |c|. We still solve it via linprog so the same code path
-    handles edge cases (swing <= 0 ⇒ delta = 0).
+    Equivalent to the LP `min ‖δ‖₁ s.t. ⟨c, δ⟩ ≥ swing` solved previously via
+    scipy.optimize.linprog with the L1 doubling trick. Closed form is O(n)
+    on GPU vs. scipy presolve/simplex bookkeeping over 2n=~300k variables —
+    the LP solver was the bottleneck of the prior 1-hour SLURM timeout.
     """
     n = W_eff.shape[1]
     swing = (margin - (out_true[target] - out_true[source])).item()
-    constraint = (W_eff[target] - W_eff[source]).cpu().numpy()
+    if swing <= 0:
+        return torch.zeros(n, dtype=W_eff.dtype, device=W_eff.device)
 
-    # L1 trick: delta = delta+ - delta-, both >= 0.
-    # Variables: [delta+ (n), delta- (n)]. Objective: sum(delta+ + delta-).
-    c = np.ones(2 * n)
-    A_ub = -np.concatenate([constraint, -constraint]).reshape(1, 2 * n)
-    b_ub = np.array([-swing])
-    bounds = [(0, None)] * (2 * n)
+    constraint = W_eff[target] - W_eff[source]
+    abs_c = constraint.abs()
+    k = int(abs_c.argmax().item())
+    c_k = constraint[k].item()
+    if abs(c_k) < 1e-12:
+        raise RuntimeError(
+            f"Constraint vector (W[t]-W[s]) is effectively zero: |c|_max={abs(c_k):.3e}"
+        )
 
-    _scipy_version = tuple(int(v) for v in scipy.__version__.split(".")[:2])
-    lp_method = "highs" if _scipy_version >= (1, 7) else "interior-point"
-    res = scipy.optimize.linprog(c, A_ub=A_ub, b_ub=b_ub, bounds=bounds, method=lp_method)
-    if not res.success:
-        raise RuntimeError(f"LP infeasible: {res.message}")
-    delta = res.x[:n] - res.x[n:]
-    return torch.from_numpy(delta).to(W_eff.dtype)
+    delta = torch.zeros(n, dtype=W_eff.dtype, device=W_eff.device)
+    delta[k] = swing / c_k
+    return delta
 
 
 def collect_activation_pattern(model, x: torch.Tensor) -> dict:
@@ -141,16 +137,29 @@ def main() -> int:
     n_attempted = 0
     n_success = 0
 
+    print(f"counterfactual_lp: {len(by_model_class)} (model, class) groups; "
+          f"{len(completed)} prior completed", flush=True)
+
+    last_model = None
     for (model_name, source_class), samples in by_model_class.items():
-        model = build_model(model_name, args.device)
+        if model_name != last_model:
+            t0 = time.perf_counter()
+            model = build_model(model_name, args.device)
+            print(f"  built {model_name}: {time.perf_counter() - t0:.1f}s",
+                  flush=True)
+            last_model = model_name
+
         for e in samples[: args.n_source_images]:
             # W_eff extraction is the expensive part — wrap it separately so
             # we don't recompute for each target. If it fails, skip the whole
             # source image; if LP fails for one target, continue to the next.
             try:
                 x = load_image(e.image_path).to(args.device)
+                t0 = time.perf_counter()
                 W_eff, b_eff = extract_weff_and_beff(model, x)
                 out_true = model.forward(x).flatten()
+                weff_t = time.perf_counter() - t0
+                print(f"  W_eff for {sample_key(e)}: {weff_t:.1f}s", flush=True)
             except Exception as exc:
                 state.log_error(
                     paths.errors_path(), step="05_counterfactual",
@@ -168,10 +177,12 @@ def main() -> int:
                     continue
                 n_attempted += 1
                 try:
+                    t_lp = time.perf_counter()
                     delta = solve_l1_lp(
                         W_eff, b_eff, x.flatten(), out_true,
                         source=source_class, target=target, margin=args.margin,
                     )
+                    lp_t = time.perf_counter() - t_lp
                     # No clamp: x_perturbed = x + delta is reported in the
                     # same input-space coordinate frame as x, but is not
                     # constrained to [0,1]. Clamping would silently re-introduce
@@ -179,9 +190,11 @@ def main() -> int:
                     # region_ok misleading. The caller interprets delta as a
                     # mathematical direction (logit-lens-style), not a pixel
                     # perturbation.
+                    t_post = time.perf_counter()
                     x_perturbed = (x.flatten() + delta).reshape(x.shape)
                     region_ok = in_region(model, x, x_perturbed)
                     new_logits = model.forward(x_perturbed).flatten()
+                    post_t = time.perf_counter() - t_post
                     out_path = paths.counterfactual_path(
                         model_name, source_class, e.image_id, target=target
                     )
@@ -198,7 +211,9 @@ def main() -> int:
                         json.dump(payload, f, indent=2)
                     state.mark_completed(paths.state_path("05_counterfactual"), key)
                     n_success += 1
-                    logger.info("done %s", key)
+                    print(f"    done {key}  lp={lp_t*1000:.1f}ms  "
+                          f"post={post_t:.2f}s  region_ok={region_ok}",
+                          flush=True)
                 except Exception as exc:
                     state.log_error(
                         paths.errors_path(), step="05_counterfactual",
@@ -206,9 +221,12 @@ def main() -> int:
                         error_type=type(exc).__name__, message=str(exc),
                         tb=state.capture_traceback(),
                     )
-        del model
-        if args.device.startswith("cuda"):
-            torch.cuda.empty_cache()
+        # Note: we DON'T del model after every (model, class) group — we keep
+        # it alive across all classes of the same arch (3 classes per arch),
+        # avoiding 2 redundant rebuilds per arch. Only del when arch changes.
+    del model
+    if args.device.startswith("cuda"):
+        torch.cuda.empty_cache()
 
     print(f"counterfactual_lp: {n_success}/{n_attempted} succeeded "
           f"(prior completed: {len(completed)})", flush=True)
