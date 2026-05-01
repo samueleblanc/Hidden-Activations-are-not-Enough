@@ -31,7 +31,18 @@
 
 set -euo pipefail
 
-VENV_PATH="${1:-./env}"
+VENV_PATH_RAW="${1:-./env}"
+if [ ! -d "$VENV_PATH_RAW" ]; then
+    echo "ERROR: venv directory not found: $VENV_PATH_RAW"
+    echo "Install with: python -m venv $VENV_PATH_RAW && pip install -r requirements-slurm.txt"
+    exit 1
+fi
+# Canonicalize to absolute path. The patch loop below does `cd $SITE_PACKAGES/..`
+# once per iteration; keeping VENV_PATH absolute makes that resolve correctly
+# regardless of the loop's cumulative cwd state. (Previous bug: relative
+# VENV_PATH → second iteration's cd resolved against the post-first-iter cwd
+# → "No such file or directory" → set -e killed the script.)
+VENV_PATH="$(cd "$VENV_PATH_RAW" && pwd)"
 SITE_PACKAGES="$VENV_PATH/lib/python3.11/site-packages/neuralteleportation"
 
 if [ ! -d "$SITE_PACKAGES" ]; then
@@ -41,8 +52,10 @@ if [ ! -d "$SITE_PACKAGES" ]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ORIGINAL_CWD="$(pwd)"
 
-# Apply text patches
+# Apply text patches. Restore cwd at the end so the caller's relative paths
+# (e.g., job_teleportation.sh's downstream commands) still resolve.
 for PATCH_NAME in neuralteleportation_pytorch2_compat.patch neuralteleportation_parallel_branch.patch; do
     PATCH_FILE="$SCRIPT_DIR/$PATCH_NAME"
     if [ ! -f "$PATCH_FILE" ]; then
@@ -55,6 +68,7 @@ for PATCH_NAME in neuralteleportation_pytorch2_compat.patch neuralteleportation_
         echo "Patch may have already been applied. Continuing."
     }
 done
+cd "$ORIGINAL_CWD"
 
 # Copy GoogLeNetCOB module
 GOOGLENET_SRC="$SCRIPT_DIR/googlenetcob.py"
