@@ -78,12 +78,17 @@ A_FILES=(
     "experiments/googlenet_imagenet/isomorphism/isomorphism_results.json"
 )
 
-# Step B: Teleportation (non-BN VGG — vgg11_bn COB drifts, see teleportation_experiment.py)
-B_NAMES=("resnet18" "vgg11" "resnet50")
+# Step B: Teleportation — Pillar-3 archs (matches Step C and D-line, matches
+# job_teleportation.sh's ARCHITECTURES). resnet18/vgg11/resnet50 results from
+# the pre-migration pipeline are intentionally unreferenced; the paper uses
+# only the Pillar-3 trio across all three pillars for consistency.
+# Library extensions (parallel-branch patch + googlenetcob.py) verified safe
+# to rel diff < 1e-6 in commit 369c9dc.
+B_NAMES=("resnet152" "densenet121" "googlenet")
 B_FILES=(
-    "results/teleportation/resnet18_imagenet_teleportation.json"
-    "results/teleportation/vgg11_imagenet_teleportation.json"
-    "results/teleportation/resnet50_imagenet_teleportation.json"
+    "results/teleportation/resnet152_imagenet_teleportation.json"
+    "results/teleportation/densenet121_imagenet_teleportation.json"
+    "results/teleportation/googlenet_imagenet_teleportation.json"
 )
 
 # Step C: Theorem 4.5 — Pillar 3 archs (matches Step B / D-line; commit 369c9dc)
@@ -188,7 +193,7 @@ echo "  [2] ${A_NAMES[2]}: NOT_SUPPORTED (concat topology — see Step B)"
 echo ""
 
 echo "Step B: Teleportation"
-for i in 0 1 2; do
+for i in "${!B_NAMES[@]}"; do
     if [ -f "${B_FILES[$i]}" ]; then
         B_STATUS[$i]="done"
         echo "  [$i] ${B_NAMES[$i]}: DONE"
