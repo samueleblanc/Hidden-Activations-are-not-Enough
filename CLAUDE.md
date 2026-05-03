@@ -7,7 +7,7 @@ Research implementation of "Hidden Activations Are Not Enough: A General Approac
 - **Language:** Python 3.11 + Bash (Slurm job scripts)
 - **Cluster:** Compute Canada Alliance HPC (Rorqual, H100 GPUs)
 - **License:** Apache 2.0
-- **Key dependencies:** torch 2.2.2, torchvision 0.17.2, torchattacks 3.5.1, knowledgematrix (git+samueleblanc@0d26c7a), scikit-learn 1.3.2, scipy 1.10.1, neuralteleportation (for teleportation experiment)
+- **Key dependencies:** torch 2.2.2, torchvision 0.17.2, torchattacks 3.5.1, knowledgematrix (git+MarcoArmenta/knowledgematrix-cluster@fe64a13 — Pillar-3 fork; pinned in `requirements-{slurm,local}.txt`), scikit-learn 1.3.2, scipy 1.10.1, neuralteleportation (for teleportation experiment)
 
 ## TMLR Resubmission Direction
 
@@ -117,7 +117,7 @@ The `neuralteleportation` library requires patches for PyTorch 2.x compatibility
 - **Virtual env:** `env/` (created via `python -m venv env`)
 - **Cluster deps:** `requirements-slurm.txt` (torch 2.2.2)
 - **Local deps:** `requirements-local.txt` (torch 2.6.0)
-- **Key packages:** knowledgematrix (`git+samueleblanc@0d26c7a`), neuralteleportation (with patches)
+- **Key packages:** knowledgematrix (`git+MarcoArmenta/knowledgematrix-cluster@fe64a13` — Pillar-3 fork stacking `extract_weff` + `densenet121` + `googlenet` + `resnet152` PRs), neuralteleportation (with patches)
 
 ## Legacy Code
 

@@ -10,7 +10,7 @@ mkdir -p $SLURM_SUBMIT_DIR/slurm_out
 mkdir -p $SLURM_SUBMIT_DIR/slurm_err
 
 # Map array task ID to experiment
-EXPERIMENTS=("alexnet_imagenet" "resnet_imagenet" "vgg_imagenet")
+EXPERIMENTS=("resnet152_imagenet" "densenet121_imagenet" "googlenet_imagenet")
 EXPERIMENT=${EXPERIMENTS[$SLURM_ARRAY_TASK_ID]}
 
 echo "Step C aggregation: $EXPERIMENT (task $SLURM_ARRAY_TASK_ID)"

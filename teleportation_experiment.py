@@ -34,6 +34,18 @@ from neuralteleportation.models.model_zoo.vggcob import (
     vgg11COB, vgg13COB, vgg16COB, vgg19COB,
     vgg11_bnCOB, vgg13_bnCOB, vgg16_bnCOB, vgg19_bnCOB,
 )
+from neuralteleportation.models.model_zoo.densenetcob import (
+    densenet121COB, densenet161COB, densenet169COB, densenet201COB,
+)
+# GoogLeNet COB is supplied by the local patch. It is installed into the
+# neuralteleportation package by patches/apply_neuralteleportation_patches.sh
+# (see patches/googlenetcob.py for the source). Wrap the import in try/except
+# so a clear error surfaces if patches were not applied.
+try:
+    from neuralteleportation.models.model_zoo.googlenetcob import GoogLeNetCOB
+except ImportError as e:
+    GoogLeNetCOB = None
+    _GOOGLENETCOB_IMPORT_ERROR = e
 
 
 # ---------------------------------------------------------------------------
@@ -41,19 +53,24 @@ from neuralteleportation.models.model_zoo.vggcob import (
 # ---------------------------------------------------------------------------
 
 ARCHITECTURES = {
-    'resnet18':  {'factory': resnet18COB,  'penultimate_dim': 512,  'family': 'resnet'},
-    'resnet34':  {'factory': resnet34COB,  'penultimate_dim': 512,  'family': 'resnet'},
-    'resnet50':  {'factory': resnet50COB,  'penultimate_dim': 2048, 'family': 'resnet'},
-    'resnet101': {'factory': resnet101COB, 'penultimate_dim': 2048, 'family': 'resnet'},
-    'resnet152': {'factory': resnet152COB, 'penultimate_dim': 2048, 'family': 'resnet'},
-    'vgg11':     {'factory': vgg11COB,     'penultimate_dim': 4096, 'family': 'vgg'},
-    'vgg13':     {'factory': vgg13COB,     'penultimate_dim': 4096, 'family': 'vgg'},
-    'vgg16':     {'factory': vgg16COB,     'penultimate_dim': 4096, 'family': 'vgg'},
-    'vgg19':     {'factory': vgg19COB,     'penultimate_dim': 4096, 'family': 'vgg'},
-    'vgg11_bn':  {'factory': vgg11_bnCOB,  'penultimate_dim': 4096, 'family': 'vgg'},
-    'vgg13_bn':  {'factory': vgg13_bnCOB,  'penultimate_dim': 4096, 'family': 'vgg'},
-    'vgg16_bn':  {'factory': vgg16_bnCOB,  'penultimate_dim': 4096, 'family': 'vgg'},
-    'vgg19_bn':  {'factory': vgg19_bnCOB,  'penultimate_dim': 4096, 'family': 'vgg'},
+    'resnet18':    {'factory': resnet18COB,    'penultimate_dim': 512,  'family': 'resnet'},
+    'resnet34':    {'factory': resnet34COB,    'penultimate_dim': 512,  'family': 'resnet'},
+    'resnet50':    {'factory': resnet50COB,    'penultimate_dim': 2048, 'family': 'resnet'},
+    'resnet101':   {'factory': resnet101COB,   'penultimate_dim': 2048, 'family': 'resnet'},
+    'resnet152':   {'factory': resnet152COB,   'penultimate_dim': 2048, 'family': 'resnet'},
+    'vgg11':       {'factory': vgg11COB,       'penultimate_dim': 4096, 'family': 'vgg'},
+    'vgg13':       {'factory': vgg13COB,       'penultimate_dim': 4096, 'family': 'vgg'},
+    'vgg16':       {'factory': vgg16COB,       'penultimate_dim': 4096, 'family': 'vgg'},
+    'vgg19':       {'factory': vgg19COB,       'penultimate_dim': 4096, 'family': 'vgg'},
+    'vgg11_bn':    {'factory': vgg11_bnCOB,    'penultimate_dim': 4096, 'family': 'vgg'},
+    'vgg13_bn':    {'factory': vgg13_bnCOB,    'penultimate_dim': 4096, 'family': 'vgg'},
+    'vgg16_bn':    {'factory': vgg16_bnCOB,    'penultimate_dim': 4096, 'family': 'vgg'},
+    'vgg19_bn':    {'factory': vgg19_bnCOB,    'penultimate_dim': 4096, 'family': 'vgg'},
+    'densenet121': {'factory': densenet121COB, 'penultimate_dim': 1024, 'family': 'densenet'},
+    'densenet161': {'factory': densenet161COB, 'penultimate_dim': 2208, 'family': 'densenet'},
+    'densenet169': {'factory': densenet169COB, 'penultimate_dim': 1664, 'family': 'densenet'},
+    'densenet201': {'factory': densenet201COB, 'penultimate_dim': 1920, 'family': 'densenet'},
+    'googlenet':   {'factory': GoogLeNetCOB,   'penultimate_dim': 1024, 'family': 'googlenet'},
 }
 
 NUM_CLASSES = {'cifar10': 10, 'cifar100': 100, 'tiny_imagenet': 200, 'imagenet': 1000}
@@ -78,10 +95,23 @@ def create_model(arch_name, num_classes):
 
     Raises:
         KeyError: If arch_name is not in ARCHITECTURES.
+        RuntimeError: If GoogLeNetCOB was requested but the patch is not
+            installed (patches/apply_neuralteleportation_patches.sh).
     """
     config = ARCHITECTURES[arch_name]
-    model = config['factory'](pretrained=False, num_classes=num_classes)
-    return model
+    factory = config['factory']
+    if factory is None and arch_name == 'googlenet':
+        raise RuntimeError(
+            "GoogLeNetCOB is not available — run "
+            "`bash patches/apply_neuralteleportation_patches.sh` to install "
+            "the local GoogLeNet COB module."
+        ) from globals().get('_GOOGLENETCOB_IMPORT_ERROR', None)
+    if config['family'] == 'googlenet':
+        # GoogLeNetCOB takes (num_classes=, init_weights=) — match torchvision
+        # state-dict layout by skipping the random init since pretrained
+        # weights are loaded right after.
+        return factory(num_classes=num_classes, init_weights=False)
+    return factory(pretrained=False, num_classes=num_classes)
 
 
 # ---------------------------------------------------------------------------
@@ -91,8 +121,10 @@ def create_model(arch_name, num_classes):
 class PenultimateExtractor:
     """Extract penultimate-layer activations via a forward hook.
 
-    ResNets: hooks on avgpool -> flatten -> (batch, channels)
-    VGGs: hooks on classifier[4] (ReLU after 2nd-to-last Linear) -> (batch, 4096)
+    ResNets:    hooks on avgpool -> flatten -> (batch, channels)
+    VGGs:       hooks on classifier[4] (ReLU after 2nd-to-last Linear) -> (batch, 4096)
+    DenseNets:  hooks on adaptive_avg_pool2d -> flatten -> (batch, num_features)
+    GoogLeNet:  hooks on avgpool -> flatten -> (batch, 1024)
     """
 
     def __init__(self, model, arch_name):
@@ -102,6 +134,12 @@ class PenultimateExtractor:
             target = model.avgpool
         elif config['family'] == 'vgg':
             target = model.classifier[4]
+        elif config['family'] == 'densenet':
+            # DenseNetCOB exposes the post-pool layer as `adaptive_avg_pool2d`
+            target = model.adaptive_avg_pool2d
+        elif config['family'] == 'googlenet':
+            # GoogLeNetCOB exposes `avgpool` (AdaptiveAvgPool2dCOB((1,1)))
+            target = model.avgpool
         else:
             raise ValueError(f"Unknown architecture family: {config['family']}")
         self._hook = target.register_forward_hook(self._capture)
@@ -372,9 +410,29 @@ def run_experiment(args):
             'vgg16': tv_models.vgg16, 'vgg19': tv_models.vgg19,
             'vgg11_bn': tv_models.vgg11_bn, 'vgg13_bn': tv_models.vgg13_bn,
             'vgg16_bn': tv_models.vgg16_bn, 'vgg19_bn': tv_models.vgg19_bn,
+            'densenet121': tv_models.densenet121,
+            'densenet161': tv_models.densenet161,
+            'densenet169': tv_models.densenet169,
+            'densenet201': tv_models.densenet201,
+            'googlenet': tv_models.googlenet,
         }
-        tv_model = tv_factory[arch_name](weights='DEFAULT')
-        model.load_state_dict(tv_model.state_dict())
+        if arch_name == 'googlenet':
+            # torchvision insists aux_logits=True with pretrained weights;
+            # we set transform_input=False to match the dataset normalization
+            # used elsewhere in this repo. Then strip the aux classifiers
+            # and filter their state-dict keys before loading into the
+            # GoogLeNetCOB (which never has aux classifiers).
+            tv_model = tv_factory[arch_name](weights='DEFAULT',
+                                             transform_input=False)
+            tv_model.aux_logits = False
+            tv_model.aux1 = None
+            tv_model.aux2 = None
+            sd = {k: v for k, v in tv_model.state_dict().items()
+                  if not k.startswith('aux1.') and not k.startswith('aux2.')}
+            model.load_state_dict(sd, strict=True)
+        else:
+            tv_model = tv_factory[arch_name](weights='DEFAULT')
+            model.load_state_dict(tv_model.state_dict())
         print(f"  Using pretrained torchvision weights for {arch_name}",
               flush=True)
     else:
