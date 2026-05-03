@@ -149,6 +149,9 @@ def solve_l1_lp(
     k = int(torch.searchsorted(
         cumsum, torch.tensor(swing, dtype=dtype, device=device)
     ).item())
+    # The total_possible >= swing check above uses Python floats while
+    # searchsorted compares in dtype; FP noise at the boundary can yield k = n.
+    k = min(k, n - 1)
 
     delta = torch.zeros(n, dtype=dtype, device=device)
 
@@ -328,9 +331,10 @@ def main() -> int:
         # Note: we DON'T del model after every (model, class) group — we keep
         # it alive across all classes of the same arch (3 classes per arch),
         # avoiding 2 redundant rebuilds per arch. Only del when arch changes.
-    del model
-    if args.device.startswith("cuda"):
-        torch.cuda.empty_cache()
+    if "model" in locals():
+        del model
+        if args.device.startswith("cuda"):
+            torch.cuda.empty_cache()
 
     print(f"counterfactual_lp: {n_success}/{n_attempted} succeeded "
           f"(prior completed: {len(completed)})", flush=True)

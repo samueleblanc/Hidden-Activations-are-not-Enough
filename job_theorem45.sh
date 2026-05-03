@@ -10,7 +10,7 @@
 # Pillar 3 alignment (TMLR resubmission): Step C now estimates γ for the same
 # three architectures used by Pillar 3 KM-feature-viz (commit 9e5e9f4) and
 # Steps A/B. ResNet152's KM is ~2× the size of ResNet18's; bumped to
-# 8h/96G/h100:1 to match the larger memory profile of the new model set.
+# 16h/96G/h100:1 to match the larger memory profile of the new model set.
 
 mkdir -p $SLURM_SUBMIT_DIR/slurm_out
 mkdir -p $SLURM_SUBMIT_DIR/slurm_err
