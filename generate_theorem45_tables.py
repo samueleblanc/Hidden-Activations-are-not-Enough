@@ -14,8 +14,15 @@ from argparse import ArgumentParser
 
 from constants.constants import ATTACKS
 
-ARCH_DISPLAY = {'alexnet': 'AlexNet', 'resnet': 'ResNet', 'vgg': 'VGG', 'lenet': 'LeNet'}
-DATASET_DISPLAY = {'cifar10': 'CIFAR-10', 'cifar100': 'CIFAR-100'}
+ARCH_DISPLAY = {
+    'resnet152':   'ResNet152',
+    'densenet121': 'DenseNet121',
+    'googlenet':   'GoogLeNet',
+    # Legacy (may appear in old JSONs):
+    'alexnet': 'AlexNet', 'resnet': 'ResNet', 'vgg': 'VGG', 'lenet': 'LeNet',
+}
+DATASET_DISPLAY = {'cifar10': 'CIFAR-10', 'cifar100': 'CIFAR-100',
+                   'imagenet': 'ImageNet'}
 
 
 def format_arch(exp_name):
@@ -82,8 +89,12 @@ def generate_theorem45_table(experiments: list, output_dir: Path):
         for atk in attack_order:
             r = per_attack[atk]
             gamma = r['gamma_empirical']
-            amp_M = r['amplification_M_median']
-            amp_h = r['amplification_h_median']
+            # Headline cells: mean ± SD (heavy-tailed; the JSON also carries
+            # median + IQR for an alternative robust presentation).
+            amp_M = r.get('amplification_M_mean', r['amplification_M_median'])
+            amp_h = r.get('amplification_h_mean', r['amplification_h_median'])
+            amp_M_std = r.get('amplification_M_std')
+            amp_h_std = r.get('amplification_h_std')
             ratio = amp_M / amp_h if amp_h > 1e-12 else float('inf')
             gamma_ci = r.get('gamma_ci_95', [None, None])
 
@@ -92,13 +103,18 @@ def generate_theorem45_table(experiments: list, output_dir: Path):
             if ratio > 1.0:
                 ratio_s = f"\\textbf{{{ratio_s}}}"
 
+            amp_M_s = (f"{amp_M:.2f} $\\pm$ {amp_M_std:.2f}"
+                       if amp_M_std is not None else f"{amp_M:.2f}")
+            amp_h_s = (f"{amp_h:.2f} $\\pm$ {amp_h_std:.2f}"
+                       if amp_h_std is not None else f"{amp_h:.2f}")
+
             ci_s = f"[{gamma_ci[0]:.3f}, {gamma_ci[1]:.3f}]" if gamma_ci[0] is not None and gamma_ci[1] is not None else "---"
             lines.append(
-                f"{escape_latex(atk)} & {gamma:.3f} & {amp_M:.2f} & "
-                f"{amp_h:.2f} & {ratio_s} & {ci_s} \\\\"
+                f"{escape_latex(atk)} & {gamma:.3f} & {amp_M_s} & "
+                f"{amp_h_s} & {ratio_s} & {ci_s} \\\\"
             )
 
-        # Aggregate row
+        # Aggregate row — mean ± SD across attacks
         agg = data.get('aggregate', {})
         if agg:
             lines.append(r"\midrule")
@@ -109,8 +125,18 @@ def generate_theorem45_table(experiments: list, output_dir: Path):
             r_s = f"{r_mh:.2f}" if r_mh is not None else "---"
             if r_mh is not None and r_mh > 1.0:
                 r_s = f"\\textbf{{{r_s}}}"
+            # Cross-attack SD on the per-attack means
+            attack_means_M = [per_attack[a].get('amplification_M_mean',
+                                                 per_attack[a]['amplification_M_median'])
+                              for a in attack_order]
+            attack_means_h = [per_attack[a].get('amplification_h_mean',
+                                                 per_attack[a]['amplification_h_median'])
+                              for a in attack_order]
+            mM_std = float(np.std(attack_means_M)) if attack_means_M else 0.0
+            mh_std = float(np.std(attack_means_h)) if attack_means_h else 0.0
             lines.append(
-                f"Overall & {g:.3f} & {mM:.2f} & {mh:.2f} & {r_s} & --- \\\\"
+                f"Overall & {g:.3f} & {mM:.2f} $\\pm$ {mM_std:.2f} "
+                f"& {mh:.2f} $\\pm$ {mh_std:.2f} & {r_s} & --- \\\\"
             )
 
         lines += [
@@ -169,9 +195,9 @@ def generate_theorem45_table(experiments: list, output_dir: Path):
 def main():
     parser = ArgumentParser(description="Generate Theorem 4.5 LaTeX tables")
     parser.add_argument("--experiments", nargs="+",
-                        default=["alexnet_cifar10", "resnet_cifar10",
-                                 "resnet_cifar100", "vgg_cifar100"],
-                        help="Experiment names to include")
+                        default=["resnet152_imagenet", "densenet121_imagenet",
+                                 "googlenet_imagenet"],
+                        help="Experiment names to include (default: 3 main archs)")
     parser.add_argument("--output", type=str, default="tables",
                         help="Output directory for LaTeX files")
     args = parser.parse_args()

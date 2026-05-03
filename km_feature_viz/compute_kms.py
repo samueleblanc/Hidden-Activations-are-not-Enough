@@ -182,6 +182,9 @@ def main() -> int:
                         help="Only run these model names (default: all in manifest)")
     parser.add_argument("--state-suffix", default=None,
                         help="Suffix appended to the state-file step name (e.g., 'resnet152')")
+    parser.add_argument("--smoke", action="store_true",
+                        help="Smoke-test mode: process only the first manifest entry "
+                             "for each model. Verifies pipeline runs end-to-end.")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
@@ -189,6 +192,24 @@ def main() -> int:
     entries = read_manifest(args.manifest)
     if args.limit_models is not None:
         entries = [e for e in entries if e.model in args.limit_models]
+    if args.smoke:
+        # Keep only the first entry per model.
+        seen = set()
+        smoke_entries = []
+        for e in entries:
+            if e.model not in seen:
+                seen.add(e.model)
+                smoke_entries.append(e)
+        entries = smoke_entries
+        # Force a separate state suffix so smoke runs don't pollute real-run
+        # state files (which would cause the cluster to silently skip these
+        # entries on a subsequent full run with the same repo).
+        if args.state_suffix is None:
+            args.state_suffix = "smoke"
+        elif "smoke" not in args.state_suffix:
+            args.state_suffix = f"{args.state_suffix}_smoke"
+        logger.info("SMOKE MODE: limited to %d entries (1/model); state-suffix=%s",
+                    len(entries), args.state_suffix)
     state_file = paths.state_path(state_step_name(args.state_suffix))
     completed = state.load_completed(state_file)
     todo = [e for e in entries if sample_key(e) not in completed]

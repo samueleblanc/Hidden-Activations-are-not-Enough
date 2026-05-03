@@ -221,6 +221,23 @@ def compute_normalized_distances(feats_orig, feats_teleported):
     return (l2_per_sample / (dim ** 0.5)).numpy()
 
 
+def linear_cka(X, Y):
+    """Linear Centered Kernel Alignment (Kornblith et al. 2019), Gram form.
+
+    Returns a scalar in [0, 1]. CKA = 1 iff the two representations are equal
+    up to an orthogonal transformation. Under `neuralteleportation`'s positive-
+    diagonal COB, CKA < 1 (the COB is not orthogonal), so this column captures
+    the gap between L2 drift (huge) and the strongest pre-baseline metric in
+    the rep-similarity literature.
+    """
+    Xc = X - X.mean(0, keepdim=True)
+    Yc = Y - Y.mean(0, keepdim=True)
+    cross = Xc.T @ Yc
+    num = (cross * cross).sum()
+    den = ((Xc.T @ Xc).norm() * (Yc.T @ Yc).norm()).clamp_min(1e-30)
+    return float((num / den).item())
+
+
 # ---------------------------------------------------------------------------
 # Dataset loading
 # ---------------------------------------------------------------------------
@@ -362,12 +379,14 @@ def run_single_teleportation(model, arch_name, input_shape, splits,
     for split_name, data in splits.items():
         feats_tp = extractor.extract(model_tp, data)
         distances = compute_normalized_distances(orig_feats[split_name], feats_tp)
+        cka = linear_cka(orig_feats[split_name].double(), feats_tp.double())
         result[split_name] = {
             'mean': float(np.mean(distances)),
             'std': float(np.std(distances)),
             'min': float(np.min(distances)),
             'max': float(np.max(distances)),
             'per_sample': distances.tolist(),
+            'cka_linear': cka,
         }
 
     extractor.remove()
@@ -496,6 +515,9 @@ def run_experiment(args):
     aggregate = {}
     for split_name in ['train', 'test', 'random']:
         means = [r[split_name]['mean'] for r in per_teleportation]
+        ckas = [r[split_name].get('cka_linear', float('nan'))
+                for r in per_teleportation]
+        cka_dist = [1.0 - c for c in ckas]
         all_samples = []
         for r in per_teleportation:
             all_samples.extend(r[split_name]['per_sample'])
@@ -504,6 +526,10 @@ def run_experiment(args):
             'std_of_means': float(np.std(means)),
             'overall_mean': float(np.mean(all_samples)),
             'overall_std': float(np.std(all_samples)),
+            'cka_linear_mean': float(np.mean(ckas)),
+            'cka_linear_std': float(np.std(ckas)),
+            'cka_linear_1m_mean': float(np.mean(cka_dist)),
+            'cka_linear_1m_std': float(np.std(cka_dist)),
         }
 
     # Print summary
@@ -560,11 +586,19 @@ def parse_args():
     weights_group.add_argument('--pretrained', action='store_true',
                                help="Use torchvision pretrained weights.")
     parser.add_argument('--num_teleportations', type=int, default=100)
-    parser.add_argument('--num_samples', type=int, default=500)
+    parser.add_argument('--num_samples', type=int, default=1000)
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--output_dir', type=str, default='results/teleportation')
     parser.add_argument('--data_dir', type=str, default='data')
-    return parser.parse_args()
+    parser.add_argument('--smoke', action='store_true',
+                        help='Smoke-test mode: 3 teleportations, 10 samples/split. '
+                             'Verifies CKA + SD aggregation paths execute (need >=3 '
+                             'teleports for SD to be non-trivial).')
+    args = parser.parse_args()
+    if args.smoke:
+        args.num_teleportations = 3
+        args.num_samples = 10
+    return args
 
 
 if __name__ == '__main__':

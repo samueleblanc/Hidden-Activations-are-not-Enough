@@ -32,16 +32,27 @@ source env/bin/activate
 
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
+# May 2026 scale-up: N bumped 200 -> 500 to tighten gamma CI on the
+# headline cell. DeepFool/resnet152 stays at N=200 (already capped at
+# 100 steps via _RESNET152_OVERRIDES; N=500 would exceed Nibi's 24h
+# gpubackfill limit). 17 of 18 (exp, attack) cells run N=500.
+NUM_SAMPLES=500
+if [ "$EXPERIMENT" = "resnet152_imagenet" ] && [ "$ATTACK" = "DeepFool" ]; then
+    NUM_SAMPLES=200
+    echo "  Using N=$NUM_SAMPLES (resnet152/DeepFool capped per time budget)"
+fi
+
 python validate_theorem45.py \
     --experiment $EXPERIMENT \
     --attacks $ATTACK \
-    --num_samples 200 \
+    --num_samples $NUM_SAMPLES \
     --matrix_batch_size 1024 \
     --no-aggregate
 # matrix_batch_size: 1800 caused Step A OOM with TWO models, but Step C
 # only holds one model — 1024 fits comfortably under 80 GB on H100 and is
 # ~4× faster than 256. The previous 256 ran resnet152 in 6h per attack;
 # DeepFool (200 steps × 200 samples) timed out at 8h. 1024 brings DeepFool
-# under 4h on resnet152, with 12h SLURM budget for safety margin.
+# under 4h on resnet152. May 2026 scale-up uses 16h budget for N=500
+# across the 17 non-capped cells.
 
 echo "Task $SLURM_ARRAY_TASK_ID ($EXPERIMENT / $ATTACK) completed"

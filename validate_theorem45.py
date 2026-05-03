@@ -595,6 +595,12 @@ def validate_theorem45(experiment_name, num_samples=200, attacks=None,
             'amplification_h_median': float(np.median(ratio_h)),
             'amplification_M_mean': float(np.mean(ratio_M)),
             'amplification_h_mean': float(np.mean(ratio_h)),
+            'amplification_M_std': float(np.std(ratio_M)),
+            'amplification_h_std': float(np.std(ratio_h)),
+            'amplification_M_iqr': [float(np.percentile(ratio_M, 25)),
+                                     float(np.percentile(ratio_M, 75))],
+            'amplification_h_iqr': [float(np.percentile(ratio_h, 25)),
+                                     float(np.percentile(ratio_h, 75))],
             'd_M_stats': _stats(d_M_v),
             'd_h_stats': _stats(d_h_v),
             'd_f_stats': _stats(d_f_v),
@@ -712,8 +718,10 @@ def parse_args():
         help="Experiment name (key in DEFAULT_EXPERIMENTS)."
     )
     parser.add_argument(
-        "--num_samples", type=int, default=200,
-        help="Number of test samples to use (per attack)."
+        "--num_samples", type=int, default=500,
+        help="Number of test samples to use (per attack). May 2026 default "
+             "bumped 200 -> 500 to tighten gamma CI; DeepFool-on-resnet152 "
+             "may need a per-attack override (see _RESNET152_OVERRIDES)."
     )
     parser.add_argument(
         "--attacks", nargs="+", default=None,
@@ -739,7 +747,17 @@ def parse_args():
              "and skip the checkpoint + final results write. Use for "
              "concurrent SLURM array tasks; follow up with --aggregate."
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--smoke", action="store_true",
+        help="Smoke-test mode: 5 samples, attacks=[FGSM, PGD] only. "
+             "Verifies pipeline runs end-to-end on laptop in ~3 minutes."
+    )
+    args = parser.parse_args()
+    if args.smoke:
+        args.num_samples = 5
+        if args.attacks is None:
+            args.attacks = ["FGSM", "PGD"]
+    return args
 
 
 def aggregate_theorem45(experiment_name, num_samples=200):

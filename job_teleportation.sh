@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --array=0-2
-#SBATCH --time=08:00:00
+#SBATCH --time=18:00:00
 #SBATCH --gpus=h100:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=192G
@@ -28,6 +28,9 @@ mkdir -p $SLURM_SUBMIT_DIR/slurm_err
 # Sizing rationale (matches job_kmfv_kms.sh): full ImageNet val pass with
 # 100 teleportations on resnet152 and densenet121 needs ~3-4h on H100 with
 # 192G CPU RAM (CPU memory holds the per-teleportation feature matrices).
+# May 2026 scale-up: N bumped 500 -> 1000 samples/split, time 8h -> 18h
+# linearly, to tighten between-teleport SD on the headline cell.
+# Also adds linear CKA column per the May 2026 Pillar 1B reframing.
 ARCHITECTURES=("resnet152" "densenet121" "googlenet")
 ARCH=${ARCHITECTURES[$SLURM_ARRAY_TASK_ID]}
 
@@ -47,7 +50,7 @@ python teleportation_experiment.py \
     --dataset imagenet \
     --pretrained \
     --num_teleportations 100 \
-    --num_samples 500 \
+    --num_samples 1000 \
     --data_dir /datashare/imagenet/ILSVRC2012
 
 echo "Task $SLURM_ARRAY_TASK_ID ($ARCH) completed"
