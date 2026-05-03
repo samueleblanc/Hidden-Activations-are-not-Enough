@@ -6,9 +6,12 @@
 # Phase 2: Submit only the SLURM jobs that are still needed
 #
 # Steps:
-#   A: Isomorphism    (job_isomorphism.sh,  array 0-0 — only resnet152)
 #   B: Teleportation  (job_teleportation.sh, array 0-2)
 #   C: Theorem 4.5    (job_theorem45.sh,    array 0-2)
+#
+# Note: Step A (random neuron permutation isomorphism) was dropped from the
+# new TMLR direction; Pillar 1 evidence comes entirely from teleportation
+# (Step B). The old script lives at legacy/isomorphism_experiment.py.
 #
 # Usage:
 #   bash run_pipeline.sh              # Scan and submit
@@ -69,14 +72,6 @@ python -m km_feature_viz.manifest_cli \
 echo ""
 
 # ---- Task definitions ----
-
-# Step A: Isomorphism — Pillar 3 archs (matches Step B / D-line; commit 369c9dc)
-A_NAMES=("resnet152_imagenet" "densenet121_imagenet" "googlenet_imagenet")
-A_FILES=(
-    "experiments/resnet152_imagenet/isomorphism/isomorphism_results.json"
-    "experiments/densenet121_imagenet/isomorphism/isomorphism_results.json"
-    "experiments/googlenet_imagenet/isomorphism/isomorphism_results.json"
-)
 
 # Step B: Teleportation — Pillar-3 archs (matches Step C and D-line, matches
 # job_teleportation.sh's ARCHITECTURES). resnet18/vgg11/resnet50 results from
@@ -165,32 +160,10 @@ print(len(d))
 " 2>/dev/null || echo 0
 }
 
-A_NEEDED=()
 B_NEEDED=()
 C_NEEDED=()
 
-declare -a A_STATUS B_STATUS C_STATUS
-
-echo "Step A: Isomorphism"
-# Only index 0 (resnet152) is runnable; densenet121 and googlenet are
-# documented as NOT_SUPPORTED in Step A — Pillar-1 evidence on those archs
-# comes from Step B (teleportation). See job_isomorphism.sh and
-# isomorphism_experiment.py:_STEP_A_UNSUPPORTED_MODELS for the rationale.
-for i in 0; do
-    if [ -f "${A_FILES[$i]}" ]; then
-        A_STATUS[$i]="done"
-        echo "  [$i] ${A_NAMES[$i]}: DONE"
-    else
-        A_STATUS[$i]="pending"
-        A_NEEDED+=("$i")
-        echo "  [$i] ${A_NAMES[$i]}: PENDING"
-    fi
-done
-A_STATUS[1]="not_supported"
-A_STATUS[2]="not_supported"
-echo "  [1] ${A_NAMES[1]}: NOT_SUPPORTED (concat topology — see Step B)"
-echo "  [2] ${A_NAMES[2]}: NOT_SUPPORTED (concat topology — see Step B)"
-echo ""
+declare -a B_STATUS C_STATUS
 
 echo "Step B: Teleportation"
 for i in "${!B_NAMES[@]}"; do
@@ -383,11 +356,9 @@ D2_SUB=$([ "$D2_NEEDED" = true ] && echo "yes" || echo "none")
 D4_SUB=$([ "$D4_NEEDED" = true ] && echo "yes" || echo "none")
 D5_SUB=$([ "$D5_NEEDED" = true ] && echo "yes" || echo "none")
 
-A_ARRAY_STR=""
 B_ARRAY_STR=""
 C_ATTACK_ARRAY_STR=""
 C_AGG_ARRAY_STR=""
-[ ${#A_NEEDED[@]} -gt 0 ] && A_ARRAY_STR=$(join_array "${A_NEEDED[@]}")
 [ ${#B_NEEDED[@]} -gt 0 ] && B_ARRAY_STR=$(join_array "${B_NEEDED[@]}")
 [ ${#C_ATTACK_TASKS[@]} -gt 0 ] && C_ATTACK_ARRAY_STR=$(join_array "${C_ATTACK_TASKS[@]}")
 [ ${#C_EXPS_NEEDING_FINAL_AGG[@]} -gt 0 ] && C_AGG_ARRAY_STR=$(join_array "${C_EXPS_NEEDING_FINAL_AGG[@]}")
@@ -397,11 +368,6 @@ TMP_FILE="${STATE_FILE}.tmp"
 
 printf '%s\n' '{
   "timestamp": "'"$TIMESTAMP"'",
-  "step_A_isomorphism": {
-    "0_'"${A_NAMES[0]}"'": "'"${A_STATUS[0]}"'",
-    "1_'"${A_NAMES[1]}"'": "'"${A_STATUS[1]}"'",
-    "2_'"${A_NAMES[2]}"'": "'"${A_STATUS[2]}"'"
-  },
   "step_B_teleportation": {
     "0_'"${B_NAMES[0]}"'": "'"${B_STATUS[0]}"'",
     "1_'"${B_NAMES[1]}"'": "'"${B_STATUS[1]}"'",
@@ -426,7 +392,6 @@ printf '%s\n' '{
   "step_D4_formulations": "'"$D4_STATUS"'",
   "step_D5_bundle": "'"$D5_STATUS"'",
   "submitted": {
-    "step_A": "'"${A_ARRAY_STR:-none}"'",
     "step_B": "'"${B_ARRAY_STR:-none}"'",
     "step_C_attacks": "'"${C_ATTACK_ARRAY_STR:-none}"'",
     "step_C_aggregate": "'"${C_AGG_ARRAY_STR:-none}"'",
@@ -449,11 +414,10 @@ C_TOTAL_JOBS=$(( ${#C_ATTACK_TASKS[@]} + ${#C_EXPS_NEEDING_FINAL_AGG[@]} ))
 D2_JOBS=$([ "$D2_NEEDED" = true ] && echo 1 || echo 0)
 D4_JOBS=$([ "$D4_NEEDED" = true ] && echo 1 || echo 0)
 D5_JOBS=$([ "$D5_NEEDED" = true ] && echo 1 || echo 0)
-TOTAL_NEEDED=$(( ${#A_NEEDED[@]} + ${#B_NEEDED[@]} + C_TOTAL_JOBS \
+TOTAL_NEEDED=$(( ${#B_NEEDED[@]} + C_TOTAL_JOBS \
                 + ${#D1_NEEDED[@]} + D2_JOBS + ${#D3_NEEDED[@]} + D4_JOBS + D5_JOBS ))
 
-# Count fully-done workstreams (atomic): A(1) + B(3) + C(3) + D1(1) + D2(1) + D3(1) + D4(1) + D5(1) = 12.
-# A is scored 1 (resnet152 only — densenet121/googlenet are NOT_SUPPORTED).
+# Count fully-done workstreams (atomic): B(3) + C(3) + D1(1) + D2(1) + D3(1) + D4(1) + D5(1) = 11.
 # B/C are scored per-experiment; D1/D3 are scored 1 iff ALL models done.
 C_DONE=0
 for i in 0 1 2; do [ "${C_STATUS[$i]}" = "done" ] && C_DONE=$((C_DONE + 1)); done
@@ -462,11 +426,11 @@ D3_DONE=$([ ${#D3_NEEDED[@]} -eq 0 ] && echo 1 || echo 0)
 D2_DONE=$([ "$D2_STATUS" = "done" ] && echo 1 || echo 0)
 D4_DONE=$([ "$D4_STATUS" = "done" ] && echo 1 || echo 0)
 D5_DONE=$([ "$D5_STATUS" = "done" ] && echo 1 || echo 0)
-TOTAL_DONE=$(( 1 - ${#A_NEEDED[@]} + 3 - ${#B_NEEDED[@]} + C_DONE \
+TOTAL_DONE=$(( 3 - ${#B_NEEDED[@]} + C_DONE \
               + D1_DONE + D2_DONE + D3_DONE + D4_DONE + D5_DONE ))
 
 echo "========================================"
-echo "  SUMMARY: $TOTAL_DONE/12 done, $TOTAL_NEEDED jobs to submit"
+echo "  SUMMARY: $TOTAL_DONE/11 done, $TOTAL_NEEDED jobs to submit"
 if [ ${#C_ATTACK_TASKS[@]} -gt 0 ]; then
     echo "  Step C: ${#C_ATTACK_TASKS[@]} per-attack jobs"
 fi
@@ -482,7 +446,7 @@ echo "========================================"
 echo ""
 
 if [ "$TOTAL_NEEDED" -eq 0 ]; then
-    echo "All 12 tasks are complete. Nothing to submit."
+    echo "All 11 tasks are complete. Nothing to submit."
     exit 0
 fi
 
@@ -502,7 +466,6 @@ build_d5_dep_dryrun() {
 
 if [ "$DRY_RUN" = true ]; then
     echo "[DRY RUN] Would submit (account=$ACCOUNT):"
-    [ ${#A_NEEDED[@]} -gt 0 ] && echo "  sbatch --account=$ACCOUNT --array=$A_ARRAY_STR job_isomorphism.sh"
     [ ${#B_NEEDED[@]} -gt 0 ] && echo "  sbatch --account=$ACCOUNT --array=$B_ARRAY_STR job_teleportation.sh"
     [ ${#C_ATTACK_TASKS[@]} -gt 0 ] && echo "  sbatch --account=$ACCOUNT --array=$C_ATTACK_ARRAY_STR job_theorem45.sh"
     if [ ${#C_EXPS_NEEDING_FINAL_AGG[@]} -gt 0 ]; then
@@ -535,11 +498,6 @@ fi
 
 echo "Submitting SLURM jobs (account=$ACCOUNT)..."
 echo ""
-
-if [ ${#A_NEEDED[@]} -gt 0 ]; then
-    echo "  Step A (Isomorphism):  --array=$A_ARRAY_STR"
-    sbatch --account="$ACCOUNT" --array="$A_ARRAY_STR" job_isomorphism.sh
-fi
 
 if [ ${#B_NEEDED[@]} -gt 0 ]; then
     echo "  Step B (Teleportation): --array=$B_ARRAY_STR"
