@@ -103,6 +103,49 @@ def list_checkpoints(arch: str) -> List[str]:
 # KM-wrapper loading (alternate weights) + completeness check
 # =====================================================================
 
+def _stratified_remap(arch: str, ckpt_alias: str,
+                      km_sd: Dict[str, torch.Tensor],
+                      src_sd: Dict[str, torch.Tensor]
+                      ) -> Dict[str, torch.Tensor]:
+    """Stratified positional remap: KM stores skip projections in a separate
+    ``residual_modules`` ModuleList while torchvision/timm interleave them
+    inline as ``layerN.M.downsample.*``. Splitting both state-dicts into
+    main + residual strata and zipping each stratum positionally aligns the
+    parameters correctly, where a flat zip mis-aligns at every stage
+    transition.
+    """
+    km_main = {k: v for k, v in km_sd.items()
+               if not k.startswith("residual_modules.")}
+    km_resid = {k: v for k, v in km_sd.items()
+                if k.startswith("residual_modules.")}
+    src_main = {k: v for k, v in src_sd.items() if "downsample" not in k}
+    src_resid = {k: v for k, v in src_sd.items() if "downsample" in k}
+
+    if len(km_main) != len(src_main) or len(km_resid) != len(src_resid):
+        raise RuntimeError(
+            f"Stratum cardinality mismatch for {arch}/{ckpt_alias}: "
+            f"main km={len(km_main)} src={len(src_main)}; "
+            f"residual km={len(km_resid)} src={len(src_resid)}. "
+            f"May indicate a sub-architecture mismatch (extra BNs, different "
+            f"skip-projection convention) — investigate before forcing."
+        )
+
+    remapped: Dict[str, torch.Tensor] = {}
+    for stratum, km_keys, src_keys in (
+        ("main", km_main, src_main),
+        ("residual", km_resid, src_resid),
+    ):
+        for (mk, mv), (sk, sv) in zip(km_keys.items(), src_keys.items()):
+            if mv.shape != sv.shape:
+                raise RuntimeError(
+                    f"Shape mismatch in {stratum} stratum during remap of "
+                    f"{arch}/{ckpt_alias}: KM[{mk}]={tuple(mv.shape)} "
+                    f"vs src[{sk}]={tuple(sv.shape)}"
+                )
+            remapped[mk] = sv
+    return remapped
+
+
 def build_km_model_with_alt_weights(arch: str, ckpt_alias: str,
                                     device: str) -> nn.Module:
     """Build the KM-wrapper model and load ALTERNATE pretrained weights.
@@ -111,8 +154,11 @@ def build_km_model_with_alt_weights(arch: str, ckpt_alias: str,
       1. Build the KM-wrapper (loads its default-pretrained weights, usually
          torchvision V1).
       2. Build the source model (torchvision/timm) per the registry.
-      3. Positionally remap source state_dict into the KM wrapper layout
-         (mirrors utils/utils.py:_remap_state_dict_keys for VGG11).
+      3. Stratified remap (see ``_stratified_remap``): main params zip with
+         main src params; residual-projection params zip with src downsample
+         params. This correctly handles ResNets, where KM stores residual
+         projections in a separate ``residual_modules`` ModuleList while
+         torchvision/timm interleave them inline.
       4. load_state_dict(remapped, strict=True) — abort on mismatch.
       5. Caller must verify M(x).sum(1) == f(x) before trusting.
 
@@ -142,26 +188,9 @@ def build_km_model_with_alt_weights(arch: str, ckpt_alias: str,
     logger.info("Loading alternate source: %s (%s)", ckpt_alias, recipe_desc)
     src_model = factory().eval()
 
-    # Positional remap (mirrors utils/utils.py:_remap_state_dict_keys)
     km_sd = km_model.state_dict()
     src_sd = src_model.state_dict()
-
-    if len(km_sd) != len(src_sd):
-        raise RuntimeError(
-            f"State-dict cardinality mismatch for {arch}/{ckpt_alias}: "
-            f"KM wrapper has {len(km_sd)} params, source has {len(src_sd)}. "
-            f"This may indicate a different sub-architecture (e.g. timm "
-            f"variants with extra BN layers) — investigate before forcing."
-        )
-
-    remapped = {}
-    for (mk, mv), (sk, sv) in zip(km_sd.items(), src_sd.items()):
-        if mv.shape != sv.shape:
-            raise RuntimeError(
-                f"Shape mismatch during remap of {arch}/{ckpt_alias}: "
-                f"KM[{mk}]={tuple(mv.shape)} vs src[{sk}]={tuple(sv.shape)}"
-            )
-        remapped[mk] = sv
+    remapped = _stratified_remap(arch, ckpt_alias, km_sd, src_sd)
 
     missing, unexpected = km_model.load_state_dict(remapped, strict=False)
     if missing or unexpected:
@@ -170,10 +199,20 @@ def build_km_model_with_alt_weights(arch: str, ckpt_alias: str,
             f"unexpected={unexpected[:5]}"
         )
 
-    # KM library tucks residual projections in plain Python lists; move them.
+    # KM library's residual storage is bifurcated: state_dict reads
+    # ``residual_modules`` (auto-created projections), but forward uses
+    # ``residuals`` (a plain dict referencing the actual downsample
+    # submodules — swapped in at resnet152.py:148-152). load_state_dict
+    # updates the former; copy those weights into the latter so forward
+    # actually sees the loaded src weights.
+    rm_iter = iter(getattr(km_model, "residual_modules", []))
     for entries in getattr(km_model, "residuals", {}).values():
         for _start, projection in entries:
             for sub in projection:
+                if isinstance(sub, nn.Identity):
+                    continue
+                rm_module = next(rm_iter)
+                sub.load_state_dict(rm_module.state_dict())
                 sub.to(device)
 
     del src_model

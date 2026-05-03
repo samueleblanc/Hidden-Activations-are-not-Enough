@@ -45,3 +45,4 @@ chardet==4.0.0
 mnist1d==0.0.2.post1
 git+https://github.com/MarcoArmenta/knowledgematrix-cluster.git@fe64a13ea49f2a1405f1f95de1b59676a8fecadb
 captum==0.7.0
+timm==1.0.20

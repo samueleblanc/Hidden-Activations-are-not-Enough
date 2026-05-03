@@ -30,3 +30,4 @@ tables_alexnet_cifar10/
 CLAUDE.md
 cluster-commands.sh
 commands-cluster.sh
+cluster-fix-step-e.sh
