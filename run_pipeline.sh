@@ -6,18 +6,21 @@
 # Phase 2: Submit only the SLURM jobs that are still needed
 #
 # Steps:
-#   B: Teleportation       (job_teleportation.sh, array 0-2)
-#   C: Theorem 4.5         (job_theorem45.sh,    array 0-17 + agg)
-#   D: km-feature-viz      (5 sub-steps, D1-D5; D4 deps on D1, D5 deps on D1-D4)
-#   E: Cross-model         (job_cross_model.sh, array 0-10; pre-flight verify
-#                           on login node first)
+#   B: Teleportation       (Pillar 1, job_teleportation.sh, array 0-2)
+#   C: Theorem 4.5         (Pillar 2, job_theorem45.sh,    array 0-17 + agg)
+#   E: Cross-model         (Pillar 3, job_cross_model.sh,  array 0-10;
+#                           pre-flight verify on login node first)
 #
-# Note: Step A (random neuron permutation isomorphism) was dropped from the
-# new TMLR direction; Pillar 1 evidence comes entirely from teleportation
-# (Step B). The old script lives at legacy/isomorphism_experiment.py.
+# Note: Steps A (random neuron permutation isomorphism) and D (km-feature-viz
+# visualization comparison) were both dropped from the new TMLR direction.
+# - Step A script: legacy/isomorphism_experiment.py
+# - Step D scripts: km_feature_viz/, job_kmfv_*.sh — kept for the appendix
+#   but no longer auto-launched. Existing results in results/km-feature-viz/
+#   are preserved as appendix data; re-render via job_kmfv_*.sh manually
+#   if you need fresh appendix figures.
 #
-# All independent steps (B, C-attacks, D1, D2, D3, E) launch in parallel.
-# Dependencies: C-aggregate after C-attacks; D4 after D1; D5 after D1-D4.
+# All independent steps (B, C-attacks, E) launch in parallel.
+# Dependencies: C-aggregate after C-attacks.
 #
 # Usage:
 #   bash run_pipeline.sh              # Scan and submit
@@ -41,17 +44,10 @@ done
 TIMESTAMP=$(date -Iseconds)
 
 # ==============================================================
-# Phase 0: Inline manifest regen for km-feature-viz (D-line)
+# Phase 0: Environment setup
 # ==============================================================
-# The manifest is a deterministic listing of (model, class, image) triples
-# from the ImageNet val set; cheap (milliseconds) and CPU-only. Running it
-# inline lets Phase 1 use the manifest to count expected work counts.
-#
-# Login-node Python doesn't carry torch — auto-load the cluster modules
-# (Compute Canada `+computecanada` wheels like typing_extensions only resolve
-# when `scipy-stack` is loaded) and activate the project venv. Idempotent
-# (no-op if torch is already importable). The SLURM jobs do the same dance
-# inside each job; this block handles the orchestrator's preflight.
+# Activate the project venv (cluster + local). The SLURM jobs do the same
+# dance inside each job; this block handles the orchestrator's preflight.
 # Always prefer env/ when present — defends against system pythons that
 # happen to have torch but are too old to parse the knowledgematrix typing
 # (e.g. anaconda 3.8 on a dev laptop).
@@ -71,23 +67,12 @@ if ! python -c "import torch" >/dev/null 2>&1; then
     echo "  Then retry: bash run_pipeline.sh" >&2
     exit 1
 fi
-mkdir -p results/km-feature-viz
-if [ "$DRY_RUN" = true ]; then
-    echo "Phase 0: skipping manifest regen (--dry-run)"
-else
-    echo "Phase 0: regenerating km-feature-viz manifest..."
-    python -m km_feature_viz.manifest_cli \
-        --imagenet-root "${IMAGENET_ROOT:-/datashare/imagenet/ILSVRC2012}" \
-        --output results/km-feature-viz/manifest.json
-fi
 echo ""
 
 # ---- Task definitions ----
 
-# Step B: Teleportation — Pillar-3 archs (matches Step C and D-line, matches
-# job_teleportation.sh's ARCHITECTURES). resnet18/vgg11/resnet50 results from
-# the pre-migration pipeline are intentionally unreferenced; the paper uses
-# only the Pillar-3 trio across all three pillars for consistency.
+# Step B: Teleportation — 3 main archs (matches Step C, matches
+# job_teleportation.sh's ARCHITECTURES).
 # Library extensions (parallel-branch patch + googlenetcob.py) verified safe
 # to rel diff < 1e-6 in commit 369c9dc.
 B_NAMES=("resnet152" "densenet121" "googlenet")
@@ -97,7 +82,7 @@ B_FILES=(
     "results/teleportation/googlenet_imagenet_teleportation.json"
 )
 
-# Step C: Theorem 4.5 — Pillar 3 archs (matches Step B / D-line; commit 369c9dc)
+# Step C: Theorem 4.5 — 3 main archs (matches Step B; commit 369c9dc)
 C_NAMES=("resnet152_imagenet" "densenet121_imagenet" "googlenet_imagenet")
 C_RESULTS=(
     "experiments/resnet152_imagenet/theorem45/theorem45_results.json"
@@ -110,45 +95,7 @@ C_CHECKPOINTS=(
     "experiments/googlenet_imagenet/theorem45/theorem45_checkpoint.json"
 )
 
-# Step D: km-feature-viz (5 sub-steps) — Pillar 3 launch with 3 archs.
-# D_MODELS is the source of truth for the arch list; the bundle gate in
-# job_kmfv_bundle.sh and the MODELS arrays in job_kmfv_kms.sh /
-# job_kmfv_deepdream.sh must be kept in sync.
-D_MODELS=("resnet152" "densenet121" "googlenet")
-
-# D1: compute_kms — per-model state files, 20 entries each
-# (3 classes × 7+7+6 = 20 ImageNet-val images per arch).
-D1_STATE_FILES=(
-    "results/km-feature-viz/state/01_compute_kms_resnet152.json"
-    "results/km-feature-viz/state/01_compute_kms_densenet121.json"
-    "results/km-feature-viz/state/01_compute_kms_googlenet.json"
-)
-D1_EXPECTED=20
-
-# D2: compute_baselines — 5 per-method state files, 60 entries each
-# (#archs × #images = 3 × 20 = 60 per method).
-D2_METHODS=("gradcam" "ig" "smoothgrad" "feature_maps" "pgd")
-D2_EXPECTED=60
-
-# D3: compute_deepdream — per-model state files, 15 entries each
-# (5 selected channels × 3 layers per arch).
-D3_STATE_FILES=(
-    "results/km-feature-viz/state/03_deepdream_resnet152.json"
-    "results/km-feature-viz/state/03_deepdream_densenet121.json"
-    "results/km-feature-viz/state/03_deepdream_googlenet.json"
-)
-D3_EXPECTED=15
-
-# D4: formulations — existence-only (patch-blocked may produce empty file)
-D4_STATE_FILES=(
-    "results/km-feature-viz/state/05_counterfactual.json"
-    "results/km-feature-viz/state/06_jacobian.json"
-)
-
-# D5: bundle — single tarball at repo root
-D5_BUNDLE_PATH="km-feature-viz.tar"
-
-# Step E: Cross-model representation comparison (Pillar 3 May-2026 reframing).
+# Step E: Cross-model representation comparison (Pillar 3, May 2026 reframing).
 # All checkpoints are differently-trained (different recipes, not same-recipe
 # seed variants); see km-notes.md 2026-05-02 + paper-plan.md §1.1.
 # Pair indices match job_cross_model.sh's ALL_PAIRS array exactly.
@@ -271,86 +218,6 @@ print('true' if '$ATK' in d.get('per_attack',{}) else 'false')
 done
 echo ""
 
-# ---- D1 scan: compute_kms (per-model) ----
-declare -a D1_STATUS
-D1_NEEDED=()  # array task IDs (model indices) needing submission
-
-echo "Step D1: km-feature-viz compute_kms"
-for i in 0 1 2; do
-    COUNT=$(count_state_entries "${D1_STATE_FILES[$i]}")
-    if [ "$COUNT" -ge "$D1_EXPECTED" ]; then
-        D1_STATUS[$i]="done"
-        echo "  [$i] ${D_MODELS[$i]}: DONE (${COUNT}/${D1_EXPECTED})"
-    else
-        D1_STATUS[$i]="pending"
-        D1_NEEDED+=("$i")
-        echo "  [$i] ${D_MODELS[$i]}: ${COUNT}/${D1_EXPECTED}"
-    fi
-done
-echo ""
-
-# ---- D2 scan: compute_baselines ----
-D2_STATUS="done"
-D2_NEEDED=false
-echo "Step D2: km-feature-viz compute_baselines"
-for method in "${D2_METHODS[@]}"; do
-    F="results/km-feature-viz/state/02_${method}.json"
-    COUNT=$(count_state_entries "$F")
-    if [ "$COUNT" -lt "$D2_EXPECTED" ]; then
-        D2_STATUS="pending"
-        D2_NEEDED=true
-        echo "  ${method}: ${COUNT}/${D2_EXPECTED}"
-    else
-        echo "  ${method}: DONE (${COUNT}/${D2_EXPECTED})"
-    fi
-done
-echo ""
-
-# ---- D3 scan: compute_deepdream (per-model) ----
-declare -a D3_STATUS
-D3_NEEDED=()
-echo "Step D3: km-feature-viz compute_deepdream"
-for i in 0 1 2; do
-    COUNT=$(count_state_entries "${D3_STATE_FILES[$i]}")
-    if [ "$COUNT" -ge "$D3_EXPECTED" ]; then
-        D3_STATUS[$i]="done"
-        echo "  [$i] ${D_MODELS[$i]}: DONE (${COUNT}/${D3_EXPECTED})"
-    else
-        D3_STATUS[$i]="pending"
-        D3_NEEDED+=("$i")
-        echo "  [$i] ${D_MODELS[$i]}: ${COUNT}/${D3_EXPECTED}"
-    fi
-done
-echo ""
-
-# ---- D4 scan: formulations (existence only — patch-blocked tolerant) ----
-D4_STATUS="done"
-D4_NEEDED=false
-echo "Step D4: km-feature-viz formulations"
-for state_file in "${D4_STATE_FILES[@]}"; do
-    if [ -f "$state_file" ]; then
-        echo "  $(basename "$state_file"): EXISTS"
-    else
-        D4_STATUS="pending"
-        D4_NEEDED=true
-        echo "  $(basename "$state_file"): MISSING"
-    fi
-done
-echo ""
-
-# ---- D5 scan: bundle ----
-echo "Step D5: km-feature-viz bundle"
-if [ -f "$D5_BUNDLE_PATH" ]; then
-    D5_STATUS="done"
-    D5_NEEDED=false
-    echo "  $D5_BUNDLE_PATH: EXISTS"
-else
-    D5_STATUS="pending"
-    D5_NEEDED=true
-    echo "  $D5_BUNDLE_PATH: MISSING"
-fi
-echo ""
-
 # ---- E scan: cross-model pairs ----
 declare -a E_STATUS
 E_NEEDED=()  # candidate task IDs (pre-verify)
@@ -451,14 +318,6 @@ for i in 0 1 2; do
 done
 
 # Build D-line array strings + boolean-as-string substitutions for state JSON
-D1_ARRAY_STR=""
-D3_ARRAY_STR=""
-[ ${#D1_NEEDED[@]} -gt 0 ] && D1_ARRAY_STR=$(join_array "${D1_NEEDED[@]}")
-[ ${#D3_NEEDED[@]} -gt 0 ] && D3_ARRAY_STR=$(join_array "${D3_NEEDED[@]}")
-D2_SUB=$([ "$D2_NEEDED" = true ] && echo "yes" || echo "none")
-D4_SUB=$([ "$D4_NEEDED" = true ] && echo "yes" || echo "none")
-D5_SUB=$([ "$D5_NEEDED" = true ] && echo "yes" || echo "none")
-
 B_ARRAY_STR=""
 C_ATTACK_ARRAY_STR=""
 C_AGG_ARRAY_STR=""
@@ -483,19 +342,6 @@ printf '%s\n' '{
     "1_'"${C_NAMES[1]}"'": "'"${C_STATUS[1]}"'",
     "2_'"${C_NAMES[2]}"'": "'"${C_STATUS[2]}"'"
   },
-  "step_D1_kms": {
-    "0_'"${D_MODELS[0]}"'": "'"${D1_STATUS[0]}"'",
-    "1_'"${D_MODELS[1]}"'": "'"${D1_STATUS[1]}"'",
-    "2_'"${D_MODELS[2]}"'": "'"${D1_STATUS[2]}"'"
-  },
-  "step_D2_baselines": "'"$D2_STATUS"'",
-  "step_D3_deepdream": {
-    "0_'"${D_MODELS[0]}"'": "'"${D3_STATUS[0]}"'",
-    "1_'"${D_MODELS[1]}"'": "'"${D3_STATUS[1]}"'",
-    "2_'"${D_MODELS[2]}"'": "'"${D3_STATUS[2]}"'"
-  },
-  "step_D4_formulations": "'"$D4_STATUS"'",
-  "step_D5_bundle": "'"$D5_STATUS"'",
   "step_E_cross_model": {
     "pending": '${#E_NEEDED[@]}',
     "blocked": '${#E_BLOCKED[@]}',
@@ -505,11 +351,6 @@ printf '%s\n' '{
     "step_B": "'"${B_ARRAY_STR:-none}"'",
     "step_C_attacks": "'"${C_ATTACK_ARRAY_STR:-none}"'",
     "step_C_aggregate": "'"${C_AGG_ARRAY_STR:-none}"'",
-    "step_D1": "'"${D1_ARRAY_STR:-none}"'",
-    "step_D2": "'"$D2_SUB"'",
-    "step_D3": "'"${D3_ARRAY_STR:-none}"'",
-    "step_D4": "'"$D4_SUB"'",
-    "step_D5": "'"$D5_SUB"'",
     "step_E": "'"${E_ARRAY_STR:-none}"'"
   }
 }' > "$TMP_FILE"
@@ -522,27 +363,15 @@ echo ""
 # Phase 2: Submit
 # ==============================================================
 C_TOTAL_JOBS=$(( ${#C_ATTACK_TASKS[@]} + ${#C_EXPS_NEEDING_FINAL_AGG[@]} ))
-D2_JOBS=$([ "$D2_NEEDED" = true ] && echo 1 || echo 0)
-D4_JOBS=$([ "$D4_NEEDED" = true ] && echo 1 || echo 0)
-D5_JOBS=$([ "$D5_NEEDED" = true ] && echo 1 || echo 0)
-TOTAL_NEEDED=$(( ${#B_NEEDED[@]} + C_TOTAL_JOBS \
-                + ${#D1_NEEDED[@]} + D2_JOBS + ${#D3_NEEDED[@]} + D4_JOBS + D5_JOBS \
-                + ${#E_NEEDED[@]} ))
+TOTAL_NEEDED=$(( ${#B_NEEDED[@]} + C_TOTAL_JOBS + ${#E_NEEDED[@]} ))
 
-# Count fully-done workstreams: B(3) + C(3) + D1(1) + D2(1) + D3(1) + D4(1) + D5(1) + E(11 pairs) = 22.
-# B/C are scored per-experiment; D1/D3 are scored 1 iff ALL models done; E counts per-pair.
+# Count fully-done workstreams: B(3) + C(3) + E(11 pairs) = 17.
+# B/C are scored per-experiment; E counts per-pair.
 C_DONE=0
 for i in 0 1 2; do [ "${C_STATUS[$i]}" = "done" ] && C_DONE=$((C_DONE + 1)); done
-D1_DONE=$([ ${#D1_NEEDED[@]} -eq 0 ] && echo 1 || echo 0)
-D3_DONE=$([ ${#D3_NEEDED[@]} -eq 0 ] && echo 1 || echo 0)
-D2_DONE=$([ "$D2_STATUS" = "done" ] && echo 1 || echo 0)
-D4_DONE=$([ "$D4_STATUS" = "done" ] && echo 1 || echo 0)
-D5_DONE=$([ "$D5_STATUS" = "done" ] && echo 1 || echo 0)
 E_DONE=$(( ${#E_PAIR_SPECS[@]} - ${#E_NEEDED[@]} - ${#E_BLOCKED[@]} ))
-TOTAL_DONE=$(( 3 - ${#B_NEEDED[@]} + C_DONE \
-              + D1_DONE + D2_DONE + D3_DONE + D4_DONE + D5_DONE \
-              + E_DONE ))
-TOTAL_TASKS=$(( 3 + 3 + 1 + 1 + 1 + 1 + 1 + ${#E_PAIR_SPECS[@]} ))
+TOTAL_DONE=$(( 3 - ${#B_NEEDED[@]} + C_DONE + E_DONE ))
+TOTAL_TASKS=$(( 3 + 3 + ${#E_PAIR_SPECS[@]} ))
 
 echo "========================================"
 echo "  SUMMARY: $TOTAL_DONE/$TOTAL_TASKS done, $TOTAL_NEEDED jobs to submit"
@@ -552,11 +381,6 @@ fi
 if [ ${#C_EXPS_NEEDING_FINAL_AGG[@]} -gt 0 ]; then
     echo "  Step C: ${#C_EXPS_NEEDING_FINAL_AGG[@]} aggregation jobs"
 fi
-[ ${#D1_NEEDED[@]} -gt 0 ] && echo "  Step D1: ${#D1_NEEDED[@]} per-model jobs"
-[ "$D2_NEEDED" = true ]    && echo "  Step D2: 1 baselines job"
-[ ${#D3_NEEDED[@]} -gt 0 ] && echo "  Step D3: ${#D3_NEEDED[@]} per-model jobs"
-[ "$D4_NEEDED" = true ]    && echo "  Step D4: 1 formulations job"
-[ "$D5_NEEDED" = true ]    && echo "  Step D5: 1 bundle job"
 [ ${#E_NEEDED[@]} -gt 0 ]  && echo "  Step E: ${#E_NEEDED[@]} cross-model pair jobs"
 [ ${#E_BLOCKED[@]} -gt 0 ] && echo "  Step E: ${#E_BLOCKED[@]} pairs BLOCKED by verify failure (see results/cross_model/verify_results.json)"
 echo "========================================"
@@ -567,20 +391,6 @@ if [ "$TOTAL_NEEDED" -eq 0 ]; then
     exit 0
 fi
 
-build_d5_dep_dryrun() {
-    # Build a placeholder dep string for the dry-run banner.
-    local deps=()
-    [ ${#D1_NEEDED[@]} -gt 0 ] && deps+=("\$D1_JOB_ID")
-    [ "$D2_NEEDED" = true ]    && deps+=("\$D2_JOB_ID")
-    [ ${#D3_NEEDED[@]} -gt 0 ] && deps+=("\$D3_JOB_ID")
-    [ "$D4_NEEDED" = true ]    && deps+=("\$D4_JOB_ID")
-    if [ ${#deps[@]} -eq 0 ]; then
-        echo ""
-    else
-        local IFS=':'; echo "--dependency=afterany:${deps[*]}"
-    fi
-}
-
 if [ "$DRY_RUN" = true ]; then
     echo "[DRY RUN] Would submit (account=$ACCOUNT):"
     [ ${#B_NEEDED[@]} -gt 0 ] && echo "  sbatch --account=$ACCOUNT --array=$B_ARRAY_STR job_teleportation.sh"
@@ -590,24 +400,6 @@ if [ "$DRY_RUN" = true ]; then
             echo "  sbatch --account=$ACCOUNT --array=$C_AGG_ARRAY_STR --dependency=afterany:\$C_JOB_ID job_theorem45_agg.sh"
         else
             echo "  sbatch --account=$ACCOUNT --array=$C_AGG_ARRAY_STR job_theorem45_agg.sh"
-        fi
-    fi
-    [ ${#D1_NEEDED[@]} -gt 0 ] && echo "  sbatch --account=$ACCOUNT --array=$D1_ARRAY_STR job_kmfv_kms.sh"
-    [ "$D2_NEEDED" = true ]    && echo "  sbatch --account=$ACCOUNT job_kmfv_baselines.sh"
-    [ ${#D3_NEEDED[@]} -gt 0 ] && echo "  sbatch --account=$ACCOUNT --array=$D3_ARRAY_STR job_kmfv_deepdream.sh"
-    if [ "$D4_NEEDED" = true ]; then
-        if [ ${#D1_NEEDED[@]} -gt 0 ]; then
-            echo "  sbatch --account=$ACCOUNT --dependency=afterok:\$D1_JOB_ID job_kmfv_formulations.sh"
-        else
-            echo "  sbatch --account=$ACCOUNT job_kmfv_formulations.sh"
-        fi
-    fi
-    if [ "$D5_NEEDED" = true ]; then
-        D5_DEP=$(build_d5_dep_dryrun)
-        if [ -n "$D5_DEP" ]; then
-            echo "  sbatch --account=$ACCOUNT $D5_DEP job_kmfv_bundle.sh"
-        else
-            echo "  sbatch --account=$ACCOUNT job_kmfv_bundle.sh"
         fi
     fi
     [ ${#E_NEEDED[@]} -gt 0 ] && echo "  sbatch --account=$ACCOUNT --array=$E_ARRAY_STR job_cross_model.sh"
@@ -639,59 +431,7 @@ if [ ${#C_EXPS_NEEDING_FINAL_AGG[@]} -gt 0 ]; then
     fi
 fi
 
-# ---- D-line submissions ----
-D1_JOB_ID=""
-D2_JOB_ID=""
-D3_JOB_ID=""
-D4_JOB_ID=""
-
-if [ ${#D1_NEEDED[@]} -gt 0 ]; then
-    echo "  Step D1 (km-feature-viz kms): --array=$D1_ARRAY_STR"
-    D1_JOB_ID=$(sbatch --parsable --account="$ACCOUNT" --array="$D1_ARRAY_STR" job_kmfv_kms.sh)
-    echo "    Job ID: $D1_JOB_ID"
-fi
-
-if [ "$D2_NEEDED" = true ]; then
-    echo "  Step D2 (km-feature-viz baselines): single"
-    D2_JOB_ID=$(sbatch --parsable --account="$ACCOUNT" job_kmfv_baselines.sh)
-    echo "    Job ID: $D2_JOB_ID"
-fi
-
-if [ ${#D3_NEEDED[@]} -gt 0 ]; then
-    echo "  Step D3 (km-feature-viz deepdream): --array=$D3_ARRAY_STR"
-    D3_JOB_ID=$(sbatch --parsable --account="$ACCOUNT" --array="$D3_ARRAY_STR" job_kmfv_deepdream.sh)
-    echo "    Job ID: $D3_JOB_ID"
-fi
-
-if [ "$D4_NEEDED" = true ]; then
-    if [ -n "$D1_JOB_ID" ]; then
-        echo "  Step D4 (km-feature-viz formulations): single (after $D1_JOB_ID)"
-        D4_JOB_ID=$(sbatch --parsable --account="$ACCOUNT" --dependency=afterok:"$D1_JOB_ID" job_kmfv_formulations.sh)
-    else
-        echo "  Step D4 (km-feature-viz formulations): single"
-        D4_JOB_ID=$(sbatch --parsable --account="$ACCOUNT" job_kmfv_formulations.sh)
-    fi
-    echo "    Job ID: $D4_JOB_ID"
-fi
-
-if [ "$D5_NEEDED" = true ]; then
-    # Bundle depends (afterany) on whichever D1–D4 jobs were queued in this run.
-    D5_DEPS=()
-    [ -n "$D1_JOB_ID" ] && D5_DEPS+=("$D1_JOB_ID")
-    [ -n "$D2_JOB_ID" ] && D5_DEPS+=("$D2_JOB_ID")
-    [ -n "$D3_JOB_ID" ] && D5_DEPS+=("$D3_JOB_ID")
-    [ -n "$D4_JOB_ID" ] && D5_DEPS+=("$D4_JOB_ID")
-    if [ ${#D5_DEPS[@]} -gt 0 ]; then
-        DEP_STR="afterany:$(IFS=:; echo "${D5_DEPS[*]}")"
-        echo "  Step D5 (km-feature-viz bundle): single (--dependency=$DEP_STR)"
-        sbatch --account="$ACCOUNT" --dependency="$DEP_STR" job_kmfv_bundle.sh
-    else
-        echo "  Step D5 (km-feature-viz bundle): single"
-        sbatch --account="$ACCOUNT" job_kmfv_bundle.sh
-    fi
-fi
-
-# Step E (cross-model) — independent of B/C/D. Verify already ran on the
+# Step E (cross-model) — independent of B/C. Verify already ran on the
 # login node; E_NEEDED is filtered to runnable pairs only.
 if [ ${#E_NEEDED[@]} -gt 0 ]; then
     echo "  Step E (cross-model): --array=$E_ARRAY_STR"
