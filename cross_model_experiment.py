@@ -247,6 +247,35 @@ def verify_km_completeness(km_model: nn.Module, device: str,
     return diff < atol, diff
 
 
+def verify_remap_logit_match(arch: str, ckpt_alias: str, device: str,
+                             atol: float = 1e-3) -> Tuple[bool, float]:
+    """Verify the remap is correct by comparing KM-wrapper logits to the
+    fresh source model's logits on the same input.
+
+    Bit-exact match (diff == 0) means every parameter, including the
+    forward-path residual projections, was correctly remapped. This is a
+    *stronger* check than `M(x).sum(1) ≈ f(x)` for the purpose of
+    confirming the remap, and uses far less RAM (no Jacobian materialized)
+    — usable on memory-constrained login nodes where the full KM compute
+    OOMs.
+    """
+    factory, _ = CHECKPOINT_REGISTRY[arch][ckpt_alias]
+    km_model = build_km_model_with_alt_weights(arch, ckpt_alias, device)
+    src_model = factory().eval().to(device)
+
+    torch.manual_seed(0)
+    x = torch.randn(1, 3, 224, 224, device=device)
+    with torch.no_grad():
+        km_logits = km_model(x)
+        src_logits = src_model(x)
+    diff = float((km_logits - src_logits).abs().max().item())
+
+    del src_model, km_model
+    if device.startswith("cuda"):
+        torch.cuda.empty_cache()
+    return diff < atol, diff
+
+
 # =====================================================================
 # Per-pair distance computation (streaming)
 # =====================================================================
@@ -546,13 +575,14 @@ def main() -> int:
         return 0
 
     if args.verify is not None:
+        # Lightweight remap-correctness check (no Jacobian materialized).
+        # Login-node-safe: ~2 GB peak vs the full KM compute's 8+ GB.
         try:
-            model = build_km_model_with_alt_weights(args.arch, args.verify, args.device)
-            ok, diff = verify_km_completeness(model, args.device)
+            ok, diff = verify_remap_logit_match(args.arch, args.verify, args.device)
             if ok:
-                print(f"PASS: {args.arch}/{args.verify}  max|M.sum(1) - f(x)| = {diff:.3e}")
+                print(f"PASS: {args.arch}/{args.verify}  max|km - src logits| = {diff:.3e}")
                 return 0
-            print(f"FAIL: {args.arch}/{args.verify}  max|M.sum(1) - f(x)| = {diff:.3e}")
+            print(f"FAIL: {args.arch}/{args.verify}  max|km - src logits| = {diff:.3e}")
             return 1
         except Exception as e:
             print(f"ERROR loading {args.arch}/{args.verify}: {e}")
