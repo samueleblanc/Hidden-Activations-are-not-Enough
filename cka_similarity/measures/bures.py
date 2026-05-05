@@ -11,9 +11,22 @@ from .base import MeasureBase, MeasureResult
 
 
 def _matrix_sqrt_psd(M: torch.Tensor, eps: float = 1e-10) -> torch.Tensor:
-    """PSD matrix square root via eigendecomp; clamps negative eigenvalues to 0."""
+    """PSD matrix square root via eigendecomp; clamps negative eigenvalues to 0.
+
+    Input must be PSD up to numerical noise; small negative eigenvalues
+    (>= -eps) are silently clamped. A negative eigenvalue more negative
+    than -eps indicates the input was not PSD (a bug in the caller); we
+    warn and clamp anyway, but the output should be treated with caution.
+    """
     M = (M + M.T) / 2  # symmetrize
     eigvals, eigvecs = torch.linalg.eigh(M.double())
+    if eigvals.min() < -eps:
+        import warnings
+        warnings.warn(
+            f"_matrix_sqrt_psd: input has eigenvalue {float(eigvals.min()):.2e} < -eps; "
+            f"input may not be PSD. Clamping to {eps}.",
+            RuntimeWarning,
+        )
     eigvals = torch.clamp(eigvals, min=eps)
     return (eigvecs * eigvals.sqrt()) @ eigvecs.T
 
