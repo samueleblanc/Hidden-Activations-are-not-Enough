@@ -192,3 +192,19 @@ def test_gw_identity_zero():
     measure = GromovWasserstein(n_subsample=50, sinkhorn_reg=1e-1, max_iter=50)
     same = measure.finalize([measure.accumulate(A, A)]).value
     assert same < 0.5  # entropic GW; identity is small but not exact zero with reg
+
+
+def test_dcor_identity_unity():
+    from cka_similarity.measures.dcor import DistanceCorrelation
+    A, _ = _gen_random_pair(n=100, p1=64, p2=64, seed=55)
+    measure = DistanceCorrelation()
+    same = measure.finalize([measure.accumulate(A, A)]).value
+    assert abs(same - 1.0) < 1e-4
+
+
+def test_dcor_independent_low():
+    from cka_similarity.measures.dcor import DistanceCorrelation
+    A, B = _gen_random_pair(n=200, p1=64, p2=64, seed=56)
+    measure = DistanceCorrelation()
+    val = measure.finalize([measure.accumulate(A, B)]).value
+    assert val < 0.4
