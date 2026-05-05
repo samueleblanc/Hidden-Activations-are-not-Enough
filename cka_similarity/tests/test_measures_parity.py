@@ -76,3 +76,16 @@ def test_debiased_cka_chunked_matches_single():
     chunked = measure.finalize(chunks)
 
     assert abs(single.value - chunked.value) < 1e-4
+
+
+def test_angular_cka_matches_arccos_of_cka():
+    from cka_similarity.measures.angular_cka import AngularCKA
+    from cka_similarity.measures.cka import DebiasedLinearCKA
+    import math
+    A, B = _gen_random_pair(n=200, p1=64, p2=64, seed=44)
+
+    cka = DebiasedLinearCKA().finalize([DebiasedLinearCKA().accumulate(A, B)]).value
+    angular = AngularCKA().finalize([AngularCKA().accumulate(A, B)]).value
+
+    expected = math.acos(max(-1.0, min(1.0, cka)))
+    assert abs(angular - expected) < 1e-5
