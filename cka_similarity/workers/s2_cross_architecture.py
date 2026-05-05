@@ -59,9 +59,27 @@ def extract_km_per_sample(model, x_batch, batch_size: int):
 
 
 def pca_project(X: torch.Tensor, target_dim: int) -> torch.Tensor:
-    """Project (n, p) to (n, target_dim) via PCA on X."""
+    """Project (n, p) to (n, target_dim) via PCA on X.
+
+    Each architecture's penultimate features are projected to its OWN top
+    ``target_dim`` principal components, NOT to a joint basis. The D2
+    (PCA-padded) cross-arch convention is: both arches end in (n, target_dim)
+    space, but each in its own variance-aligned basis. This preserves each
+    arch's intrinsic structure rather than forcing a shared basis (per the
+    design spec §6.3 D2 paragraph).
+
+    A ``target_dim`` larger than the SVD's rank (i.e. ``min(n, p)``) is
+    clamped down with a warning so callers don't have to special-case
+    short chunks.
+    """
     Xc = X - X.mean(0, keepdim=True)
     U, S, Vh = torch.linalg.svd(Xc, full_matrices=False)
+    if target_dim > Vh.shape[0]:
+        print(
+            f"WARNING: pca_project target_dim={target_dim} > rank={Vh.shape[0]}; clamping",
+            flush=True,
+        )
+        target_dim = Vh.shape[0]
     return Xc @ Vh[:target_dim].T
 
 
