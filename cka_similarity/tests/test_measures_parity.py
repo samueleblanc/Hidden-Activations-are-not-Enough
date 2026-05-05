@@ -89,3 +89,23 @@ def test_angular_cka_matches_arccos_of_cka():
 
     expected = math.acos(max(-1.0, min(1.0, cka)))
     assert abs(angular - expected) < 1e-5
+
+
+def test_procrustes_sanity_identity_zero_and_random_positive():
+    """Sanity properties for orthogonal Procrustes shape distance.
+
+    netrep direct comparison is omitted because the github source install
+    was blocked in this environment; we verify identity-symmetry and
+    positivity on random unrelated matrices instead. If netrep becomes
+    available, replace with a numerical equality at atol=1e-4 against
+    netrep.metrics.LinearMetric(alpha=1.0, center_columns=True).
+    """
+    from cka_similarity.measures.procrustes import ProcrustesShapeDistance
+
+    A, B = _gen_random_pair(n=200, p1=64, p2=64, seed=45)
+
+    measure = ProcrustesShapeDistance()
+    ours = measure.finalize([measure.accumulate(A, B)]).value
+    same = measure.finalize([measure.accumulate(A, A)]).value
+    assert same < 1e-5, f"identical matrices should give 0, got {same}"
+    assert ours > 0
