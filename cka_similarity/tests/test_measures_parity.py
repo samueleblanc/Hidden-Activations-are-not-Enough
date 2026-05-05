@@ -184,3 +184,11 @@ def test_jsd_chunked_matches_single():
     ]
     chunked = measure.finalize(chunks).value
     assert abs(single - chunked) < 1e-5
+
+
+def test_gw_identity_zero():
+    from cka_similarity.measures.gromov_wasserstein import GromovWasserstein
+    A, _ = _gen_random_pair(n=50, p1=16, p2=16, seed=54)
+    measure = GromovWasserstein(n_subsample=50, sinkhorn_reg=1e-1, max_iter=50)
+    same = measure.finalize([measure.accumulate(A, A)]).value
+    assert same < 0.5  # entropic GW; identity is small but not exact zero with reg
