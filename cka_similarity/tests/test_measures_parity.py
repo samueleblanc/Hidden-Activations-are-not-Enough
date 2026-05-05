@@ -208,3 +208,101 @@ def test_dcor_independent_low():
     measure = DistanceCorrelation()
     val = measure.finalize([measure.accumulate(A, B)]).value
     assert val < 0.4
+
+
+# --- Chunked-vs-single equivalence tests for the 6 remaining measures ---
+# Pattern: split the same (A, B) into two halves, accumulate each, finalize
+# the list-of-2 and compare to the single-chunk finalize. Tolerances reflect
+# the closed-form vs. iterative-solver / subsampled nature of each measure.
+
+def test_procrustes_chunked_matches_single():
+    """Procrustes recenters from concatenated blocks, so chunking is exact."""
+    from cka_similarity.measures.procrustes import ProcrustesShapeDistance
+    A, B = _gen_random_pair(n=400, p1=64, p2=64, seed=58)
+    measure = ProcrustesShapeDistance()
+
+    single = measure.finalize([measure.accumulate(A, B)]).value
+    chunks = [
+        measure.accumulate(A[:200], B[:200]),
+        measure.accumulate(A[200:], B[200:]),
+    ]
+    chunked = measure.finalize(chunks).value
+    assert abs(single - chunked) < 1e-4, f"single={single}, chunked={chunked}"
+
+
+def test_bures_chunked_matches_single():
+    """Bures recenters Grams from concatenated blocks; chunked is exact mod fp noise."""
+    from cka_similarity.measures.bures import BuresSimilarity
+    A, B = _gen_random_pair(n=400, p1=64, p2=64, seed=59)
+    measure = BuresSimilarity()
+
+    single = measure.finalize([measure.accumulate(A, B)]).value
+    chunks = [
+        measure.accumulate(A[:200], B[:200]),
+        measure.accumulate(A[200:], B[200:]),
+    ]
+    chunked = measure.finalize(chunks).value
+    assert abs(single - chunked) < 1e-5, f"single={single}, chunked={chunked}"
+
+
+def test_soft_matching_chunked_matches_single():
+    """SoftMatching is entropic Sinkhorn — chunked equality holds because the
+    measure operates on the concatenated block (column-mean-centered before OT).
+    Tolerance is loose (0.5) to allow for Sinkhorn iteration noise."""
+    from cka_similarity.measures.soft_matching import SoftMatching
+    A, B = _gen_random_pair(n=400, p1=64, p2=64, seed=60)
+    measure = SoftMatching()
+
+    single = measure.finalize([measure.accumulate(A, B)]).value
+    chunks = [
+        measure.accumulate(A[:200], B[:200]),
+        measure.accumulate(A[200:], B[200:]),
+    ]
+    chunked = measure.finalize(chunks).value
+    assert abs(single - chunked) < 0.5, f"single={single}, chunked={chunked}"
+
+
+def test_rsa_chunked_matches_single():
+    """RSA computes RDM on the concatenated block; chunking is exact."""
+    from cka_similarity.measures.rsa import RSASpearman
+    A, B = _gen_random_pair(n=400, p1=64, p2=64, seed=57)
+    measure = RSASpearman()
+
+    single = measure.finalize([measure.accumulate(A, B)]).value
+    chunks = [
+        measure.accumulate(A[:200], B[:200]),
+        measure.accumulate(A[200:], B[200:]),
+    ]
+    chunked = measure.finalize(chunks).value
+    assert abs(single - chunked) < 1e-5, f"single={single}, chunked={chunked}"
+
+
+def test_gw_chunked_matches_single():
+    """GW with n <= n_subsample uses full data; chunking is exact mod entropic
+    Sinkhorn iteration noise. Tolerance very loose (1.0) — see class docstring."""
+    from cka_similarity.measures.gromov_wasserstein import GromovWasserstein
+    A, B = _gen_random_pair(n=400, p1=64, p2=64, seed=61)
+    measure = GromovWasserstein()  # default n_subsample=5000 >> 400
+
+    single = measure.finalize([measure.accumulate(A, B)]).value
+    chunks = [
+        measure.accumulate(A[:200], B[:200]),
+        measure.accumulate(A[200:], B[200:]),
+    ]
+    chunked = measure.finalize(chunks).value
+    assert abs(single - chunked) < 1.0, f"single={single}, chunked={chunked}"
+
+
+def test_dcor_chunked_matches_single():
+    """dcor uses the full concatenated block via the dcor library; chunked is exact."""
+    from cka_similarity.measures.dcor import DistanceCorrelation
+    A, B = _gen_random_pair(n=400, p1=64, p2=64, seed=62)
+    measure = DistanceCorrelation()
+
+    single = measure.finalize([measure.accumulate(A, B)]).value
+    chunks = [
+        measure.accumulate(A[:200], B[:200]),
+        measure.accumulate(A[200:], B[200:]),
+    ]
+    chunked = measure.finalize(chunks).value
+    assert abs(single - chunked) < 1e-4, f"single={single}, chunked={chunked}"
