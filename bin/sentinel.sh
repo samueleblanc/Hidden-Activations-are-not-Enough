@@ -5,8 +5,10 @@
 #   bash bin/sentinel.sh <job_id> <job_script> [calibration_file]
 #
 # Behavior:
-#   - System OOM (exit 137 / oom-killer): resubmit with --mem doubled
-#   - Timeout (exit 124 / "DUE TO TIME LIMIT"): resubmit with --time doubled
+#   - System OOM (exit 137 / oom-killer): resubmit with --mem (or
+#     --mem-per-cpu) doubled. Fails loudly if neither directive is present.
+#   - Timeout (exit 124 / "DUE TO TIME LIMIT"): resubmit with --time doubled.
+#     Time strings can be "HH:MM:SS" or "D-HH:MM:SS" (SLURM day form).
 #   - CUDA OOM (stderr contains "CUDA out of memory"):
 #       step calibration tier down (93->90->85); fail if already 85
 #       resubmit with same --mem/--time
@@ -67,15 +69,33 @@ double_slurm_time() {
     local t="$1"
     python3 - "$t" <<'PYEOF'
 import sys
-parts = sys.argv[1].split(':')
-if len(parts) == 2:
-    h, m, s = 0, int(parts[0]), int(parts[1])
-elif len(parts) == 3:
+arg = sys.argv[1]
+
+# SLURM accepts D-HH:MM:SS in addition to HH:MM:SS, MM:SS, MM.
+days = 0
+if '-' in arg:
+    day_part, _, rest = arg.partition('-')
+    days = int(day_part)
+    arg = rest
+
+parts = arg.split(':')
+if len(parts) == 3:
     h, m, s = int(parts[0]), int(parts[1]), int(parts[2])
+elif len(parts) == 2:
+    h, m, s = 0, int(parts[0]), int(parts[1])
 else:
     h, m, s = 0, 0, int(parts[0])
-total = (h*3600 + m*60 + s) * 2
-print(f'{total//3600:02d}:{(total%3600)//60:02d}:{total%60:02d}')
+
+total = (days*86400 + h*3600 + m*60 + s) * 2
+out_days, rem = divmod(total, 86400)
+out_h, rem = divmod(rem, 3600)
+out_m, out_s = divmod(rem, 60)
+
+# Use D-HH:MM:SS when total >= 24h, else HH:MM:SS for backward compat.
+if out_days > 0:
+    print(f'{out_days}-{out_h:02d}:{out_m:02d}:{out_s:02d}')
+else:
+    print(f'{out_h:02d}:{out_m:02d}:{out_s:02d}')
 PYEOF
 }
 
@@ -138,11 +158,27 @@ main() {
     # System OOM
     if [ "$exit_code" = "137" ] || echo "$stderr_text" | grep -qE "out-of-memory|oom-killer|MemoryError"; then
         log_error "system_oom" "exit_code=$exit_code state=$state"
+        # Look for --mem= first; fall back to --mem-per-cpu=. SLURM accepts
+        # either, and the sentinel must double whichever the script declares.
+        # Failing loudly when neither is present beats sbatch'ing with an
+        # empty --mem= arg (which silently picks the partition default).
         current_mem=$(grep -E "^#SBATCH --mem=" "$JOB_SCRIPT" | head -1 | sed 's/.*--mem=//')
-        new_mem=$(double_mem "$current_mem")
-        echo "System OOM: doubling --mem from $current_mem to $new_mem" >&2
-        sbatch --mem="$new_mem" "$JOB_SCRIPT"
-        exit 0
+        if [ -n "$current_mem" ]; then
+            new_mem=$(double_mem "$current_mem")
+            echo "System OOM: doubling --mem from $current_mem to $new_mem" >&2
+            sbatch --mem="$new_mem" "$JOB_SCRIPT"
+            exit 0
+        fi
+        current_mem=$(grep -E "^#SBATCH --mem-per-cpu=" "$JOB_SCRIPT" | head -1 | sed 's/.*--mem-per-cpu=//')
+        if [ -n "$current_mem" ]; then
+            new_mem=$(double_mem "$current_mem")
+            echo "System OOM: doubling --mem-per-cpu from $current_mem to $new_mem" >&2
+            sbatch --mem-per-cpu="$new_mem" "$JOB_SCRIPT"
+            exit 0
+        fi
+        echo "FAIL: no mem directive found in $JOB_SCRIPT -- cannot escalate memory" >&2
+        log_error "system_oom_no_mem_directive" "$JOB_SCRIPT"
+        exit 1
     fi
 
     # Timeout
