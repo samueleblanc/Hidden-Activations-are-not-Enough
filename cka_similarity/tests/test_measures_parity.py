@@ -109,3 +109,20 @@ def test_procrustes_sanity_identity_zero_and_random_positive():
     same = measure.finalize([measure.accumulate(A, A)]).value
     assert same < 1e-5, f"identical matrices should give 0, got {same}"
     assert ours > 0
+
+
+def test_bures_identity_unity():
+    from cka_similarity.measures.bures import BuresSimilarity
+    A, _ = _gen_random_pair(n=200, p1=64, p2=64, seed=46)
+    measure = BuresSimilarity()
+    same = measure.finalize([measure.accumulate(A, A)]).value
+    # Identity must give NBS = 1 (within numerical noise)
+    assert abs(same - 1.0) < 1e-4, f"identity should give 1, got {same}"
+
+
+def test_bures_in_unit_interval():
+    from cka_similarity.measures.bures import BuresSimilarity
+    A, B = _gen_random_pair(n=200, p1=64, p2=64, seed=47)
+    measure = BuresSimilarity()
+    val = measure.finalize([measure.accumulate(A, B)]).value
+    assert 0.0 <= val <= 1.0 + 1e-6
