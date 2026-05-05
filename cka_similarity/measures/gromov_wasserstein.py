@@ -27,8 +27,8 @@ class GromovWasserstein(MeasureBase):
         B = torch.cat([acc["B_block"] for acc in accumulators], dim=0)
         n = A.shape[0]
         if n > self.n_subsample:
-            torch.manual_seed(0)
-            idx = torch.randperm(n)[:self.n_subsample]
+            gen = torch.Generator().manual_seed(0)
+            idx = torch.randperm(n, generator=gen)[:self.n_subsample]
             A = A[idx]
             B = B[idx]
             n = self.n_subsample
