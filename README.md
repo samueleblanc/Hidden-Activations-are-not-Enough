@@ -214,9 +214,33 @@ python teleportation_experiment.py --architecture googlenet   --dataset imagenet
 python generate_theorem45_tables.py --experiments resnet152_imagenet densenet121_imagenet googlenet_imagenet --output tables/
 ```
 
-### Pillar 3: KM as canonical saliency (`km_feature_viz/`)
+### Pillar 3: three complementary forms
 
-Demonstrates that the per-class row of the per-input knowledge matrix `M(x)` is itself a saliency map, head-to-head against Grad-CAM, Integrated Gradients, SmoothGrad, and a PGD adversarial-perturbation column. Run end-to-end on the cluster via `run_pipeline.sh` (D1–D5 above).
+In the TMLR-resubmit framing, Pillar 3 has split into three sub-pillars, each
+with its own pipeline step and primary script:
+
+- **Pillar 3a — same-arch cross-recipe representational comparison** (Step E,
+  `cross_model_experiment.py`). Compares two independently-trained models of
+  the *same* architecture (e.g., 10 ResNet-152 cross-recipe pairs from the
+  torchvision recipe zoo + 1 DenseNet-121 pair). Demonstrates that KMs
+  separate cross-recipe reps where the standard 9-measure panel reports
+  near-identity. **In the resubmitted paper.**
+- **Pillar 3b — cross-architecture canonical comparison (NEW)** (Step F =
+  Phase 1 sub-study S2, `job_phase1_s2.sh`). Compares ResNet-152 ↔ DenseNet-121,
+  ResNet-152 ↔ GoogLeNet, DenseNet-121 ↔ GoogLeNet at $1000\times150{,}529$ on
+  $N = 25{,}000$ ImageNet samples without any dimension matching. The other
+  similarity measures either need PCA padding (CKA, Procrustes, Bures, dCor)
+  or apply natively at coarser resolution (RSA, JSD, soft-matching, GW).
+  **In the resubmitted paper.**
+- **Pillar 3c — KM as canonical saliency** (`km_feature_viz/` parallel
+  pipeline, the section below). The per-class row of $M(x)$ as a saliency
+  map vs. Grad-CAM/IG/SmoothGrad/PGD on ResNet-152, DenseNet-121, GoogLeNet.
+  **Parallel-track demonstration; not the core Pillar 3 in the TMLR
+  resubmission paper.** Preserved here as supplementary visualization.
+
+### Pillar 3c (parallel track): KM as canonical saliency (`km_feature_viz/`)
+
+Demonstrates that the per-class row of the per-input knowledge matrix `M(x)` is itself a saliency map, head-to-head against Grad-CAM, Integrated Gradients, SmoothGrad, and a PGD adversarial-perturbation column. The bundled outputs (`km-feature-viz.tar`) and rendering script (`scripts/render_km_viz.py`) remain in the repo as reference artifacts even though the orchestration step that generated them was retired (see "Recently retired" below). Existing tarballs unpack and render normally; reproducing from scratch requires invoking `km_feature_viz/compute_kms.py` etc. directly.
 
 **Architectures** (from `km_feature_viz/manifest.py:TIER_A_MODELS`):
 
@@ -245,6 +269,41 @@ python scripts/render_km_viz.py --per-class 7 --include-deepdream
 
 open results/km-feature-viz-cluster/_viewable/index.html
 ```
+
+---
+
+## Recently retired
+
+The following pipeline steps were dropped from the new direction. Their
+scripts are preserved for appendix data and historical reference:
+
+- **Step A — Random neuron permutation isomorphism** (dropped per commit
+  `59c3d6d`, "feat: CKA + SD reporting + smoke flags + N scale-up for
+  Pillar 1B/2"). The standalone Pillar-1A random-permutation isomorphism
+  experiment was superseded by the teleportation-based Pillar 1 (Step B,
+  which provides quiver-isomorphism evidence on all three Pillar-3
+  architectures, including the concat-topology ones — DenseNet-121 and
+  GoogLeNet — that don't admit a simple post-pool neuron permutation).
+  Original script: `isomorphism_experiment.py` (still present at the repo
+  root for direct invocation; no longer in the orchestrator).
+- **Step D-old — km-feature-viz visualization pillar** (dropped per
+  commit `23b118a`, "chore(run_pipeline): drop Step D (km-feature-viz
+  visualization pillar)"). The five-sub-step D1–D5 orchestration that
+  produced `km-feature-viz.tar` was removed from `run_pipeline.sh`
+  because Pillar 3 was redefined as the cross-recipe (3a) and
+  cross-architecture (3b) representational comparisons rather than the
+  saliency visualization. The `km_feature_viz/` directory and its
+  per-script entry points (`compute_kms.py`, `compute_baselines.py`,
+  `compute_deepdream.py`, `jacobian_sensitivity.py`, etc.) remain in
+  place; the gallery renderer (`scripts/render_km_viz.py`) still works
+  on existing or freshly-generated bundles. Treat as a parallel-track
+  demonstration (Pillar 3c above) rather than a paper-pillar pipeline
+  step.
+
+In both cases the sources remain on the `refactor` branch — `legacy/` for
+older training-pipeline artifacts and `km_feature_viz/` for the
+visualization stack — so any reviewer or future user can re-enable them
+locally without rewriting from scratch.
 
 ---
 
