@@ -12,8 +12,6 @@ import os
 import sys
 import json
 import time
-import math
-import tempfile
 from argparse import ArgumentParser
 from datetime import datetime
 from pathlib import Path
@@ -82,28 +80,88 @@ def probe_batch_size(model, sample_input, batch_size, device):
 
 
 def find_three_tier_batch_sizes(model, sample_input, device):
-    """Single binary-search sweep that records the largest batch size for each tier."""
+    """Single binary-search sweep that records the largest batch size for each tier.
+
+    Probes bs=64 first; if 64 itself OOMs, the GPU is unsuitable and we raise
+    rather than silently emit a calibration that downstream workers will OOM on.
+    Then probes bs=256; only enters the exponential-growth phase if 256
+    succeeded -- otherwise binary-searches [64, 256] directly.
+    """
     total_mem = torch.cuda.get_device_properties(device).total_memory
     targets = {tier: int(total_mem * frac) for tier, frac in TIER_FRACTIONS.items()}
 
-    # Phase 1: exponential growth to find an upper bound
-    bs = 256
-    best = {tier: (64, 0) for tier in TIERS}  # (batch_size, peak_mem)
-    while True:
-        success, peak = probe_batch_size(model, sample_input, bs, device)
-        if not success:
-            print(f"  bs={bs}: OOM", flush=True)
-            break
-        for tier in TIERS:
-            if peak <= targets[tier] and bs > best[tier][0]:
-                best[tier] = (bs, peak)
-        if peak > targets["93"]:
-            print(f"  bs={bs}: over all targets (peak={peak/1e9:.2f}GB)", flush=True)
-            break
-        print(f"  bs={bs}: ok (peak={peak/1e9:.2f}GB, {peak/total_mem*100:.1f}%)", flush=True)
-        bs *= 2
+    # Sanity probe: bs=64 must succeed. If not, the GPU cannot run any
+    # downstream worker and we should fail loudly instead of returning
+    # bs=64 with peak=0 which would OOM at runtime.
+    arch_name = getattr(model, "__class__", type(model)).__name__
+    success_64, peak_64 = probe_batch_size(model, sample_input, 64, device)
+    if not success_64:
+        raise RuntimeError(
+            f"calibration failed: bs=64 OOMs on {arch_name}; GPU is unsuitable"
+        )
+    print(f"  bs=64: ok (peak={peak_64/1e9:.2f}GB, {peak_64/total_mem*100:.1f}%)",
+          flush=True)
 
-    # Phase 2: binary search between max-ok-93 and the OOM/over-93 batch
+    best = {tier: (64, 0) for tier in TIERS}  # (batch_size, peak_mem)
+    for tier in TIERS:
+        if peak_64 <= targets[tier]:
+            best[tier] = (64, peak_64)
+
+    # If bs=64 already exceeds the 93% target, all tiers stay at 64 and we're done.
+    if peak_64 > targets["93"]:
+        print(f"  bs=64: over 93% target (peak={peak_64/1e9:.2f}GB)", flush=True)
+        return {
+            tier: {
+                "km_batch_size": int(best[tier][0]),
+                "peak_memory_bytes": int(best[tier][1]),
+                "fraction": TIER_FRACTIONS[tier],
+            }
+            for tier in TIERS
+        }
+
+    # Probe bs=256 once. If it succeeds, enter the exponential-growth phase
+    # starting from there. If it OOMs, skip exponential growth and binary-search
+    # [64, 256] directly.
+    success_256, peak_256 = probe_batch_size(model, sample_input, 256, device)
+
+    if success_256:
+        for tier in TIERS:
+            if peak_256 <= targets[tier] and 256 > best[tier][0]:
+                best[tier] = (256, peak_256)
+        print(
+            f"  bs=256: ok (peak={peak_256/1e9:.2f}GB, {peak_256/total_mem*100:.1f}%)",
+            flush=True,
+        )
+        if peak_256 > targets["93"]:
+            # Already over 93% -- binary-search [64, 256].
+            bs = 256
+        else:
+            # Exponential growth phase 1: double until OOM or over-93%.
+            bs = 512
+            while True:
+                success, peak = probe_batch_size(model, sample_input, bs, device)
+                if not success:
+                    print(f"  bs={bs}: OOM", flush=True)
+                    break
+                for tier in TIERS:
+                    if peak <= targets[tier] and bs > best[tier][0]:
+                        best[tier] = (bs, peak)
+                if peak > targets["93"]:
+                    print(
+                        f"  bs={bs}: over all targets (peak={peak/1e9:.2f}GB)",
+                        flush=True,
+                    )
+                    break
+                print(
+                    f"  bs={bs}: ok (peak={peak/1e9:.2f}GB, {peak/total_mem*100:.1f}%)",
+                    flush=True,
+                )
+                bs *= 2
+    else:
+        print(f"  bs=256: OOM (skipping exponential growth)", flush=True)
+        bs = 256  # OOM upper bound for binary search
+
+    # Phase 2: binary search between max-ok-93 and the OOM/over-93 batch.
     lo, hi = best["93"][0], bs
     while lo + 1 < hi:
         mid = (lo + hi) // 2
