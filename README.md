@@ -31,19 +31,29 @@ The pipeline runs Pillars 1, 2, and 3 in parallel:
 
 | Step | Script | Experiments | Wall time per task | # tasks |
 |------|--------|-------------|--------------------|---------|
-| A. Isomorphism (Pillar 1) | `job_isomorphism.sh` | AlexNet, ResNet18, VGG11 × ImageNet | up to 4 h | 3 |
-| B. Teleportation (Pillar 1) | `job_teleportation.sh` | ResNet18, VGG11-BN, ResNet50 × ImageNet | ~2 h | 3 |
-| C. Theorem 4.5 (Pillar 2) | `job_theorem45.sh` | (AlexNet, ResNet18, VGG11) × (FGSM, PGD, CW, DeepFool, APGD, Square) × ImageNet | ~55 min (DeepFool ~1 h 45) | 18 |
+| 0. Calibration | `job_calibrate.sh` | ResNet-152, DenseNet-121, GoogLeNet × ImageNet (3-tier 85/90/93% mem) | ~10 min | 3 |
+| B. Teleportation (Pillar 1) | `job_teleportation.sh` | ResNet-152, DenseNet-121, GoogLeNet × ImageNet | ~2 h | 3 |
+| B′. S1 measure panel (Pillar 1, NEW) | `job_phase1_s1.sh` | 9-measure panel on teleportation pairs (`--array=0-63`) | ~25 min | 64 |
+| C. Theorem 4.5 (Pillar 2) | `job_theorem45.sh` | (RN-152, DN-121, GN) × (FGSM, PGD, CW, DeepFool, APGD, Square) × ImageNet | ~55 min | 18 |
 | C-agg. Aggregation | `job_theorem45_agg.sh` | per experiment, writes `theorem45_results.json` | ~1 min | 3 |
-| D1. KM compute (Pillar 3) | `job_kmfv_kms.sh`         | ResNet152, DenseNet121, GoogLeNet × ImageNet (`--array=0-2`) | ~1 h            | 3 |
-| D2. Baselines (Pillar 3)  | `job_kmfv_baselines.sh`   | Grad-CAM / IG / SmoothGrad / feature-maps / PGD across all 3 archs           | ~1 h            | 5 (per method) |
-| D3. DeepDream (Pillar 3)  | `job_kmfv_deepdream.sh`   | ResNet152, DenseNet121, GoogLeNet × ImageNet (`--array=0-2`)                 | ~1 h            | 3 |
-| D4. Formulations (Pillar 3) | `job_kmfv_formulations.sh` | counterfactual-LP + Jacobian-sensitivity (per arch)                        | ~30 min         | 2 |
-| D5. Bundle (Pillar 3)     | `job_kmfv_bundle.sh`      | tar `km-feature-viz.tar` of `results/km-feature-viz/`                        | ~5 min          | 1 |
+| D. Adversarial scale-up (NEW) | `job_adv_scaleup.sh` | scales adversarial pairs from $N=200$ to $N=5{,}000$ per attack (`--array=0-17`) | ~6 h (Square dominates) | 18 |
+| C′. S3 measure panel (Pillar 2, NEW) | `job_phase1_s3.sh` | 9-measure panel on $N=5{,}000$/attack adversarial pairs (`--array=0-63`) | ~50 min | 64 |
+| E. Cross-model same-arch (Pillar 3a) | `job_cross_model.sh` | ResNet-152 (10 pairs) + DenseNet-121 (1 pair) cross-recipe | ~8 h | 11 |
+| F. Cross-architecture (Pillar 3b, NEW) | `job_phase1_s2.sh` | 9-measure panel + KM Frobenius across (RN-152, DN-121, GN) pairs (`--array=0-63`) | ~10 min | 64 |
+| G. Reduce + sanity (NEW) | `job_phase1_reduce.sh` | aggregate chunk artifacts; bootstrap CI; permutation null; Cui/Murphy controls | ~30 min | 1 |
+| H. Tar artifact (NEW) | `job_tar_artifacts.sh` | gated on G's `sanity_report.json` all-pass; produces `phase1-results-*.tar.gz` | ~5 min | 1 |
+
+Phase 1 step labels (A1, A2, B1, B2, B3, C, D) used in the design spec map to the table above as: A1 = Calibration (Step 0); A2 = Adv scale-up (Step D); B1 = S1 (Step B′); B2 = S2 cross-arch (Step F); B3 = S3 (Step C′); C = Reduce (Step G); D = Tar (Step H).
+
+The pipeline runs all steps in parallel where dependencies allow,
+chained via `sbatch --dependency=afterok` and a sentinel wrapper
+(`bin/sentinel.sh`) that handles system-OOM (2× mem retry), timeout
+(2× time retry), and CUDA-OOM (step down through the 85/90/93% calibration
+tiers, fail loudly at 85%). The critical path is 0 → D → C′ → G → H ≈ 8 hours;
+B′ and F finish much earlier and wait at G. Total cluster time at
+peak parallelism is ~200 GPU-hours.
 
 Each cell in Step C is one SLURM array task; the 18 attack jobs run independently. Step C-agg. is dependency-chained `afterany:` Step C so the aggregates are written as soon as each experiment's 6 per-attack files exist.
-
-D1 and D3 are SLURM array jobs (`--array=0-2`) — one task per architecture (`resnet152`, `densenet121`, `googlenet`). D5 is dependency-chained on D1–D4. Per-step state files live under `results/km-feature-viz/state/` and the orchestrator skips any sub-step whose state file is already complete.
 
 **Changing the SLURM account.** A single variable at `run_pipeline.sh:230` — `ACCOUNT="def-bruestle_gpu"`. Every `sbatch` in the orchestrator picks it up; the individual `job_*.sh` files do not hard-code an account.
 
