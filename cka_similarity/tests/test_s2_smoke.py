@@ -1,3 +1,6 @@
+import sys
+import types
+
 import torch
 import pytest
 
@@ -22,9 +25,21 @@ def test_s2_emits_km_distance_lists_and_d1_d2_accumulators(tmp_path, monkeypatch
     monkeypatch.setattr(s2, "forward_penultimate", lambda m, x: m(x))
     monkeypatch.setattr(s2, "forward_logits", lambda m, x: m(x)[:, :1000] if m(x).shape[1] >= 1000 else torch.cat([m(x), torch.zeros(m(x).shape[0], 1000 - m(x).shape[1])], dim=1))
 
-    # Fake KM: small uniform per-sample tensor
-    monkeypatch.setattr(s2, "extract_km_per_sample",
-                        lambda model, x, batch_size: torch.randn(x.shape[0], 1000, 100))
+    # The streaming variant of run_chunk imports KnowledgeMatrixComputer from
+    # ``knowledgematrix.matrix_computer`` lazily inside the function. We inject
+    # a stub module so the smoke test does not require the heavy KM library.
+    class _FakeKMC:
+        def __init__(self, model, batch_size, device):
+            self.model = model
+            self.batch_size = batch_size
+            self.device = device
+        def forward(self, x_i):
+            # Per CLAUDE.md: KMC.forward consumes 3D (C, H, W) — assert the contract
+            assert x_i.dim() == 3, "KMC must be called with 3D input"
+            return torch.randn(1000, 100)
+    fake_module = types.ModuleType("knowledgematrix.matrix_computer")
+    fake_module.KnowledgeMatrixComputer = _FakeKMC
+    monkeypatch.setitem(sys.modules, "knowledgematrix.matrix_computer", fake_module)
 
     fake_inputs = torch.randn(10, 3, 224, 224)
     monkeypatch.setattr(s2, "load_imagenet_val_chunk", lambda *args, **kwargs: fake_inputs)
@@ -40,6 +55,13 @@ def test_s2_emits_km_distance_lists_and_d1_d2_accumulators(tmp_path, monkeypatch
     # Should produce 3 KM-distance JSON list files (one per arch pair)
     pair_files = list(out_dir.glob("*_KM_chunk*.json"))
     assert len(pair_files) == 3   # RN_DN, RN_GN, DN_GN
+    # Each file must contain exactly 10 distances (one per chunk sample)
+    import json as _json
+    for f in pair_files:
+        with open(f) as fp:
+            distances = _json.load(fp)
+        assert len(distances) == 10
+        assert all(isinstance(d, float) for d in distances)
     # Should produce penultimate-panel accumulator files
     panel_files = list(out_dir.glob("*_D1_chunk*.pt"))
     assert len(panel_files) == 3
