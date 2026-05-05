@@ -163,3 +163,24 @@ def test_rsa_independent_low_correlation():
     measure = RSASpearman()
     val = measure.finalize([measure.accumulate(A, B)]).value
     assert -0.5 < val < 0.5  # random unrelated should be close to zero
+
+
+def test_jsd_identity_zero():
+    from cka_similarity.measures.output_jsd import OutputJSD
+    A, _ = _gen_random_pair(n=100, p1=10, p2=10, seed=52)
+    measure = OutputJSD()
+    same = measure.finalize([measure.accumulate(A, A)]).value
+    assert same < 1e-5
+
+
+def test_jsd_chunked_matches_single():
+    from cka_similarity.measures.output_jsd import OutputJSD
+    A, B = _gen_random_pair(n=200, p1=10, p2=10, seed=53)
+    measure = OutputJSD()
+    single = measure.finalize([measure.accumulate(A, B)]).value
+    chunks = [
+        measure.accumulate(A[:100], B[:100]),
+        measure.accumulate(A[100:], B[100:]),
+    ]
+    chunked = measure.finalize(chunks).value
+    assert abs(single - chunked) < 1e-5
