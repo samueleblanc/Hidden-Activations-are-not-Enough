@@ -1,4 +1,10 @@
-"""Entropic Gromov-Wasserstein distance (Mémoli 2011, Peyré 2016).
+"""Entropic Gromov-Wasserstein OBJECTIVE (Mémoli 2011, Peyré 2016).
+
+Returns the GW *loss* (objective value of the optimization problem), not
+the GW *distance*. Per Mémoli 2011, the GW distance is (1/2) * sqrt(loss);
+since downstream tables compare measures by relative ranking across
+(arch, arch') pairs, we report the loss directly. If you need the
+literature GW distance, transform: dist = 0.5 * sqrt(value).
 
 Compares two metric-measure spaces. Natively handles unequal feature dims.
 We compute on a 5K subsample for tractability — finalize subsamples if N > 5000.
@@ -10,6 +16,15 @@ from .base import MeasureBase, MeasureResult
 
 
 class GromovWasserstein(MeasureBase):
+    """Entropic Gromov-Wasserstein objective on row-as-sample feature matrices.
+
+    The reported value is the GW *loss* (objective of the entropic-regularized
+    optimization), NOT the GW distance. Per Mémoli 2011, the GW distance is
+    ``(1/2) * sqrt(loss)``; for ranking-style aggregation across (arch, arch')
+    pairs, loss vs. distance only differs by a monotone transform, so we report
+    the loss directly. ``MeasureResult.extras["unit"] == "loss"`` flags this for
+    any downstream consumer that needs absolute scale.
+    """
     name = "gw"
     cross_dim_native = True
 
@@ -41,4 +56,13 @@ class GromovWasserstein(MeasureBase):
             D_A, D_B, a_unif, b_unif,
             loss_fun='square_loss', epsilon=self.reg, max_iter=self.max_iter,
         )
-        return MeasureResult(value=float(gw_val), extras={"n_used": int(n)})
+        return MeasureResult(
+            value=float(gw_val),
+            extras={
+                "n_used": int(n),
+                # Flag the semantics for downstream consumers: this is the GW
+                # *loss* (objective value), not the GW distance. Mémoli 2011's
+                # distance is (1/2) * sqrt(loss).
+                "unit": "loss",
+            },
+        )
