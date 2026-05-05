@@ -31,8 +31,14 @@ def _split_path_data(a: Any, b: Any) -> "tuple[Path, Any]":
     if b_is_path and not a_is_path:
         return Path(b), a
     if a_is_path and b_is_path:
-        # Both look like paths; assume modern (path, data) order with a string payload.
-        return Path(a), b
+        # Ambiguous: both args are path-like. Refuse rather than guess --
+        # picking either order silently corrupts the wrong file when the
+        # caller intended the other.
+        raise TypeError(
+            "atomic_json_dump: ambiguous (path, data) call -- pass data as a "
+            "dict/list/tensor, not a string. If you need to write a string to "
+            "a file, use a different helper."
+        )
     raise TypeError(
         "atomic_io: could not identify a path argument; expected one of the two "
         "positional args to be str or os.PathLike."
