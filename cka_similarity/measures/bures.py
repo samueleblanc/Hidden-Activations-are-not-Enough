@@ -44,15 +44,20 @@ class BuresSimilarity(MeasureBase):
         X_mean = sum(acc["A_sum"] for acc in accumulators) / n_total
         Y_mean = sum(acc["B_sum"] for acc in accumulators) / n_total
 
-        X = torch.cat([acc["A_block"] for acc in accumulators], dim=0) - X_mean
-        Y = torch.cat([acc["B_block"] for acc in accumulators], dim=0) - Y_mean
+        # Promote to double BEFORE forming the Gram. With float32 inputs the
+        # smallest eigenvalue of K = X X^T sits around -3e-5 (cancellation
+        # noise from the centered cross-products), tripping the eps=1e-10
+        # warning in _matrix_sqrt_psd on every legitimate call. Centering +
+        # Gram in double drops the floor to ~1e-15.
+        X = (torch.cat([acc["A_block"] for acc in accumulators], dim=0) - X_mean).double()
+        Y = (torch.cat([acc["B_block"] for acc in accumulators], dim=0) - Y_mean).double()
 
         # Centered Grams (n × n)
         K_X = X @ X.T
         K_Y = Y @ Y.T
 
         K_X_sqrt = _matrix_sqrt_psd(K_X)
-        inner = K_X_sqrt @ K_Y.double() @ K_X_sqrt
+        inner = K_X_sqrt @ K_Y @ K_X_sqrt
         # tr((·)^{1/2}) = sum of square roots of eigenvalues of inner
         eigvals = torch.linalg.eigvalsh((inner + inner.T) / 2)
         eigvals = torch.clamp(eigvals, min=0.0)
