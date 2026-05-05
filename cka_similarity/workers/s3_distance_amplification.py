@@ -41,9 +41,44 @@ def run_chunk(chunk_id, num_chunks, total_pairs_per_attack, archs, attacks, out_
 
         for attack in attacks:
             pairs_path = Path(pairs_root) / f"{arch}_imagenet" / "adversarial_pairs_N5000" / attack / "pairs.pth"
-            pairs = torch.load(pairs_path, map_location="cpu")
-            x_clean = pairs["x_clean"][start:end].to(device)
-            x_adv   = pairs["x_adv"][start:end].to(device)
+            if not pairs_path.exists():
+                print(
+                    f"WARNING: {pairs_path} missing; skipping ({arch}, {attack})",
+                    flush=True,
+                )
+                continue
+            try:
+                pairs = torch.load(pairs_path, map_location="cpu")
+            except Exception as e:
+                print(
+                    f"WARNING: failed to load {pairs_path}: {e}; skipping ({arch}, {attack})",
+                    flush=True,
+                )
+                continue
+
+            # If the pairs file is partially populated, clamp the chunk slice
+            # to the prefix that is actually filled in. The N=5000 scale-up
+            # writes ``n_done`` after each successful sample so a partially
+            # complete file is still usable up to that index.
+            attack_end = end
+            if isinstance(pairs, dict) and "n_done" in pairs and pairs["n_done"] < end:
+                print(
+                    f"WARNING: {pairs_path} has n_done={pairs['n_done']} < end={end}; "
+                    f"using partial chunk",
+                    flush=True,
+                )
+                attack_end = min(end, int(pairs["n_done"]))
+            attack_n_pairs = attack_end - start
+            if attack_n_pairs <= 0:
+                print(
+                    f"WARNING: ({arch}, {attack}) chunk {chunk_id} has zero usable pairs after "
+                    f"clamping to n_done; skipping",
+                    flush=True,
+                )
+                continue
+
+            x_clean = pairs["x_clean"][start:attack_end].to(device)
+            x_adv   = pairs["x_adv"][start:attack_end].to(device)
 
             # Theorem 4.5 quantities: per-pair d_f, d_h, d_M
             with torch.no_grad():
@@ -57,7 +92,7 @@ def run_chunk(chunk_id, num_chunks, total_pairs_per_attack, archs, attacks, out_
             # Append per-pair distances
             dist_path = Path(out_dir) / f"{arch}_{attack}_chunk{chunk_id}.json"
             existing = atomic_json_load(str(dist_path), default=[])
-            for i in range(len(existing), n_pairs):
+            for i in range(len(existing), attack_n_pairs):
                 completeness_clean = float((M_clean[i].sum(1) - f_clean[i].cpu()).abs().max())
                 completeness_adv   = float((M_adv[i].sum(1)   - f_adv[i].cpu()).abs().max())
                 existing.append({
@@ -82,9 +117,16 @@ def run_chunk(chunk_id, num_chunks, total_pairs_per_attack, archs, attacks, out_
                         accumulators[m.name] = m.accumulate(h_clean, h_adv)
                 atomic_torch_save(str(panel_path), {
                     "chunk_id": chunk_id, "arch": arch, "attack": attack,
-                    "n_pairs": n_pairs,
+                    "n_pairs": attack_n_pairs,
                     "accumulators": accumulators,
                 })
+
+            # Free the heavy per-attack tensors before moving to the next attack
+            # — otherwise each iteration accumulates ~2 × KM-batch worth of CPU
+            # memory plus the GPU input batches across the full attack list.
+            del x_clean, x_adv, f_clean, f_adv, h_clean, h_adv, M_clean, M_adv
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
         del model
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
