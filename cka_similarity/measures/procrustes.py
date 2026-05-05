@@ -14,13 +14,14 @@ class ProcrustesShapeDistance(MeasureBase):
     cross_dim_native = False  # needs same feature dim; cross-arch use requires PCA padding
 
     def accumulate(self, A: torch.Tensor, B: torch.Tensor) -> Dict[str, torch.Tensor]:
+        # Per-chunk cross-products (XtX, YtY, XtY) are intentionally NOT stored:
+        # they are anchored to per-chunk means, so they cannot be combined
+        # into the global re-centered cross-products. finalize re-derives
+        # them from the concatenated, re-centered blocks.
         return {
             "A_sum":   A.sum(dim=0),                  # for centering
             "B_sum":   B.sum(dim=0),
             "n":       torch.tensor(A.shape[0]),
-            "XtX":     A.T @ A,
-            "YtY":     B.T @ B,
-            "XtY":     A.T @ B,
             "A_block": A.detach().cpu(),  # for re-centering after total mean known
             "B_block": B.detach().cpu(),
         }
