@@ -59,6 +59,114 @@ Each cell in Step C is one SLURM array task; the 18 attack jobs run independentl
 
 ---
 
+## Phase 1: Canonical similarity-measure expansion
+
+The Phase 1 expansion (added 2026-05-03) translates the canonical-representation
+argument into the dominant representation-similarity language used by the
+post-2019 vision interpretability literature. Three coordinated sub-studies,
+all run by the extended `bash run_pipeline.sh`:
+
+### Sub-study S1 — within-arch invariance under teleportation
+
+For each of $T = 50$ random neural teleportations per architecture (ResNet-152,
+DenseNet-121, GoogLeNet), compute the 9-measure representation-similarity panel
+between $h_W(x)$ and $h_{\tilde W}(x)$ on $N = 25{,}000$ ImageNet validation
+samples. Knowledge matrices are zero by Theorem 4.1 (verified by unit tests, not
+recomputed). The panel reveals which similarity measures detect quiver-isomorphism
+drift and which ad-hoc-quotient it out via their narrower invariance class.
+
+### Sub-study S2 — cross-architecture comparison
+
+For each of the 3 unordered architecture pairs (RN-152 ↔ DN-121, RN-152 ↔ GN,
+DN-121 ↔ GN), compute the 9-measure panel + KM Frobenius distance on the same
+$N = 25{,}000$ samples. Penultimate-feature dimension mismatch (RN-152 D=2048
+vs DN-121/GN D=1024) means CKA, Procrustes, Bures, distance correlation
+require dimension matching; we report the natively-cross-dim measures
+(soft-matching, GW, RSA, JSD) in the main text and PCA-padded versions of
+the dimension-restricted measures in the appendix. Knowledge matrices are
+uniformly $1000 \times 150{,}529$ regardless of architecture and require no
+post-processing.
+
+### Sub-study S3 — within-arch distance amplification
+
+Extends Study 2 (Theorem 4.5 amplification) by scaling from $N = 200$ to
+$N = 5{,}000$ adversarial pairs per attack via Step D and computing the
+9-measure panel on each pair. Translates the Frobenius-norm amplification
+$d_M / d_f$ into the similarity-measure language used by the rep-similarity
+community. Per-attack, per-architecture amplification factors with bootstrap
+95\% CIs.
+
+### The 9 measures
+
+| Measure | Reference | Invariance class | n×n dual? |
+|---------|-----------|------------------|-----------|
+| Debiased linear CKA | [Kornblith 2019] / [Nguyen 2021] / [Murphy 2024] | orthogonal + isotropic scaling | yes |
+| Angular CKA | [Williams 2021] | orthogonal + isotropic scaling | yes |
+| Procrustes shape distance | [Williams 2021] | orthogonal | yes |
+| Bures similarity | [Harvey 2023] | orthogonal | yes |
+| Soft-matching | [Khosla 2024] | permutation only | n/a (OT) |
+| RSA-Spearman | [Kriegeskorte 2008] | rotation + monotone-of-distance | yes |
+| Output JSD (sqrt) | [Endres 2003] | none (functional) | n/a |
+| Entropic Gromov-Wasserstein | [Mémoli 2011] / [Peyré 2016] | isometry | n/a (OT) |
+| Distance correlation | [Székely 2007] | translation + orthogonal | yes |
+
+For CKA we use the unbiased HSIC₁ estimator [Song 2012] as plugged into the
+minibatch CKA framework [Nguyen 2021]; this is the methodologically correct
+choice in the $n < p$ regime where the biased estimator carries the upward
+bias documented by [Murphy 2024].
+
+### Controls (always reported)
+
+- **Cui 2022 random-network control**: untrained variants of each architecture
+  (`pretrained=False`) compared to the trained variants. If random-network
+  similarity is comparably high to teleported-pair similarity, the input-space
+  population structure dominates and the measure is misleading.
+- **Murphy 2024 shuffled-pair control**: sample alignment permuted between $X$
+  and $Y$. Expected ≈ 0 for the debiased estimator; verifies the
+  implementation.
+
+### Statistics
+
+- 95% bootstrap confidence intervals over $10{,}000$ resamples per cell.
+- Permutation null over $1{,}000$ shuffles for S1/S2 (the δ-statistic tier).
+- 3-tier KM batch-size calibration (85% / 90% / 93% memory). Sentinel
+  steps down through tiers on CUDA-OOM.
+
+### File layout
+
+- `cka_similarity/` — per-chunk worker scripts and measure implementations.
+- `bin/calibrate.py` — restored from `legacy/`, computes per-arch 3-tier batch sizes.
+- `bin/sentinel.sh` — sbatch wrapper handling OOM/timeout retries.
+- `experiments/calibration/{arch}_imagenet/calibration.json` — per-arch batch size tiers.
+- `experiments/{arch}_imagenet/adversarial_pairs_N5000/{attack}/pairs.pth` — scaled-up adversarial pairs.
+- `results/phase1/{s1,s2,s3}/` — per-chunk accumulators / per-pair distance lists.
+- `results/phase1/aggregated/` — final tables, sanity report, controls.
+- `results/phase1/artifact/phase1-results-*.tar.gz` — final downloadable bundle (Step H output).
+
+### Reproducing Phase 1 from scratch
+
+```bash
+# 1. Run calibration first (idempotent; skips if calibration.json exists)
+sbatch --array=0-2 job_calibrate.sh
+
+# 2. Submit everything else (re-scans state, submits only what's missing)
+bash run_pipeline.sh
+
+# 3. Monitor
+squeue -u $USER
+tail -f slurm_out/*.out
+cat pipeline_state.json | jq
+
+# 4. After completion, the final artifact lives at
+ls results/phase1/artifact/phase1-results-*.tar.gz
+
+# 5. Download
+scp $CLUSTER:$REPO_PATH/results/phase1/artifact/phase1-results-*.tar.gz .
+tar xzf phase1-results-*.tar.gz
+```
+
+---
+
 ## Running individual experiments
 
 ### Isomorphism Invariance
