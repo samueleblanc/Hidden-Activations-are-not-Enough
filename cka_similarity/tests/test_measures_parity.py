@@ -126,3 +126,24 @@ def test_bures_in_unit_interval():
     measure = BuresSimilarity()
     val = measure.finalize([measure.accumulate(A, B)]).value
     assert 0.0 <= val <= 1.0 + 1e-6
+
+
+def test_soft_matching_native_cross_dim():
+    """Soft-matching must accept p1 != p2."""
+    from cka_similarity.measures.soft_matching import SoftMatching
+    g = torch.Generator().manual_seed(48)
+    A = torch.randn(200, 64, generator=g)
+    B = torch.randn(200, 96, generator=g)   # different feature dim
+    measure = SoftMatching()
+    val = measure.finalize([measure.accumulate(A, B)]).value
+    assert val > 0   # random matrices: positive distance
+
+
+def test_soft_matching_identity_zero():
+    from cka_similarity.measures.soft_matching import SoftMatching
+    g = torch.Generator().manual_seed(49)
+    A = torch.randn(200, 64, generator=g)
+    measure = SoftMatching()
+    same = measure.finalize([measure.accumulate(A, A)]).value
+    # OT(X, X) is zero up to Sinkhorn entropic regularization
+    assert same < 0.5
