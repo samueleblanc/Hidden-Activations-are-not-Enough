@@ -560,6 +560,33 @@ elif [ "$P1C_QUEUED" = "true" ] && [ "$DRY_RUN" = true ]; then
     echo "[DRY RUN] sbatch job_tar_artifacts.sh"
 fi
 
+# ==============================================================
+# Opt-in sentinel hook (USE_SENTINEL=true bash run_pipeline.sh)
+# ==============================================================
+# For each queued Phase 1 job, schedule a tiny afterany sentinel that
+# bin/sentinel.sh handles (system-OOM, timeout, CUDA-OOM tier-step,
+# generic retry). No-op when USE_SENTINEL is unset/false or in dry-run
+# (no real job ids exist to attach to).
+if [ "${USE_SENTINEL:-false}" = "true" ] && [ "$DRY_RUN" != true ]; then
+    for SENT_PAIR in \
+        "$B1_JOB_ID:job_phase1_s1.sh" \
+        "$B2_JOB_ID:job_phase1_s2.sh" \
+        "$B3_JOB_ID:job_phase1_s3.sh" \
+        "$A2_JOB_ID:job_adv_scaleup.sh" \
+        "$P1C_JOB_ID:job_phase1_reduce.sh"; do
+        IFS=':' read -r SENT_JID SENT_SCRIPT <<< "$SENT_PAIR"
+        [ -z "$SENT_JID" ] && continue
+        # Pick a representative calibration file for the dependent step.
+        # bin/sentinel.sh uses it only on CUDA-OOM (tier-step); other
+        # paths ignore it.
+        SENT_CALIB="experiments/calibration/resnet152_imagenet/calibration.json"
+        sbatch --parsable --account="$ACCOUNT" --time=00:05:00 --mem=4G \
+            --dependency=afterany:"$SENT_JID" \
+            --wrap="bash bin/sentinel.sh $SENT_JID $SENT_SCRIPT $SENT_CALIB" \
+            > /dev/null
+    done
+fi
+
 echo ""
 echo "Monitor with: squeue -u \$USER"
 echo "Re-run this script after jobs complete to check remaining work."
