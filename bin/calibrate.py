@@ -14,10 +14,8 @@ import json
 import time
 from argparse import ArgumentParser
 from datetime import datetime
-from pathlib import Path
 
 import torch
-import torch.nn as nn
 
 TIERS = ("85", "90", "93")
 TIER_FRACTIONS = {"85": 0.85, "90": 0.90, "93": 0.93}
@@ -158,7 +156,7 @@ def find_three_tier_batch_sizes(model, sample_input, device):
                 )
                 bs *= 2
     else:
-        print(f"  bs=256: OOM (skipping exponential growth)", flush=True)
+        print("  bs=256: OOM (skipping exponential growth)", flush=True)
         bs = 256  # OOM upper bound for binary search
 
     # Phase 2: binary search between max-ok-93 and the OOM/over-93 batch.
