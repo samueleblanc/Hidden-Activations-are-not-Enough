@@ -44,6 +44,35 @@ done
 TIMESTAMP=$(date -Iseconds)
 
 # ==============================================================
+# Phase -1: Calibration (must precede all other Phase 1 steps)
+# ==============================================================
+# Step A1 produces experiments/calibration/{arch}_imagenet/calibration.json.
+# All Phase 1 workers (S1/S2/S3) read it at startup; bin/sentinel.sh
+# steps the active tier down on CUDA-OOM. Submit only the array tasks
+# whose calibration JSON is missing — runs are checkpointable via
+# atomic_json_dump, so re-running is safe.
+ARCHS_PHASE1=("resnet152" "densenet121" "googlenet")
+CALIB_NEEDED=()
+for i in "${!ARCHS_PHASE1[@]}"; do
+    arch=${ARCHS_PHASE1[$i]}
+    if [ ! -f "experiments/calibration/${arch}_imagenet/calibration.json" ]; then
+        CALIB_NEEDED+=("$i")
+    fi
+done
+
+CALIB_JOB_ID=""
+if [ ${#CALIB_NEEDED[@]} -gt 0 ]; then
+    CALIB_ARRAY=$(IFS=,; echo "${CALIB_NEEDED[*]}")
+    if [ "$DRY_RUN" = true ]; then
+        echo "[DRY RUN] sbatch --account=$ACCOUNT --array=$CALIB_ARRAY job_calibrate.sh"
+    else
+        echo "Phase 1 Step A1 (Calibration): --array=$CALIB_ARRAY"
+        CALIB_JOB_ID=$(sbatch --parsable --account="$ACCOUNT" --array="$CALIB_ARRAY" job_calibrate.sh)
+        echo "  Job ID: $CALIB_JOB_ID"
+    fi
+fi
+
+# ==============================================================
 # Phase 0: Environment setup
 # ==============================================================
 # Activate the project venv (cluster + local). The SLURM jobs do the same
@@ -387,9 +416,13 @@ echo "========================================"
 echo ""
 
 if [ "$TOTAL_NEEDED" -eq 0 ]; then
-    echo "All $TOTAL_TASKS tasks are complete. Nothing to submit."
-    exit 0
+    echo "All $TOTAL_TASKS legacy B/C/E tasks are complete (Phase 1 still evaluated below)."
 fi
+
+# Initialize C_JOB_ID up front so the (optional) real-submit branch can
+# refer to it whether or not Step C per-attacks are queued. Distinct from
+# Phase 1's P1C_JOB_ID below.
+C_JOB_ID=""
 
 if [ "$DRY_RUN" = true ]; then
     echo "[DRY RUN] Would submit (account=$ACCOUNT):"
@@ -403,39 +436,128 @@ if [ "$DRY_RUN" = true ]; then
         fi
     fi
     [ ${#E_NEEDED[@]} -gt 0 ] && echo "  sbatch --account=$ACCOUNT --array=$E_ARRAY_STR job_cross_model.sh"
-    exit 0
-fi
+else
+    echo "Submitting SLURM jobs (account=$ACCOUNT)..."
+    echo ""
 
-echo "Submitting SLURM jobs (account=$ACCOUNT)..."
-echo ""
+    if [ ${#B_NEEDED[@]} -gt 0 ]; then
+        echo "  Step B (Teleportation): --array=$B_ARRAY_STR"
+        sbatch --account="$ACCOUNT" --array="$B_ARRAY_STR" job_teleportation.sh
+    fi
 
-if [ ${#B_NEEDED[@]} -gt 0 ]; then
-    echo "  Step B (Teleportation): --array=$B_ARRAY_STR"
-    sbatch --account="$ACCOUNT" --array="$B_ARRAY_STR" job_teleportation.sh
-fi
+    if [ ${#C_ATTACK_TASKS[@]} -gt 0 ]; then
+        echo "  Step C (Theorem 4.5 per-attack):  --array=$C_ATTACK_ARRAY_STR"
+        C_JOB_ID=$(sbatch --parsable --account="$ACCOUNT" --array="$C_ATTACK_ARRAY_STR" job_theorem45.sh)
+        echo "    Job ID: $C_JOB_ID"
+    fi
 
-C_JOB_ID=""
-if [ ${#C_ATTACK_TASKS[@]} -gt 0 ]; then
-    echo "  Step C (Theorem 4.5 per-attack):  --array=$C_ATTACK_ARRAY_STR"
-    C_JOB_ID=$(sbatch --parsable --account="$ACCOUNT" --array="$C_ATTACK_ARRAY_STR" job_theorem45.sh)
-    echo "    Job ID: $C_JOB_ID"
-fi
+    if [ ${#C_EXPS_NEEDING_FINAL_AGG[@]} -gt 0 ]; then
+        if [ -n "$C_JOB_ID" ]; then
+            echo "  Step C (Theorem 4.5 aggregation):  --array=$C_AGG_ARRAY_STR (after $C_JOB_ID)"
+            sbatch --account="$ACCOUNT" --array="$C_AGG_ARRAY_STR" --dependency=afterany:"$C_JOB_ID" job_theorem45_agg.sh
+        else
+            echo "  Step C (Theorem 4.5 aggregation):  --array=$C_AGG_ARRAY_STR"
+            sbatch --account="$ACCOUNT" --array="$C_AGG_ARRAY_STR" job_theorem45_agg.sh
+        fi
+    fi
 
-if [ ${#C_EXPS_NEEDING_FINAL_AGG[@]} -gt 0 ]; then
-    if [ -n "$C_JOB_ID" ]; then
-        echo "  Step C (Theorem 4.5 aggregation):  --array=$C_AGG_ARRAY_STR (after $C_JOB_ID)"
-        sbatch --account="$ACCOUNT" --array="$C_AGG_ARRAY_STR" --dependency=afterany:"$C_JOB_ID" job_theorem45_agg.sh
-    else
-        echo "  Step C (Theorem 4.5 aggregation):  --array=$C_AGG_ARRAY_STR"
-        sbatch --account="$ACCOUNT" --array="$C_AGG_ARRAY_STR" job_theorem45_agg.sh
+    # Step E (cross-model) — independent of B/C. Verify already ran on the
+    # login node; E_NEEDED is filtered to runnable pairs only.
+    if [ ${#E_NEEDED[@]} -gt 0 ]; then
+        echo "  Step E (cross-model): --array=$E_ARRAY_STR"
+        sbatch --account="$ACCOUNT" --array="$E_ARRAY_STR" job_cross_model.sh
     fi
 fi
 
-# Step E (cross-model) — independent of B/C. Verify already ran on the
-# login node; E_NEEDED is filtered to runnable pairs only.
-if [ ${#E_NEEDED[@]} -gt 0 ]; then
-    echo "  Step E (cross-model): --array=$E_ARRAY_STR"
-    sbatch --account="$ACCOUNT" --array="$E_ARRAY_STR" job_cross_model.sh
+# ==============================================================
+# Phase 1 (CKA / similarity-measure expansion) submissions
+# Dependencies: A1 -> {A2, B1, B2, B3}; B3 also waits on A2;
+# Phase-1 C waits on B1+B2+B3; Step D waits on Phase-1 C.
+# Variable naming: P1C_JOB_ID (NOT C_JOB_ID) to avoid collision with
+# the existing Theorem 4.5 C_JOB_ID above.
+# ==============================================================
+DEP_FLAG_A1=""
+[ -n "$CALIB_JOB_ID" ] && DEP_FLAG_A1="--dependency=afterok:$CALIB_JOB_ID"
+
+# Step A2 — Adversarial scale-up (depends on A1)
+A2_JOB_ID=""
+if [ ! -d "experiments/resnet152_imagenet/adversarial_pairs_N5000/square" ] || \
+   [ ! -f "experiments/resnet152_imagenet/adversarial_pairs_N5000/square/pairs.pth" ]; then
+    if [ "$DRY_RUN" != true ]; then
+        A2_JOB_ID=$(sbatch --parsable --account="$ACCOUNT" $DEP_FLAG_A1 job_adv_scaleup.sh)
+        echo "Phase 1 Step A2 (adv scaleup): $A2_JOB_ID"
+    else
+        echo "[DRY RUN] sbatch --array=0-17 job_adv_scaleup.sh"
+    fi
+fi
+
+# Step B1 — S1 measure panel (depends on A1, soft)
+B1_JOB_ID=""
+if [ ! -f "results/phase1/s1/.complete" ]; then
+    if [ "$DRY_RUN" != true ]; then
+        B1_JOB_ID=$(sbatch --parsable --account="$ACCOUNT" $DEP_FLAG_A1 job_phase1_s1.sh)
+        echo "Phase 1 Step B1 (S1): $B1_JOB_ID"
+    else
+        echo "[DRY RUN] sbatch --array=0-63 job_phase1_s1.sh"
+    fi
+fi
+
+# Step B2 — S2 cross-arch (depends on A1)
+B2_JOB_ID=""
+if [ ! -f "results/phase1/s2/.complete" ]; then
+    if [ "$DRY_RUN" != true ]; then
+        B2_JOB_ID=$(sbatch --parsable --account="$ACCOUNT" $DEP_FLAG_A1 job_phase1_s2.sh)
+        echo "Phase 1 Step B2 (S2): $B2_JOB_ID"
+    else
+        echo "[DRY RUN] sbatch --array=0-63 job_phase1_s2.sh"
+    fi
+fi
+
+# Step B3 — S3 measure panel (depends on A1 + A2)
+B3_JOB_ID=""
+B3_DEPS=""
+[ -n "$CALIB_JOB_ID" ] && B3_DEPS="${B3_DEPS}${CALIB_JOB_ID}:"
+[ -n "$A2_JOB_ID" ] && B3_DEPS="${B3_DEPS}${A2_JOB_ID}:"
+B3_DEPS="${B3_DEPS%:}"
+B3_DEP_FLAG=""
+[ -n "$B3_DEPS" ] && B3_DEP_FLAG="--dependency=afterok:$B3_DEPS"
+if [ ! -f "results/phase1/s3/.complete" ]; then
+    if [ "$DRY_RUN" != true ]; then
+        B3_JOB_ID=$(sbatch --parsable --account="$ACCOUNT" $B3_DEP_FLAG job_phase1_s3.sh)
+        echo "Phase 1 Step B3 (S3): $B3_JOB_ID"
+    else
+        echo "[DRY RUN] sbatch --array=0-63 job_phase1_s3.sh"
+    fi
+fi
+
+# Phase-1 Step C — Reduce (depends on B1+B2+B3)
+P1C_DEPS=""
+[ -n "$B1_JOB_ID" ] && P1C_DEPS="${P1C_DEPS}${B1_JOB_ID}:"
+[ -n "$B2_JOB_ID" ] && P1C_DEPS="${P1C_DEPS}${B2_JOB_ID}:"
+[ -n "$B3_JOB_ID" ] && P1C_DEPS="${P1C_DEPS}${B3_JOB_ID}:"
+P1C_DEPS="${P1C_DEPS%:}"
+P1C_DEP_FLAG=""
+[ -n "$P1C_DEPS" ] && P1C_DEP_FLAG="--dependency=afterok:$P1C_DEPS"
+P1C_JOB_ID=""
+P1C_QUEUED=false
+if [ ! -f "results/phase1/aggregated/sanity_report.json" ]; then
+    P1C_QUEUED=true
+    if [ "$DRY_RUN" != true ]; then
+        P1C_JOB_ID=$(sbatch --parsable --account="$ACCOUNT" $P1C_DEP_FLAG job_phase1_reduce.sh)
+        echo "Phase-1 Step C (reduce): $P1C_JOB_ID"
+    else
+        echo "[DRY RUN] sbatch job_phase1_reduce.sh"
+    fi
+fi
+
+# Step D — Tar (depends on Phase-1 Step C). Triggered iff Phase-1 C
+# was queued (in real mode we have a job id; in dry-run we use the flag).
+D_JOB_ID=""
+if [ -n "$P1C_JOB_ID" ] && [ "$DRY_RUN" != true ]; then
+    D_JOB_ID=$(sbatch --parsable --account="$ACCOUNT" --dependency=afterok:"$P1C_JOB_ID" job_tar_artifacts.sh)
+    echo "Step D (tar): $D_JOB_ID"
+elif [ "$P1C_QUEUED" = "true" ] && [ "$DRY_RUN" = true ]; then
+    echo "[DRY RUN] sbatch job_tar_artifacts.sh"
 fi
 
 echo ""
