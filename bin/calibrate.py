@@ -129,18 +129,41 @@ def find_three_tier_batch_sizes(model, sample_input, device):
     }
 
 
-def time_km_computation(model, sample_inputs, batch_size, device, n_samples=50):
-    """Time KM computation on n_samples; return average seconds per matrix."""
+def time_km_computation(model, sample_inputs, batch_size, device, n_samples=50,
+                        n_warmup=3):
+    """Time KM computation on n_samples; return average seconds per matrix.
+
+    Without ``torch.cuda.synchronize(device)`` between ``mc.forward(x)`` and
+    ``time.time()``, the timed value is the kernel-launch dispatch time, not
+    actual GPU work -- under-estimating per-KM time by 10-100x and breaking
+    the wall-clock budgeting downstream.
+
+    A warmup loop discards the first few iterations so cuDNN benchmark
+    selection and any JIT autotuning don't inflate the timing.
+    """
     from knowledgematrix.matrix_computer import KnowledgeMatrixComputer
     mc = KnowledgeMatrixComputer(model, batch_size=batch_size, device=device)
     model.eval()
-    times = []
     n = min(n_samples, len(sample_inputs))
+    if n == 0:
+        raise ValueError("time_km_computation: need at least one sample input")
+
+    # Warmup: cuDNN benchmark + JIT autotune. Discard these timings.
+    warmup_count = min(n_warmup, n)
+    for i in range(warmup_count):
+        torch.cuda.empty_cache()
+        x = sample_inputs[i].to(device)
+        mc.forward(x)
+        torch.cuda.synchronize(device)
+
+    times = []
     for i in range(n):
         torch.cuda.empty_cache()
         x = sample_inputs[i].to(device)
+        torch.cuda.synchronize(device)
         start = time.time()
         mc.forward(x)
+        torch.cuda.synchronize(device)
         times.append(time.time() - start)
     return sum(times) / len(times)
 
