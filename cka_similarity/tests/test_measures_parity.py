@@ -147,3 +147,19 @@ def test_soft_matching_identity_zero():
     same = measure.finalize([measure.accumulate(A, A)]).value
     # OT(X, X) is zero up to Sinkhorn entropic regularization
     assert same < 0.5
+
+
+def test_rsa_identity_perfect_correlation():
+    from cka_similarity.measures.rsa import RSASpearman
+    A, _ = _gen_random_pair(n=100, p1=64, p2=64, seed=50)
+    measure = RSASpearman()
+    same = measure.finalize([measure.accumulate(A, A)]).value
+    assert abs(same - 1.0) < 1e-4
+
+
+def test_rsa_independent_low_correlation():
+    from cka_similarity.measures.rsa import RSASpearman
+    A, B = _gen_random_pair(n=200, p1=64, p2=64, seed=51)
+    measure = RSASpearman()
+    val = measure.finalize([measure.accumulate(A, B)]).value
+    assert -0.5 < val < 0.5  # random unrelated should be close to zero
