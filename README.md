@@ -44,17 +44,43 @@ The pipeline runs Studies 1, 2, and 3 in parallel:
 
 Phase 1 step labels (A1, A2, B1, B2, B3, C, D) used in the design spec map to the table above as: A1 = Calibration (Step 0); A2 = Adv scale-up (Step D); B1 = S1 (Step B′); B2 = S2 cross-arch (Step F); B3 = S3 (Step C′); C = Reduce (Step G); D = Tar (Step H).
 
-The pipeline runs all steps in parallel where dependencies allow,
-chained via `sbatch --dependency=afterok` and a sentinel wrapper
-(`bin/sentinel.sh`) that handles system-OOM (2× mem retry), timeout
-(2× time retry), and CUDA-OOM (step down through the 85/90/93% calibration
-tiers, fail loudly at 85%). The critical path is 0 → D → C′ → G → H ≈ 8 hours;
-B′ and F finish much earlier and wait at G. Total cluster time at
-peak parallelism is ~200 GPU-hours.
+The pipeline runs all steps in parallel where dependencies allow.
+Phase-1 array chains use `--dependency=afterany:` rather than
+`afterok:` so a single OOMing array task doesn't cancel the whole
+cascade — Phase-1 workers gate on `calibration.json` existence
+themselves and abort cleanly if it's missing. The C-aggregate step
+likewise uses `afterany:` on the per-attack array; Step D's tar
+gates internally on the sanity-report's `all_pass` flag.
+
+A sentinel wrapper (`bin/sentinel.sh`, opt-in via `USE_SENTINEL=true bash run_pipeline.sh`)
+post-processes each Phase-1 job and handles system-OOM (2× `--mem` retry),
+timeout (2× `--time` retry), and CUDA-OOM (step EVERY architecture's
+calibration tier down through 85/90/93%, fail loudly at the floor).
+Sentinel resubmits inherit `--account` from the orchestrator.
+
+The critical path is 0 → D → C′ → G → H ≈ 8 hours; B′ and F finish
+much earlier and wait at G. Total cluster time at peak parallelism
+is ~200 GPU-hours.
 
 Each cell in Step C is one SLURM array task; the 18 attack jobs run independently. Step C-agg. is dependency-chained `afterany:` Step C so the aggregates are written as soon as each experiment's 6 per-attack files exist.
 
-**Changing the SLURM account.** A single variable at `run_pipeline.sh:230` — `ACCOUNT="def-bruestle_gpu"`. Every `sbatch` in the orchestrator picks it up; the individual `job_*.sh` files do not hard-code an account.
+### Robustness features
+
+- **Import smoke-test on preflight.** Before any `sbatch`, the orchestrator imports every entry point (`validate_theorem45`, `cross_model_experiment`, `teleportation_experiment`, `bin.calibrate`, and the three `cka_similarity.workers`). A `NameError` or missing module is caught at the login node, not after a SLURM allocation.
+- **`squeue` idempotency check.** Aborts at the start if any of the orchestrator's known job names are already running, preventing duplicate submissions on accidental re-runs.
+- **Phase-1 worker `.complete` sentinels.** Each of S1/S2/S3 writes `results/phase1/{s1,s2,s3}/.complete` when its full chunk × arch grid is on disk; the orchestrator skips re-submission for completed steps automatically.
+- **Sparse `--array=` for Step D (adversarial scale-up).** The orchestrator enumerates all 3 archs × 6 attacks and submits only the missing combinations.
+- **Atomic JSON writes everywhere.** Canonical headline files (theorem45, teleportation, `pipeline_state.json`) write via `tmp + os.replace` (`utils.atomic_io.atomic_json_dump`); a wallclock kill mid-write cannot corrupt them.
+- **`--dry-run` is side-effect-free.** No `pipeline_state.json` is written on dry-run.
+- **`set -euo pipefail`** in every `job_*.sh`, `bin/sentinel.sh`, and `bin/tar_artifacts.sh` — a Python crash followed by the trailing `echo "Task X completed"` no longer silently masks the failure.
+
+**Changing the SLURM account.** Defaults to `def-amorales` (Nibi). Override via env var:
+
+```bash
+ACCOUNT=def-bruestle_gpu bash run_pipeline.sh
+```
+
+Each `job_*.sh` also carries `#SBATCH --account=def-amorales` so direct `sbatch job_X.sh` invocations work; the orchestrator's `--account="$ACCOUNT"` overrides the directive on every submit, making the env var the single source of truth for orchestrated runs.
 
 ---
 
@@ -145,21 +171,20 @@ bias documented by [Murphy 2024].
 ### Reproducing Phase 1 from scratch
 
 ```bash
-# 1. Run calibration first (idempotent; skips if calibration.json exists)
-sbatch --array=0-2 job_calibrate.sh
-
-# 2. Submit everything else (re-scans state, submits only what's missing)
+# 1. Submit the full pipeline. Calibration runs as Phase -1 automatically;
+#    everything else is gated on what's already on disk. Re-running is
+#    safe — the squeue idempotency check aborts if jobs are still pending.
 bash run_pipeline.sh
 
-# 3. Monitor
+# 2. Monitor
 squeue -u $USER
 tail -f slurm_out/*.out
 cat pipeline_state.json | jq
 
-# 4. After completion, the final artifact lives at
+# 3. After completion, the final artifact lives at
 ls results/phase1/artifact/phase1-results-*.tar.gz
 
-# 5. Download
+# 4. Download
 scp $CLUSTER:$REPO_PATH/results/phase1/artifact/phase1-results-*.tar.gz .
 tar xzf phase1-results-*.tar.gz
 ```
@@ -268,7 +293,11 @@ module load StdEnv/2023 python/3.11.5 scipy-stack/2025a
 virtualenv env
 source env/bin/activate
 pip install -r requirements-slurm.txt
-pip install git+https://github.com/samueleblanc/knowledgematrix.git
+# requirements-slurm.txt pins the cluster knowledgematrix fork at
+# MarcoArmenta/knowledgematrix-cluster@fe64a13 (Pillar-3 stack:
+# extract_weff + densenet121 + googlenet + resnet152 PRs cherry-picked).
+# Do not pip-install upstream samueleblanc/knowledgematrix on top — the
+# wrapper APIs differ.
 
 # Cache pretrained weights on login node (no internet on compute nodes)
 python -c "
@@ -292,11 +321,13 @@ bash patches/apply_neuralteleportation_patches.sh
 
 `run_pipeline.sh` is the single entry point for running all experiments on the cluster:
 
-1. **Scans** for existing results and checkpoints across all active sub-steps (Step 0 calibration, Step B teleportation, Steps C/C-agg theorem 4.5, Step E cross-recipe pairs, Phase-1 Steps A2/B′/C′/F/G/H)
-2. **Writes** `pipeline_state.json` with the current state of each task (`done`, `in_progress`, or `pending`)
-3. **Submits** only the needed SLURM array jobs, skipping completed tasks
+1. **Aborts** if any of its known job names are already running (`squeue` idempotency check), preventing duplicate submission on a re-run.
+2. **Smoke-tests imports** of every entry point (`validate_theorem45`, `cross_model_experiment`, `teleportation_experiment`, `bin.calibrate`, the three `cka_similarity.workers`) so a `NameError` is caught at the login node, not after a SLURM allocation.
+3. **Scans** for existing results and checkpoints across all active sub-steps (Step 0 calibration, Step B teleportation, Steps C/C-agg theorem 4.5, Step E cross-recipe pairs, Phase-1 Steps A2/B′/C′/F/G/H).
+4. **Writes** `pipeline_state.json` (atomic via `mktemp` + `os.replace`; **skipped on `--dry-run`**) with the current state of each task (`done`, `in_progress`, or `pending`).
+5. **Submits** only the needed SLURM array jobs, skipping completed tasks. Phase-1 array deps use `afterany:` so a single failing array task doesn't cancel the whole cascade.
 
-The pipeline is **idempotent** -- safe to re-run after partial failures. For Theorem 4.5, it detects checkpoint files and resumes from where it left off. For the Phase-1 panel jobs, per-chunk artifacts in `results/phase1/{s1,s2,s3}/` are accumulated by the reduce step (Step G).
+The pipeline is **idempotent** -- safe to re-run after partial failures. For Theorem 4.5, it detects checkpoint files and resumes from where it left off. For the Phase-1 panel jobs, per-chunk artifacts in `results/phase1/{s1,s2,s3}/` are accumulated by the reduce step (Step G); each worker writes a `.complete` sentinel only when the FULL chunk × arch grid is on disk, so a re-run after partial completion submits only the missing chunks. For Step D (adversarial scale-up), the orchestrator enumerates all 3 archs × 6 attacks and submits only the missing combinations.
 
 ### Result files
 
@@ -309,32 +340,57 @@ The pipeline is **idempotent** -- safe to re-run after partial failures. For The
 | Theorem 4.5 (aggregate) | `experiments/{experiment}/theorem45/theorem45_results.json` |
 | Cross-model same-arch (Step E) | `results/cross_model/{arch}/per_pair/{i}__{j}.json` |
 | Phase 1 panels (Steps B′/C′/F + reduce) | `results/phase1/{s1,s2,s3}/...`, `results/phase1/aggregated/...`, `results/phase1/artifact/phase1-results-*.tar.gz` |
-| Pipeline state | `pipeline_state.json` (overwritten on every `run_pipeline.sh` scan) |
+| Pipeline state | `pipeline_state.json` (overwritten on every non-dry-run scan) |
 
 ---
 
 ## Sanity Check
 
-Before submitting a full pipeline run, verify pretrained accuracy matches torchvision baselines. Quick smoke test:
+Before submitting a full pipeline run, verify (a) the orchestrator's preflight imports succeed, and (b) the Phase-1 architecture wrappers load and forward-pass.
 
-```python
+```bash
+# (a) Same import smoke-test the orchestrator runs. A NameError /
+#     ImportError here is the same failure you'd see in slurm_err/.
+python -c "
+from validate_theorem45 import validate_theorem45
+from cross_model_experiment import main as _xm
+from teleportation_experiment import run_experiment as _tp
+from bin.calibrate import main as _cal
+from cka_similarity.workers import s1_within_arch_invariance, s2_cross_architecture, s3_distance_amplification
+print('imports OK')
+"
+
+# (b) Phase-1 wrapper smoke: load each KM-wrapped model and forward-pass.
+#     The wrapper exposes .layers / .input_shape (consumed by
+#     KnowledgeMatrixComputer) and forwards as a regular nn.Module.
+python -c "
 import torch
-from utils.utils import get_architecture, get_dataset, subset, get_input_shape, _move_residuals_to_device, get_device
-from constants.constants import DEFAULT_EXPERIMENTS
-cfg = DEFAULT_EXPERIMENTS['resnet_imagenet']
-ish = get_input_shape(cfg['dataset'])
-device = get_device()
-m = get_architecture(architecture_index=cfg['architecture_index'], input_shape=ish,
-                    num_classes=1000, pretrained=True, freeze_features=False).to(device)
-_move_residuals_to_device(m, device); m.eval()
-_, test_set = get_dataset(cfg['dataset'], data_loader=False)
-data, labels = subset(test_set, 20, ish)
+from utils.km_models import build_model
+for arch in ('resnet152', 'densenet121', 'googlenet'):
+    m = build_model(arch, 'cpu')
+    y = m(torch.randn(1, 3, 224, 224))
+    assert y.shape == (1, 1000), (arch, y.shape)
+    print(f'{arch}: layers={len(m.layers)}, input_shape={m.input_shape}, logits_ok')
+"
+
+# (c) Pretrained-accuracy spot-check on a small validation subset
+#     (real test images, not random tensors). Expect mid-70s top-1 on
+#     resnet152 / densenet121 and high-60s on googlenet (InceptionV1).
+python -c "
+import torch
+from utils.km_models import build_model
+from utils.utils import get_imagenet_val_dataset
+_, val_set = get_imagenet_val_dataset()  # uses /datashare/imagenet/ILSVRC2012 by default
+xs = torch.stack([val_set[i][0] for i in range(40)])
+ys = torch.tensor([val_set[i][1] for i in range(40)])
+m = build_model('resnet152', 'cpu')
 with torch.no_grad():
-    acc = (m(data.to(device).float()).argmax(1) == labels.to(device)).float().mean().item()
-print(f"ResNet18 pretrained acc on 20 samples: {acc:.1%}")  # expect 70-80%
+    acc = (m(xs).argmax(1) == ys).float().mean().item()
+print(f'resnet152 pretrained acc on 40 samples: {acc:.1%}')  # expect ~70%
+"
 ```
 
-Swap `resnet_imagenet` for `densenet121_imagenet` / `googlenet_imagenet` to check the other Phase-1 architectures (DenseNet-121 ≈ 74%, GoogLeNet ≈ 69%).
+Swap `resnet152` for `densenet121` / `googlenet` to check the other Phase-1 architectures.
 
 ---
 
