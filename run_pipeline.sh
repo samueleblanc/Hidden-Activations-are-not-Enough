@@ -116,25 +116,48 @@ except Exception as e:
     exit 1
 fi
 
-# --- Phase 0d: torchvision pretrained weight cache -------------
+# --- Phase 0d: pretrained weight cache (torchvision + timm) ----
 # Compute nodes have no internet — a missing pretrained weight would only
-# surface after a SLURM allocation. Cache all 3 Phase-1 archs on the login
-# node where internet is available. torchvision detects the cached .pth
-# file and skips the download on re-runs (~milliseconds when cached;
-# ~30s for first-time download of all three). Same .pth file backs every
-# downstream invocation regardless of the aux_logits / weights variant
-# chosen by individual call sites, so one cache call per arch suffices.
+# surface after a SLURM allocation. Cache every weight variant any
+# downstream code path will request:
+#
+#   - Phase-1 architectures (resnet152, densenet121, googlenet) at the
+#     DEFAULT torchvision weights — needed by Steps B/C/D, the calibration
+#     job, every Phase-1 worker.
+#   - Cross-model alternate recipes (Step E only) — torchvision V2 +
+#     5 timm RSB variants. Without this, Step E's pre-flight verify
+#     pauses for ~250MB downloads scattered across 7 separate sub-steps,
+#     which reads to the operator like the verify is hung.
+#
+# Idempotent: torchvision/timm detect cached files and skip downloads on
+# re-runs (~milliseconds cached; ~30s–2min for first-time of the lot).
 # Skipped on local dev without env/.
 if [ "$HAS_ENV" = true ]; then
-    echo "Preflight: caching torchvision pretrained weights (resnet152, densenet121, googlenet)..."
+    echo "Preflight: caching pretrained weights (torchvision DEFAULT + cross-model recipes)..."
     if ! python -c "
 import torchvision.models as tvm
-tvm.resnet152(weights='DEFAULT')
-tvm.densenet121(weights='DEFAULT')
+
+# Phase-1 archs (every downstream sub-study uses these)
+tvm.resnet152(weights='DEFAULT')      # = IMAGENET1K_V1, also covers cross-model tv_v1
+tvm.densenet121(weights='DEFAULT')    # = IMAGENET1K_V1, also covers cross-model tv_v1
 tvm.googlenet(weights='DEFAULT')
+
+# Cross-model (Step E) alternate recipes — verify_cross_model_checkpoints.sh
+# would otherwise download these ad-hoc on the login node.
+tvm.resnet152(weights='IMAGENET1K_V2')   # Step E tv_v2
+
+import timm
+for tag in (
+    'resnet152.a1_in1k',                  # Step E timm_a1 (RSB A1)
+    'resnet152.a2_in1k',                  # Step E timm_a2 (RSB A2)
+    'resnet152.a3_in1k',                  # Step E timm_a3 (RSB A3 / 160px)
+    'densenet121.ra_in1k',                # Step E timm_ra
+):
+    timm.create_model(tag, pretrained=True)
 " 2>&1; then
-        echo "ERROR: torchvision weight caching failed. The login node needs internet" >&2
-        echo "  access on first run. Re-run on a login node with internet:" >&2
+        echo "ERROR: pretrained weight caching failed. The login node needs internet" >&2
+        echo "  access on first run (timm fetches from HuggingFace, torchvision from" >&2
+        echo "  download.pytorch.org). Re-run on a login node with internet:" >&2
         echo "    bash run_pipeline.sh" >&2
         exit 1
     fi

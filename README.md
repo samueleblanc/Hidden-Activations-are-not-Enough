@@ -320,7 +320,7 @@ That's the entire one-time setup. From then on, `bash run_pipeline.sh` is the on
 2. **Module + venv activate.** `module load StdEnv/2023 python/3.11.5 scipy-stack/2025a`, then `source env/bin/activate`.
 3. **`neuralteleportation` patches.** `bash patches/apply_neuralteleportation_patches.sh ./env`. Idempotent (`cmp -s` short-circuits on already-applied). Applying once on the shared-FS venv covers every Phase-1 array task.
 4. **Import smoke-test.** Imports every entry point (`validate_theorem45`, `cross_model_experiment`, `teleportation_experiment`, `bin.calibrate`, the three `cka_similarity.workers`). A `NameError` or missing module surfaces here.
-5. **Torchvision pretrained-weight cache.** `weights='DEFAULT'` for `resnet152`, `densenet121`, `googlenet`. Compute nodes have no internet; this populates `~/.cache/torch/hub/checkpoints/` on the login node where they do. ~30 s for a first-time download of all three; ~milliseconds on subsequent runs.
+5. **Pretrained-weight cache.** `weights='DEFAULT'` for `resnet152` / `densenet121` / `googlenet` (covers every Phase-1 sub-study + Step E `tv_v1`). Plus the cross-model alternate recipes used by Step E's verify step: torchvision `IMAGENET1K_V2` for `resnet152`, and the timm RSB variants `resnet152.a1_in1k` / `a2_in1k` / `a3_in1k` and `densenet121.ra_in1k`. Compute nodes have no internet; this populates `~/.cache/torch/hub/checkpoints/` and `~/.cache/huggingface/hub/` on the login node where they do. ~30 s–2 min for a first-time download of all variants; ~milliseconds on subsequent runs.
 
 **Phase -1 / Phase 1 — scan and submit:**
 
