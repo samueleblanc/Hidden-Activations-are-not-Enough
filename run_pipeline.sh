@@ -615,13 +615,14 @@ if [ "${USE_SENTINEL:-false}" = "true" ] && [ "$DRY_RUN" != true ]; then
         "$P1C_JOB_ID:job_phase1_reduce.sh"; do
         IFS=':' read -r SENT_JID SENT_SCRIPT <<< "$SENT_PAIR"
         [ -z "$SENT_JID" ] && continue
-        # Pick a representative calibration file for the dependent step.
-        # bin/sentinel.sh uses it only on CUDA-OOM (tier-step); other
-        # paths ignore it.
-        SENT_CALIB="experiments/calibration/resnet152_imagenet/calibration.json"
+        # Pass the calibration directory (not a single-arch file) so the
+        # sentinel can step down ALL arch calibrations on CUDA-OOM. Phase-1
+        # workers iterate all 3 archs per chunk, so the failing arch is
+        # unknown; stepping all calibrations is the safe conservative choice.
+        SENT_CALIB_DIR="experiments/calibration"
         sbatch --parsable --account="$ACCOUNT" --time=00:05:00 --mem=4G \
             --dependency=afterany:"$SENT_JID" \
-            --wrap="bash bin/sentinel.sh $SENT_JID $SENT_SCRIPT $SENT_CALIB" \
+            --wrap="bash bin/sentinel.sh --account=$ACCOUNT $SENT_JID $SENT_SCRIPT $SENT_CALIB_DIR" \
             > /dev/null
     done
 fi

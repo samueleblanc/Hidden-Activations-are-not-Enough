@@ -2,7 +2,20 @@
 # bin/sentinel.sh -- post-job hook for OOM/timeout/CUDA-OOM handling.
 #
 # Usage (called by run_pipeline.sh after sbatch returns the job id):
-#   bash bin/sentinel.sh <job_id> <job_script> [calibration_file]
+#   bash bin/sentinel.sh [--account=<acct>] <job_id> <job_script> [calibration_path]
+#
+# --account=<acct>  Optional. When set, every sbatch resubmit receives
+#                   --account=<acct>, matching the orchestrator's account
+#                   choice. Without this flag the job-script's #SBATCH
+#                   --account= directive governs resubmits (which may
+#                   diverge if the user edits ACCOUNT in run_pipeline.sh).
+#
+# calibration_path  May be a single calibration.json file OR a directory
+#                   containing {arch}_imagenet/calibration.json files.
+#                   On CUDA OOM the sentinel steps down EVERY calibration
+#                   found under the directory (all archs). This is safe
+#                   because Phase-1 workers iterate all archs per chunk,
+#                   so a CUDA OOM cannot be attributed to a single arch.
 #
 # Behavior:
 #   - System OOM (exit 137 / oom-killer): resubmit with --mem (or
@@ -10,7 +23,8 @@
 #   - Timeout (exit 124 / "DUE TO TIME LIMIT"): resubmit with --time doubled.
 #     Time strings can be "HH:MM:SS" or "D-HH:MM:SS" (SLURM day form).
 #   - CUDA OOM (stderr contains "CUDA out of memory"):
-#       step calibration tier down (93->90->85); fail if already 85
+#       step calibration tier down (93->90->85) for every discovered
+#       calibration.json; fail if every calibration is already at 85.
 #       resubmit with same --mem/--time
 #   - Other failure: retry once with same params; fail loudly on second attempt
 #   - Success (exit 0): exit 0 silently
@@ -18,10 +32,10 @@
 # All errors are logged to overall_errors.json (atomic append).
 #
 # The script is sourceable: helpers (double_slurm_time, double_mem,
-# get_exit_code, get_state, retry_marker, log_error) are defined as
-# functions and only invoked from main(); main() is gated on the script
-# being executed directly so tests can `source bin/sentinel.sh` to expose
-# helpers without triggering execution.
+# get_exit_code, get_state, retry_marker, log_error, sbatch_with_account)
+# are defined as functions and only invoked from main(); main() is gated
+# on the script being executed directly so tests can `source bin/sentinel.sh`
+# to expose helpers without triggering execution.
 
 set -euo pipefail
 
@@ -117,9 +131,25 @@ retry_marker() {
     echo ".retried_$(echo "$script" | tr '/' '_').marker"
 }
 
+sbatch_with_account() {
+    # Wraps sbatch to inject --account if SENTINEL_ACCOUNT is set.
+    if [ -n "${SENTINEL_ACCOUNT:-}" ]; then
+        sbatch --account="$SENTINEL_ACCOUNT" "$@"
+    else
+        sbatch "$@"
+    fi
+}
+
 # --- main entry point ---
 
 main() {
+    # Parse optional --account=<acct> flag.
+    SENTINEL_ACCOUNT=""
+    if [[ "${1:-}" == --account=* ]]; then
+        SENTINEL_ACCOUNT="${1#--account=}"
+        shift
+    fi
+
     JOB_ID="$1"
     JOB_SCRIPT="$2"
     CALIB_FILE="${3:-}"
@@ -141,17 +171,40 @@ main() {
     # CUDA OOM
     if echo "$stderr_text" | grep -qE "CUDA (out of memory|runtime error.*out of memory)"; then
         log_error "cuda_oom" "$(echo "$stderr_text" | grep -i 'out of memory' | head -3 | tr '\n' ' ')"
-        if [ -z "$CALIB_FILE" ] || [ ! -f "$CALIB_FILE" ]; then
-            echo "FAIL: CUDA OOM but no calibration file provided to sentinel" >&2
+        if [ -z "$CALIB_FILE" ]; then
+            echo "FAIL: CUDA OOM but no calibration path provided to sentinel" >&2
             exit 1
         fi
-        next_tier=$(python3 -c "from bin.calibrate import step_down_tier; print(step_down_tier('$CALIB_FILE'))")
-        if [ -z "$next_tier" ]; then
-            echo "FAIL: CUDA OOM at lowest tier; calibration is broken" >&2
+        # Build the list of calibrations to step down.
+        local -a CALIB_LIST
+        if [ -d "$CALIB_FILE" ]; then
+            # Directory mode: step down every */calibration.json under it.
+            mapfile -t CALIB_LIST < <(find "$CALIB_FILE" -mindepth 2 -maxdepth 2 -name 'calibration.json' 2>/dev/null)
+        elif [ -f "$CALIB_FILE" ]; then
+            CALIB_LIST=("$CALIB_FILE")
+        else
+            echo "FAIL: CUDA OOM but $CALIB_FILE is neither a file nor a directory" >&2
             exit 1
         fi
-        echo "CUDA OOM: stepped active tier to $next_tier for $CALIB_FILE; resubmitting" >&2
-        sbatch "$JOB_SCRIPT"
+        if [ ${#CALIB_LIST[@]} -eq 0 ]; then
+            echo "FAIL: CUDA OOM but no calibration files found under $CALIB_FILE" >&2
+            exit 1
+        fi
+        local any_stepped=false
+        for cal in "${CALIB_LIST[@]}"; do
+            next_tier=$(python3 -c "from bin.calibrate import step_down_tier; print(step_down_tier('$cal'))")
+            if [ -n "$next_tier" ]; then
+                echo "CUDA OOM: stepped active tier to $next_tier for $cal" >&2
+                any_stepped=true
+            else
+                echo "CUDA OOM: $cal is at lowest tier; cannot step down" >&2
+            fi
+        done
+        if [ "$any_stepped" != true ]; then
+            echo "FAIL: CUDA OOM but every calibration is already at the lowest tier" >&2
+            exit 1
+        fi
+        sbatch_with_account "$JOB_SCRIPT"
         exit 0
     fi
 
@@ -166,14 +219,14 @@ main() {
         if [ -n "$current_mem" ]; then
             new_mem=$(double_mem "$current_mem")
             echo "System OOM: doubling --mem from $current_mem to $new_mem" >&2
-            sbatch --mem="$new_mem" "$JOB_SCRIPT"
+            sbatch_with_account --mem="$new_mem" "$JOB_SCRIPT"
             exit 0
         fi
         current_mem=$(grep -E "^#SBATCH --mem-per-cpu=" "$JOB_SCRIPT" | head -1 | sed 's/.*--mem-per-cpu=//')
         if [ -n "$current_mem" ]; then
             new_mem=$(double_mem "$current_mem")
             echo "System OOM: doubling --mem-per-cpu from $current_mem to $new_mem" >&2
-            sbatch --mem-per-cpu="$new_mem" "$JOB_SCRIPT"
+            sbatch_with_account --mem-per-cpu="$new_mem" "$JOB_SCRIPT"
             exit 0
         fi
         echo "FAIL: no mem directive found in $JOB_SCRIPT -- cannot escalate memory" >&2
@@ -187,7 +240,7 @@ main() {
         current_time=$(grep -E "^#SBATCH --time=" "$JOB_SCRIPT" | head -1 | sed 's/.*--time=//')
         new_time=$(double_slurm_time "$current_time")
         echo "Timeout: doubling --time from $current_time to $new_time" >&2
-        sbatch --time="$new_time" "$JOB_SCRIPT"
+        sbatch_with_account --time="$new_time" "$JOB_SCRIPT"
         exit 0
     fi
 
@@ -199,7 +252,7 @@ main() {
             exit 1
         fi
         touch "$(retry_marker)"
-        sbatch "$JOB_SCRIPT"
+        sbatch_with_account "$JOB_SCRIPT"
         exit 0
     fi
 
