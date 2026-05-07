@@ -300,6 +300,7 @@ def compute_penultimate_extractor(arch: str, model: nn.Module
     if arch == "resnet152":
         # Look for an avgpool / final pooling layer
         target = None
+        target_name = None
         for name, mod in model.named_modules():
             if isinstance(mod, (nn.AdaptiveAvgPool2d, nn.AvgPool2d)):
                 target = mod
