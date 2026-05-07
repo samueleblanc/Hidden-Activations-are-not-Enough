@@ -37,6 +37,18 @@ for arg in "$@"; do
     esac
 done
 
+if [ "$DRY_RUN" != true ] && command -v squeue >/dev/null 2>&1; then
+    RUNNING_JOBS=$(squeue -u "$USER" -h -o "%j" 2>/dev/null || true)
+    KNOWN_JOB_NAMES="job_calibrate.sh|job_phase1_s1.sh|job_phase1_s2.sh|job_phase1_s3.sh|job_phase1_reduce.sh|job_adv_scaleup.sh|job_teleportation.sh|job_theorem45.sh|job_theorem45_agg.sh|job_cross_model.sh|job_tar_artifacts.sh"
+    if echo "$RUNNING_JOBS" | grep -qE "^($KNOWN_JOB_NAMES)$"; then
+        echo "ERROR: existing pipeline jobs running. Cancel them first or wait:" >&2
+        echo "$RUNNING_JOBS" | grep -E "^($KNOWN_JOB_NAMES)$" >&2
+        echo "" >&2
+        echo "  Cancel: scancel -u \$USER --name=\"<job_name>\"" >&2
+        exit 1
+    fi
+fi
+
 TIMESTAMP=$(date -Iseconds)
 
 # ==============================================================
@@ -83,13 +95,24 @@ if [ -f env/bin/activate ]; then
     # shellcheck disable=SC1091
     source env/bin/activate
 fi
-if ! python -c "import torch" >/dev/null 2>&1; then
-    echo "ERROR: torch not importable after module load + venv activate." >&2
-    echo "  On the cluster, run interactively first:" >&2
-    echo "    module load StdEnv/2023 python/3.11.5 scipy-stack/2025a" >&2
-    echo "    source env/bin/activate" >&2
-    echo "    pip install -r requirements-slurm.txt" >&2
-    echo "  Then retry: bash run_pipeline.sh" >&2
+if ! python -c "
+import sys
+try:
+    from validate_theorem45 import validate_theorem45
+    from cross_model_experiment import main as _xm
+    from teleportation_experiment import run_experiment as _tp
+    from bin.calibrate import main as _cal
+    from cka_similarity.workers import s1_within_arch_invariance as _s1
+    from cka_similarity.workers import s2_cross_architecture as _s2
+    from cka_similarity.workers import s3_distance_amplification as _s3
+except Exception as e:
+    print(f'preflight import failure: {type(e).__name__}: {e}', file=sys.stderr)
+    sys.exit(1)
+" >/dev/null 2>&1; then
+    echo "ERROR: preflight imports failed. Run interactively to see details:" >&2
+    echo "  module load StdEnv/2023 python/3.11.5 scipy-stack/2025a" >&2
+    echo "  source env/bin/activate" >&2
+    echo "  python -c 'from validate_theorem45 import validate_theorem45'" >&2
     exit 1
 fi
 echo ""
@@ -200,7 +223,7 @@ for i in 0 1 2; do
         PA_DIR="experiments/${C_NAMES[$i]}/theorem45/per_attack"
         CKPT_FILE="${C_CHECKPOINTS[$i]}"
         PA_COUNT=0
-        [ -d "$PA_DIR" ] && PA_COUNT=$(ls "$PA_DIR"/*.json 2>/dev/null | wc -l)
+        [ -d "$PA_DIR" ] && PA_COUNT=$(find "$PA_DIR" -maxdepth 1 -name '*.json' 2>/dev/null | wc -l)
         CKPT_COUNT=0
         if [ -f "$CKPT_FILE" ]; then
             CKPT_COUNT=$(python3 -c "
@@ -353,9 +376,10 @@ E_ARRAY_STR=""
 [ ${#E_NEEDED[@]} -gt 0 ] && E_ARRAY_STR=$(join_array "${E_NEEDED[@]}")
 
 STATE_FILE="pipeline_state.json"
-TMP_FILE="${STATE_FILE}.tmp"
 
-printf '%s\n' '{
+if [ "$DRY_RUN" != true ]; then
+    TMP_FILE=$(mktemp -p "$(dirname "$STATE_FILE")" "${STATE_FILE}.XXXXXX.tmp")
+    printf '%s\n' '{
   "timestamp": "'"$TIMESTAMP"'",
   "step_B_teleportation": {
     "0_'"${B_NAMES[0]}"'": "'"${B_STATUS[0]}"'",
@@ -379,9 +403,11 @@ printf '%s\n' '{
     "step_E": "'"${E_ARRAY_STR:-none}"'"
   }
 }' > "$TMP_FILE"
-mv "$TMP_FILE" "$STATE_FILE"
-
-echo "Pipeline state written to $STATE_FILE"
+    mv "$TMP_FILE" "$STATE_FILE"
+    echo "Pipeline state written to $STATE_FILE"
+else
+    echo "[DRY RUN] Would write pipeline state to $STATE_FILE"
+fi
 echo ""
 
 # ==============================================================
@@ -473,17 +499,34 @@ fi
 # the existing Theorem 4.5 C_JOB_ID above.
 # ==============================================================
 DEP_FLAG_A1=""
-[ -n "$CALIB_JOB_ID" ] && DEP_FLAG_A1="--dependency=afterok:$CALIB_JOB_ID"
+[ -n "$CALIB_JOB_ID" ] && DEP_FLAG_A1="--dependency=afterany:$CALIB_JOB_ID"
 
 # Step A2 — Adversarial scale-up (depends on A1)
+# Enumerate all 3 archs × 6 attacks and submit only missing combinations.
+# Index mapping must match job_adv_scaleup.sh: ARCH_IDX=(TASK_ID / 6), ATTACK_IDX=(TASK_ID % 6).
 A2_JOB_ID=""
-if [ ! -d "experiments/resnet152_imagenet/adversarial_pairs_N5000/square" ] || \
-   [ ! -f "experiments/resnet152_imagenet/adversarial_pairs_N5000/square/pairs.pth" ]; then
+A2_ARCHS=("resnet152" "densenet121" "googlenet")
+A2_ATTACKS=("fgsm" "pgd" "cw" "deepfool" "apgd" "square")
+A2_NEEDED=()
+for ai in "${!A2_ARCHS[@]}"; do
+    for atki in "${!A2_ATTACKS[@]}"; do
+        ARCH=${A2_ARCHS[$ai]}
+        ATK=${A2_ATTACKS[$atki]}
+        PFILE="experiments/${ARCH}_imagenet/adversarial_pairs_N5000/${ATK}/pairs.pth"
+        if [ ! -f "$PFILE" ]; then
+            TASK_ID=$(( ai * 6 + atki ))
+            A2_NEEDED+=("$TASK_ID")
+        fi
+    done
+done
+
+if [ ${#A2_NEEDED[@]} -gt 0 ]; then
+    A2_ARRAY_STR=$(join_array "${A2_NEEDED[@]}")
     if [ "$DRY_RUN" != true ]; then
-        A2_JOB_ID=$(sbatch --parsable --account="$ACCOUNT" $DEP_FLAG_A1 job_adv_scaleup.sh)
-        echo "Phase 1 Step A2 (adv scaleup): $A2_JOB_ID"
+        A2_JOB_ID=$(sbatch --parsable --account="$ACCOUNT" --array="$A2_ARRAY_STR" $DEP_FLAG_A1 job_adv_scaleup.sh)
+        echo "Phase 1 Step A2 (adv scaleup): $A2_JOB_ID --array=$A2_ARRAY_STR (${#A2_NEEDED[@]} of 18)"
     else
-        echo "[DRY RUN] sbatch --array=0-17 job_adv_scaleup.sh"
+        echo "[DRY RUN] sbatch --array=$A2_ARRAY_STR job_adv_scaleup.sh (${#A2_NEEDED[@]} of 18)"
     fi
 fi
 
@@ -516,7 +559,7 @@ B3_DEPS=""
 [ -n "$A2_JOB_ID" ] && B3_DEPS="${B3_DEPS}${A2_JOB_ID}:"
 B3_DEPS="${B3_DEPS%:}"
 B3_DEP_FLAG=""
-[ -n "$B3_DEPS" ] && B3_DEP_FLAG="--dependency=afterok:$B3_DEPS"
+[ -n "$B3_DEPS" ] && B3_DEP_FLAG="--dependency=afterany:$B3_DEPS"
 if [ ! -f "results/phase1/s3/.complete" ]; then
     if [ "$DRY_RUN" != true ]; then
         B3_JOB_ID=$(sbatch --parsable --account="$ACCOUNT" $B3_DEP_FLAG job_phase1_s3.sh)
@@ -533,7 +576,7 @@ P1C_DEPS=""
 [ -n "$B3_JOB_ID" ] && P1C_DEPS="${P1C_DEPS}${B3_JOB_ID}:"
 P1C_DEPS="${P1C_DEPS%:}"
 P1C_DEP_FLAG=""
-[ -n "$P1C_DEPS" ] && P1C_DEP_FLAG="--dependency=afterok:$P1C_DEPS"
+[ -n "$P1C_DEPS" ] && P1C_DEP_FLAG="--dependency=afterany:$P1C_DEPS"
 P1C_JOB_ID=""
 P1C_QUEUED=false
 if [ ! -f "results/phase1/aggregated/sanity_report.json" ]; then
@@ -550,7 +593,7 @@ fi
 # was queued (in real mode we have a job id; in dry-run we use the flag).
 D_JOB_ID=""
 if [ -n "$P1C_JOB_ID" ] && [ "$DRY_RUN" != true ]; then
-    D_JOB_ID=$(sbatch --parsable --account="$ACCOUNT" --dependency=afterok:"$P1C_JOB_ID" job_tar_artifacts.sh)
+    D_JOB_ID=$(sbatch --parsable --account="$ACCOUNT" --dependency=afterany:"$P1C_JOB_ID" job_tar_artifacts.sh)
     echo "Step D (tar): $D_JOB_ID"
 elif [ "$P1C_QUEUED" = "true" ] && [ "$DRY_RUN" = true ]; then
     echo "[DRY RUN] sbatch job_tar_artifacts.sh"
