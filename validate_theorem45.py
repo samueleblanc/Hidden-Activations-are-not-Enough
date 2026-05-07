@@ -34,6 +34,7 @@ from utils.utils import (
 )
 from constants.constants import DEFAULT_EXPERIMENTS, ATTACKS, IMAGENET_ATTACKS
 from utils.features import extract_penultimate_features
+from utils.atomic_io import atomic_json_dump
 
 
 # ---------------------------------------------------------------------------
@@ -300,13 +301,8 @@ def _stats(arr):
 # ---------------------------------------------------------------------------
 
 def _save_checkpoint(path, data):
-    """Atomic JSON write: write to .tmp then rename."""
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix('.tmp')
-    with open(tmp, 'w') as f:
-        json.dump(data, f, indent=2)
-    tmp.rename(path)
+    """Atomic JSON write: tmp + rename via atomic_io.atomic_json_dump."""
+    atomic_json_dump(path, data)
 
 
 def _load_checkpoint(path):
@@ -695,8 +691,7 @@ def validate_theorem45(experiment_name, num_samples=200, attacks=None,
         'per_attack': per_attack,
         'aggregate': aggregate,
     }
-    with open(out_file, 'w') as f:
-        json.dump(save_data, f, indent=2)
+    atomic_json_dump(out_file, save_data)
     print(f"\n  Results saved to {out_file}", flush=True)
 
     # Clean up checkpoint (no longer needed)
@@ -852,8 +847,7 @@ def aggregate_theorem45(experiment_name, num_samples=200):
         'per_attack': per_attack,
         'aggregate': aggregate,
     }
-    with open(out_file, 'w') as f:
-        json.dump(save_data, f, indent=2)
+    atomic_json_dump(out_file, save_data)
     print(f"\n  Results saved to {out_file}", flush=True)
 
     # Clean up checkpoint (per-attack files kept for reproducibility)

@@ -26,6 +26,7 @@ import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 from pathlib import Path
 
+from utils.atomic_io import atomic_json_dump
 from neuralteleportation.neuralteleportationmodel import NeuralTeleportationModel
 from neuralteleportation.models.model_zoo.resnetcob import (
     resnet18COB, resnet34COB, resnet50COB, resnet101COB, resnet152COB,
@@ -561,8 +562,7 @@ def run_experiment(args):
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     output_file = output_dir / f'{arch_name}_{dataset}_teleportation.json'
-    with open(output_file, 'w') as f:
-        json.dump(results, f, indent=2)
+    atomic_json_dump(output_file, results)
     print(f"\nResults saved to {output_file}", flush=True)
 
     return results
