@@ -6,10 +6,11 @@ import json
 import random
 import torchvision
 from torchvision.datasets import CIFAR10, CIFAR100
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 import shutil
 from pathlib import Path
-from typing import Union
+from typing import Union, Tuple, Optional, Callable
+from PIL import Image
 
 from model_zoo.mlp import MLP
 from model_zoo.cnn import CNN_2D
