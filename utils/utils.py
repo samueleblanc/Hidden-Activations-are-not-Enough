@@ -5,8 +5,9 @@ import torch.nn as nn
 import json
 import random
 import torchvision
+from torchvision import datasets, transforms
 from torchvision.datasets import CIFAR10, CIFAR100
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, random_split
 import shutil
 from pathlib import Path
 from typing import Union, Tuple, Optional, Callable
@@ -177,9 +178,6 @@ def get_imagenet_val_dataset(
 
     return val_loader, val_set
 
-import torch
-from torch.utils.data import DataLoader
-from torchvision import datasets, transforms
 
 def get_imagenet1k_loaders(
     root_dir="/datashare/imagenet/ILSVRC2012",
