@@ -20,7 +20,7 @@ source env/bin/activate
 
 python validate_theorem45.py \
     --experiment $EXPERIMENT \
-    --num_samples 200 \
+    --num_samples 500 \
     --aggregate
 
 echo "Aggregation $SLURM_ARRAY_TASK_ID ($EXPERIMENT) completed"

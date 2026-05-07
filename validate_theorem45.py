@@ -343,7 +343,6 @@ def _load_per_attack_files(experiment_name, num_samples):
                 data = json.load(fh)
             if (isinstance(data, dict)
                     and data.get('experiment') == experiment_name
-                    and data.get('num_samples') == num_samples
                     and 'result' in data):
                 results[data['attack']] = data['result']
         except (json.JSONDecodeError, OSError, KeyError):
@@ -482,6 +481,10 @@ def validate_theorem45(experiment_name, num_samples=200, attacks=None,
 
     # Reconstruct aggregated lists from all completed attacks
     for atk_name, atk_result in per_attack.items():
+        if atk_result.get('skipped') or 'gamma_empirical' not in atk_result:
+            print(f"  INFO: Skipping SKIPPED entry '{atk_name}' in aggregation.",
+                  flush=True)
+            continue
         all_gammas.append(atk_result['gamma_empirical'])
         all_amp_M.append(atk_result['amplification_M_median'])
         all_amp_h.append(atk_result['amplification_h_median'])
@@ -801,7 +804,11 @@ def aggregate_theorem45(experiment_name, num_samples=200):
     all_gammas = []
     all_amp_M = []
     all_amp_h = []
-    for atk_result in per_attack.values():
+    for atk_name, atk_result in per_attack.items():
+        if atk_result.get('skipped') or 'gamma_empirical' not in atk_result:
+            print(f"  INFO: Skipping SKIPPED entry '{atk_name}' in aggregation.",
+                  flush=True)
+            continue
         all_gammas.append(atk_result['gamma_empirical'])
         all_amp_M.append(atk_result['amplification_M_median'])
         all_amp_h.append(atk_result['amplification_h_median'])
