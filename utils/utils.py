@@ -19,13 +19,6 @@ from knowledgematrix.models.vgg11 import VGG11
 from constants.constants import ARCHITECTURES
 
 
-from torch.utils.data import Dataset, DataLoader, random_split
-from PIL import Image
-import torchvision.transforms as transforms
-from torchvision.datasets import CIFAR10
-from typing import Tuple, Optional, Callable
-
-
 def _remap_state_dict_keys(model, state_dict):
     """Remap state_dict keys when layer indices differ.
 

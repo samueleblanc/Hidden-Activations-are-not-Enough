@@ -2,14 +2,13 @@
 
 Implementation of "Hidden Activations Are Not Enough: A General Approach to Neural Network Predictions" (arXiv:2409.13163) by Samuel Leblanc, Aiky Rasolomanana, and Marco Armenta.
 
-Given a neural network and a data sample, we compute a **knowledge matrix** (via quiver representations). These matrices capture the full linear behavior of the network at each input point. We show that knowledge matrices are superior to penultimate-layer activations as neural network representations through the following pillars:
+Given a neural network and a data sample, we compute a **knowledge matrix** (via quiver representations). These matrices capture the full linear behavior of the network at each input point. We show that knowledge matrices are superior to penultimate-layer activations as neural network representations through the following studies:
 
-1. **Isomorphism Invariance** -- Knowledge matrices are invariant under neuron permutations (quiver isomorphisms), while penultimate activations change arbitrarily.
-2. **Distance Lower Bound (Theorem 4.5)** -- Knowledge matrix distances lower-bound logit distances: `||M(x) - M(x')|| >= gamma * ||f(x) - f(x')||`. Empirically, KMs amplify separations more than penultimate features.
-3. **Exact Image-Space Attribution** -- The per-class row of the per-input knowledge matrix `M(x)` is itself a saliency map, with properties no baseline (Grad-CAM, Integrated Gradients, SmoothGrad) achieves: it satisfies `Σ_j M(x)[c, j] = f_c(x)` exactly, requires no baseline image to be chosen, and is invariant under hidden-layer neuron permutations. Demonstrated on ResNet-152, DenseNet-121, and GoogLeNet (InceptionV1) — see the `km_feature_viz` pipeline below.
-4. **Cross-architecture canonical comparison (Pillar 3b)** — Knowledge matrices are uniformly $1000 \times 150{,}529$ for any feedforward network on $224\times224$ ImageNet inputs, regardless of architecture. This means KM Frobenius distance compares ResNet-152, DenseNet-121, and GoogLeNet directly on the same inputs without any alignment step, while CKA / Procrustes / Bures all require ad-hoc dimension matching that either discards variance or introduces spurious agreement. Phase 1 (this codebase) demonstrates this empirically across the 3 architecture pairs on $N = 25{,}000$ ImageNet validation samples, against the 9-measure representation-similarity panel of [Klabunde et al. 2025 ReSi].
+1. **Study 1 — Isomorphism Invariance.** Knowledge matrices are invariant under neuron permutations (quiver isomorphisms), while penultimate activations change arbitrarily. Verified via random neuron permutation (Study 1a) and neural teleportation (Study 1b); within-arch invariance under the 9-measure similarity panel (Study 1c).
+2. **Study 2 — Distance Lower Bound (Theorem 4.5).** Knowledge matrix distances lower-bound logit distances: `||M(x) - M(x')|| >= gamma * ||f(x) - f(x')||`. Empirically, KMs amplify separations more than penultimate features.
+3. **Study 3 — Cross-architecture canonical comparison.** Knowledge matrices are uniformly $1000 \times 150{,}529$ for any feedforward network on $224\times224$ ImageNet inputs, regardless of architecture. This means KM Frobenius distance compares ResNet-152, DenseNet-121, and GoogLeNet directly on the same inputs without any alignment step, while CKA / Procrustes / Bures all require ad-hoc dimension matching that either discards variance or introduces spurious agreement. Phase 1 (this codebase) demonstrates this empirically across the 3 architecture pairs on $N = 25{,}000$ ImageNet validation samples, against the 9-measure representation-similarity panel of [Klabunde et al. 2025 ReSi].
 
-**Phase 1 experimental program** (added 2026-05-03): we extend Pillars 1, 2, and 3 with a 9-measure representation-similarity panel (debiased linear / angular CKA, Procrustes shape distance, Bures similarity, soft-matching, RSA-Spearman, output JSD, Gromov-Wasserstein, distance correlation) computed at scale ($N = 25{,}000$ for invariance and cross-architecture; $N = 5{,}000$ adversarial pairs per attack for distance amplification). The panel translates the canonical-representation argument into the dominant similarity-measure language used by the rep-similarity community, complete with the random-network control of [Cui et al. 2022] and the shuffled-pair control of [Murphy et al. 2024]. Knowledge matrices are zero (within-arch invariance, by Theorem 4.1) or amplifying (cross-arch and adversarial-pair) where the standard measures either fail to detect drift or refuse to apply. See `docs/superpowers/specs/2026-05-03-cka-similarity-experiments-design.md` for the full design.
+**Phase 1 experimental program** (added 2026-05-03): we extend Studies 1, 2, and 3 with a 9-measure representation-similarity panel (debiased linear / angular CKA, Procrustes shape distance, Bures similarity, soft-matching, RSA-Spearman, output JSD, Gromov-Wasserstein, distance correlation) computed at scale ($N = 25{,}000$ for invariance and cross-architecture; $N = 5{,}000$ adversarial pairs per attack for distance amplification). The panel translates the canonical-representation argument into the dominant similarity-measure language used by the rep-similarity community, complete with the random-network control of [Cui et al. 2022] and the shuffled-pair control of [Murphy et al. 2024]. Knowledge matrices are zero (within-arch invariance, by Theorem 4.1) or amplifying (cross-arch and adversarial-pair) where the standard measures either fail to detect drift or refuse to apply. See `docs/superpowers/specs/2026-05-03-cka-similarity-experiments-design.md` for the full design.
 
 Additionally, we investigate how **penultimate activation distances behave when increasing network size** using pretrained torchvision models directly.
 
@@ -17,7 +16,7 @@ Additionally, we investigate how **penultimate activation distances behave when 
 
 ## Quick Start (Cluster)
 
-All experiments use **pretrained torchvision models** on ImageNet — Pillars 1 & 2 evaluate on AlexNet, ResNet18, and VGG11; Pillar 3 (`km_feature_viz/`) evaluates on ResNet152, DenseNet121, and GoogLeNet (InceptionV1). No training step required.
+All experiments use **pretrained torchvision models** on ImageNet — Studies 1, 2, and 3 evaluate on ResNet-152, DenseNet-121, and GoogLeNet (InceptionV1). No training step required.
 
 ```bash
 # Run the full pipeline on Nibi (scan for existing results, submit only needed jobs)
@@ -27,19 +26,19 @@ bash run_pipeline.sh
 bash run_pipeline.sh --dry-run
 ```
 
-The pipeline runs Pillars 1, 2, and 3 in parallel:
+The pipeline runs Studies 1, 2, and 3 in parallel:
 
 | Step | Script | Experiments | Wall time per task | # tasks |
 |------|--------|-------------|--------------------|---------|
 | 0. Calibration | `job_calibrate.sh` | ResNet-152, DenseNet-121, GoogLeNet × ImageNet (3-tier 85/90/93% mem) | ~10 min | 3 |
-| B. Teleportation (Pillar 1) | `job_teleportation.sh` | ResNet-152, DenseNet-121, GoogLeNet × ImageNet | ~2 h | 3 |
-| B′. S1 measure panel (Pillar 1, NEW) | `job_phase1_s1.sh` | 9-measure panel on teleportation pairs (`--array=0-63`) | ~25 min | 64 |
-| C. Theorem 4.5 (Pillar 2) | `job_theorem45.sh` | (RN-152, DN-121, GN) × (FGSM, PGD, CW, DeepFool, APGD, Square) × ImageNet | ~55 min | 18 |
+| B. Teleportation (Study 1b) | `job_teleportation.sh` | ResNet-152, DenseNet-121, GoogLeNet × ImageNet | ~2 h | 3 |
+| B′. S1 measure panel (Study 1c, NEW) | `job_phase1_s1.sh` | 9-measure panel on teleportation pairs (`--array=0-63`) | ~25 min | 64 |
+| C. Theorem 4.5 (Study 2) | `job_theorem45.sh` | (RN-152, DN-121, GN) × (FGSM, PGD, CW, DeepFool, APGD, Square) × ImageNet | ~55 min | 18 |
 | C-agg. Aggregation | `job_theorem45_agg.sh` | per experiment, writes `theorem45_results.json` | ~1 min | 3 |
 | D. Adversarial scale-up (NEW) | `job_adv_scaleup.sh` | scales adversarial pairs from $N=200$ to $N=5{,}000$ per attack (`--array=0-17`) | ~6 h (Square dominates) | 18 |
-| C′. S3 measure panel (Pillar 2, NEW) | `job_phase1_s3.sh` | 9-measure panel on $N=5{,}000$/attack adversarial pairs (`--array=0-63`) | ~50 min | 64 |
-| E. Cross-model same-arch (Pillar 3a) | `job_cross_model.sh` | ResNet-152 (10 pairs) + DenseNet-121 (1 pair) cross-recipe | ~8 h | 11 |
-| F. Cross-architecture (Pillar 3b, NEW) | `job_phase1_s2.sh` | 9-measure panel + KM Frobenius across (RN-152, DN-121, GN) pairs (`--array=0-63`) | ~10 min | 64 |
+| C′. S3 measure panel (Study 2 extension, NEW) | `job_phase1_s3.sh` | 9-measure panel on $N=5{,}000$/attack adversarial pairs (`--array=0-63`) | ~50 min | 64 |
+| E. Cross-model same-arch (positioned vs. Study 3) | `job_cross_model.sh` | ResNet-152 (10 pairs) + DenseNet-121 (1 pair) cross-recipe | ~8 h | 11 |
+| F. Cross-architecture (Study 3, NEW) | `job_phase1_s2.sh` | 9-measure panel + KM Frobenius across (RN-152, DN-121, GN) pairs (`--array=0-63`) | ~10 min | 64 |
 | G. Reduce + sanity (NEW) | `job_phase1_reduce.sh` | aggregate chunk artifacts; bootstrap CI; permutation null; Cui/Murphy controls | ~30 min | 1 |
 | H. Tar artifact (NEW) | `job_tar_artifacts.sh` | gated on G's `sanity_report.json` all-pass; produces `phase1-results-*.tar.gz` | ~5 min | 1 |
 
@@ -171,7 +170,7 @@ tar xzf phase1-results-*.tar.gz
 
 ### Isomorphism Invariance
 
-Demonstrates that knowledge matrices are invariant under neuron permutations while penultimate activations are not. Pillar 3 alignment (commit `5cf31fc`): Step A is run on `resnet152_imagenet` only — DenseNet-121 and GoogLeNet have concat-based topologies (dense connections / Inception parallel branches) that don't admit a simple post-pool neuron permutation. Pillar-1 evidence on those architectures comes from Step B (teleportation).
+Demonstrates that knowledge matrices are invariant under neuron permutations while penultimate activations are not. Architecture-set alignment (commit `5cf31fc`): Step A is run on `resnet152_imagenet` only — DenseNet-121 and GoogLeNet have concat-based topologies (dense connections / Inception parallel branches) that don't admit a simple post-pool neuron permutation. Study 1 evidence on those architectures comes from Step B (teleportation = Study 1b).
 
 ```bash
 python isomorphism_experiment.py --experiment resnet152_imagenet
@@ -183,7 +182,7 @@ Empirical validation of the distance lower bound. Generates adversarial pairs on
 
 The attack set is `IMAGENET_ATTACKS` in `constants/constants.py`: FGSM, PGD, CW, DeepFool, APGD, Square.
 
-Per-experiment attack hyperparameters are overridden in `ATTACK_OVERRIDES` (`validate_theorem45.py`). For pretrained ResNet-ImageNet, DeepFool uses `steps=200`, APGD uses `steps=50, loss='dlr'`, and Square uses `n_queries=20000` — the torchattacks defaults yield ~zero perturbations on these three attacks. The Pillar-3 archs ({resnet152, densenet121, googlenet}_imagenet) inherit the same overrides as a starting point; tune if smoke runs reveal `n_exact_zero` high.
+Per-experiment attack hyperparameters are overridden in `ATTACK_OVERRIDES` (`validate_theorem45.py`). For pretrained ResNet-ImageNet, DeepFool uses `steps=200`, APGD uses `steps=50, loss='dlr'`, and Square uses `n_queries=20000` — the torchattacks defaults yield ~zero perturbations on these three attacks. The Phase-1 ImageNet archs ({resnet152, densenet121, googlenet}_imagenet) inherit the same overrides as a starting point; tune if smoke runs reveal `n_exact_zero` high.
 
 A forward-pass diagnostic inside `generate_adversarial_pairs` prints `||adv - clean||` (L_inf and L_2) for every run, so it is immediately visible whether an attack silently noop'd. If all logit distances for an attack collapse to ~0 the result is written to `per_attack/{attack}_SKIPPED.json` rather than polluting the aggregate.
 
@@ -214,96 +213,43 @@ python teleportation_experiment.py --architecture googlenet   --dataset imagenet
 python generate_theorem45_tables.py --experiments resnet152_imagenet densenet121_imagenet googlenet_imagenet --output tables/
 ```
 
-### Pillar 3: three complementary forms
+### Study 3: cross-architecture canonical comparison
 
-In the TMLR-resubmit framing, Pillar 3 has split into three sub-pillars, each
-with its own pipeline step and primary script:
+The cross-model story has two coordinated experiments — a same-arch
+cross-recipe comparison (Step E) positioned relative to the
+cross-architecture comparison (Step F) that is Study 3 proper:
 
-- **Pillar 3a — same-arch cross-recipe representational comparison** (Step E,
+- **Same-arch cross-recipe representational comparison** (Step E,
   `cross_model_experiment.py`). Compares two independently-trained models of
   the *same* architecture (e.g., 10 ResNet-152 cross-recipe pairs from the
   torchvision recipe zoo + 1 DenseNet-121 pair). Demonstrates that KMs
   separate cross-recipe reps where the standard 9-measure panel reports
-  near-identity. **In the resubmitted paper.**
-- **Pillar 3b — cross-architecture canonical comparison (NEW)** (Step F =
+  near-identity. **In the resubmitted paper, positioned relative to
+  Study 3.**
+- **Study 3 — cross-architecture canonical comparison (NEW)** (Step F =
   Phase 1 sub-study S2, `job_phase1_s2.sh`). Compares ResNet-152 ↔ DenseNet-121,
   ResNet-152 ↔ GoogLeNet, DenseNet-121 ↔ GoogLeNet at $1000\times150{,}529$ on
   $N = 25{,}000$ ImageNet samples without any dimension matching. The other
   similarity measures either need PCA padding (CKA, Procrustes, Bures, dCor)
   or apply natively at coarser resolution (RSA, JSD, soft-matching, GW).
   **In the resubmitted paper.**
-- **Pillar 3c — KM as canonical saliency** (`km_feature_viz/` parallel
-  pipeline, the section below). The per-class row of $M(x)$ as a saliency
-  map vs. Grad-CAM/IG/SmoothGrad/PGD on ResNet-152, DenseNet-121, GoogLeNet.
-  **Parallel-track demonstration; not the core Pillar 3 in the TMLR
-  resubmission paper.** Preserved here as supplementary visualization.
-
-### Pillar 3c (parallel track): KM as canonical saliency (`km_feature_viz/`)
-
-Demonstrates that the per-class row of the per-input knowledge matrix `M(x)` is itself a saliency map, head-to-head against Grad-CAM, Integrated Gradients, SmoothGrad, and a PGD adversarial-perturbation column. The bundled outputs (`km-feature-viz.tar`) and rendering script (`scripts/render_km_viz.py`) remain in the repo as reference artifacts even though the orchestration step that generated them was retired (see "Recently retired" below). Existing tarballs unpack and render normally; reproducing from scratch requires invoking `km_feature_viz/compute_kms.py` etc. directly.
-
-**Architectures** (from `km_feature_viz/manifest.py:TIER_A_MODELS`):
-
-| Arch | Display name | Family | Input | DeepDream neuron selection |
-| ---- | ------------ | ------ | ----- | --------------------------- |
-| `resnet152`   | ResNet-152              | residual               | 224×224 | class-conditional Grad-CAM channel ranking (Selvaraju et al. 2017, ch-wise variant) |
-| `densenet121` | DenseNet-121            | dense connectivity     | 224×224 | class-conditional Grad-CAM channel ranking (Selvaraju et al. 2017, ch-wise variant) |
-| `googlenet`   | GoogLeNet (InceptionV1) | multi-branch inception | 224×224 | catalogued from Distill *Circuits Thread* + OpenAI Microscope (Olah et al. 2017; Cammarata et al. 2020) |
-
-**Image budget.** 20 ImageNet validation images (7 + 7 + 6) across 3 classes — golden retriever (207), tiger cat (282), zebra (340). The class set + per-class counts are pinned in `km_feature_viz/manifest.py:TIER_A_IMAGES_PER_CLASS` with seed `20260426`.
-
-**Storage.** All tensors are stored at **fp32** (the previous fp16 storage caused inf overflow on the residual path). Knowledge matrices are `(1000, 150529)` per `(arch, class, image)` — 1000 ImageNet output classes × (3·224·224 + 1 bias). Bundle: `km-feature-viz.tar` at the repo root.
-
-**DeepDream is NOT a column in the headline panel.** Per the round-3 Interp/KM debate, DeepDream is a neuron prototype, not a class-conditional explanation; including it next to KM/Grad-CAM/IG would invite reading the columns as parallel. It's rendered as an opt-in supplementary plate (`scripts/render_km_viz.py --include-deepdream`), with the per-arch neuron-selection methodology and per-tile citations always visible.
-
-**Per-arch neuron-selection metadata** is written by a separate sub-pipeline to `results/km-feature-viz/state/03a_neuron_selection_<arch>.json` with schema `{method: "gradcam_class_conditional" | "catalogued_distill", channels: {<layer>: [{channel, rank, mean_alpha?, label?, citation?}, ...]}}` — consumed by `scripts/render_km_viz.py` to format DeepDream tile captions and panel-level citation footers.
-
-**Render the gallery** (after `tar -xf km-feature-viz.tar -C results/km-feature-viz-cluster --strip-components=1`):
-
-```bash
-# Headline render: KM + Grad-CAM + IG + SmoothGrad + PGD per (arch, class, image)
-python scripts/render_km_viz.py --per-class 7
-
-# With DeepDream supplementary section surfaced as an open top-level section
-python scripts/render_km_viz.py --per-class 7 --include-deepdream
-
-open results/km-feature-viz-cluster/_viewable/index.html
-```
 
 ---
 
 ## Recently retired
 
-The following pipeline steps were dropped from the new direction. Their
-scripts are preserved for appendix data and historical reference:
+The following pipeline step was dropped from the new direction. The script
+is preserved for direct invocation and historical reference:
 
 - **Step A — Random neuron permutation isomorphism** (dropped per commit
   `59c3d6d`, "feat: CKA + SD reporting + smoke flags + N scale-up for
-  Pillar 1B/2"). The standalone Pillar-1A random-permutation isomorphism
-  experiment was superseded by the teleportation-based Pillar 1 (Step B,
-  which provides quiver-isomorphism evidence on all three Pillar-3
+  Study 1b/2"). The standalone Study-1a random-permutation isomorphism
+  experiment was superseded by the teleportation-based Study 1b (Step B,
+  which provides quiver-isomorphism evidence on all three Phase-1
   architectures, including the concat-topology ones — DenseNet-121 and
   GoogLeNet — that don't admit a simple post-pool neuron permutation).
   Original script: `isomorphism_experiment.py` (still present at the repo
   root for direct invocation; no longer in the orchestrator).
-- **Step D-old — km-feature-viz visualization pillar** (dropped per
-  commit `23b118a`, "chore(run_pipeline): drop Step D (km-feature-viz
-  visualization pillar)"). The five-sub-step D1–D5 orchestration that
-  produced `km-feature-viz.tar` was removed from `run_pipeline.sh`
-  because Pillar 3 was redefined as the cross-recipe (3a) and
-  cross-architecture (3b) representational comparisons rather than the
-  saliency visualization. The `km_feature_viz/` directory and its
-  per-script entry points (`compute_kms.py`, `compute_baselines.py`,
-  `compute_deepdream.py`, `jacobian_sensitivity.py`, etc.) remain in
-  place; the gallery renderer (`scripts/render_km_viz.py`) still works
-  on existing or freshly-generated bundles. Treat as a parallel-track
-  demonstration (Pillar 3c above) rather than a paper-pillar pipeline
-  step.
-
-In both cases the sources remain on the `refactor` branch — `legacy/` for
-older training-pipeline artifacts and `km_feature_viz/` for the
-visualization stack — so any reviewer or future user can re-enable them
-locally without rewriting from scratch.
 
 ---
 
@@ -327,14 +273,9 @@ pip install git+https://github.com/samueleblanc/knowledgematrix.git
 # Cache pretrained weights on login node (no internet on compute nodes)
 python -c "
 import torchvision.models as m
-m.alexnet(weights='DEFAULT')      # Step A, C   (Pillars 1, 2)
-m.resnet18(weights='DEFAULT')     # Step A, B, C (Pillars 1, 2)
-m.vgg11(weights='DEFAULT')        # Step A, C   (Pillars 1, 2)
-m.vgg11_bn(weights='DEFAULT')     # Step B      (Pillar 1)
-m.resnet50(weights='DEFAULT')     # Step B      (Pillar 1)
-m.resnet152(weights='DEFAULT')    # Step D1-D5  (Pillar 3)
-m.densenet121(weights='DEFAULT')  # Step D1-D5  (Pillar 3)
-m.googlenet(weights='DEFAULT')    # Step D1-D5  (Pillar 3, InceptionV1)
+m.resnet152(weights='DEFAULT')    # Studies 1b, 2, 3
+m.densenet121(weights='DEFAULT')  # Studies 1b, 2, 3
+m.googlenet(weights='DEFAULT')    # Studies 1b, 2, 3 (InceptionV1)
 print('All weights cached.')
 "
 ```
@@ -351,11 +292,11 @@ bash patches/apply_neuralteleportation_patches.sh
 
 `run_pipeline.sh` is the single entry point for running all experiments on the cluster:
 
-1. **Scans** for existing results and checkpoints across all 14 sub-steps (Pillars 1 & 2: A1–A3, B1–B3, C1–C18 + agg.; Pillar 3: D1–D5)
+1. **Scans** for existing results and checkpoints across all active sub-steps (Step 0 calibration, Step B teleportation, Steps C/C-agg theorem 4.5, Step E cross-recipe pairs, Phase-1 Steps A2/B′/C′/F/G/H)
 2. **Writes** `pipeline_state.json` with the current state of each task (`done`, `in_progress`, or `pending`)
 3. **Submits** only the needed SLURM array jobs, skipping completed tasks
 
-The pipeline is **idempotent** -- safe to re-run after partial failures. For Theorem 4.5, it detects checkpoint files and resumes from where it left off. For Pillar 3, per-arch state files in `results/km-feature-viz/state/` track D1–D5 completion (see "Result files" below).
+The pipeline is **idempotent** -- safe to re-run after partial failures. For Theorem 4.5, it detects checkpoint files and resumes from where it left off. For the Phase-1 panel jobs, per-chunk artifacts in `results/phase1/{s1,s2,s3}/` are accumulated by the reduce step (Step G).
 
 ### Result files
 
@@ -366,9 +307,8 @@ The pipeline is **idempotent** -- safe to re-run after partial failures. For The
 | Theorem 4.5 (per attack) | `experiments/{experiment}/theorem45/per_attack/{ATTACK}.json` |
 | Theorem 4.5 (per attack, zeroed) | `experiments/{experiment}/theorem45/per_attack/{ATTACK}_SKIPPED.json` |
 | Theorem 4.5 (aggregate) | `experiments/{experiment}/theorem45/theorem45_results.json` |
-| KM feature-viz raw output | `results/km-feature-viz/{images,kms,baselines,deepdream}/...` (per-`(arch, class, image)` `.pt` files at fp32) |
-| KM feature-viz state | `results/km-feature-viz/state/01_compute_kms_<arch>.json`, `02_<method>.json`, `03_deepdream_<arch>.json`, `03a_neuron_selection_<arch>.json`, `05_counterfactual_lp.json`, `06_jacobian_sensitivity.json` |
-| KM feature-viz bundle | `km-feature-viz.tar` (single tarball at repo root, written by D5) |
+| Cross-model same-arch (Step E) | `results/cross_model/{arch}/per_pair/{i}__{j}.json` |
+| Phase 1 panels (Steps B′/C′/F + reduce) | `results/phase1/{s1,s2,s3}/...`, `results/phase1/aggregated/...`, `results/phase1/artifact/phase1-results-*.tar.gz` |
 | Pipeline state | `pipeline_state.json` (overwritten on every `run_pipeline.sh` scan) |
 
 ---
@@ -394,7 +334,7 @@ with torch.no_grad():
 print(f"ResNet18 pretrained acc on 20 samples: {acc:.1%}")  # expect 70-80%
 ```
 
-Swap `resnet_imagenet` for `alexnet_imagenet` / `vgg_imagenet` to check those too (AlexNet ≈ 55%, VGG11 ≈ 69%).
+Swap `resnet_imagenet` for `densenet121_imagenet` / `googlenet_imagenet` to check the other Phase-1 architectures (DenseNet-121 ≈ 74%, GoogLeNet ≈ 69%).
 
 ---
 
@@ -417,8 +357,8 @@ If you upgrade `knowledgematrix` past `0d26c7a`, revisit these — upstream may 
 ```
 .
 ├── run_pipeline.sh                # Pipeline orchestrator (scan + submit)
-├── isomorphism_experiment.py      # Pillar 1: KM invariance under neuron permutations
-├── validate_theorem45.py          # Pillar 2: empirical distance lower bound
+├── isomorphism_experiment.py      # Study 1a: KM invariance under neuron permutations
+├── validate_theorem45.py          # Study 2: empirical distance lower bound
 ├── teleportation_experiment.py    # Penultimate activation instability under teleportation
 ├── generate_theorem45_tables.py   # LaTeX table generation for Theorem 4.5
 ├── debug_isomorphism.py           # Float32 vs float64 precision check for KM invariance
@@ -427,30 +367,30 @@ If you upgrade `knowledgematrix` past `0d26c7a`, revisit these — upstream may 
 ├── job_theorem45.sh               # SLURM job: Step C per-attack (array 0-17)
 ├── job_theorem45_agg.sh           # SLURM job: Step C aggregation (array 0-2, dependency-chained)
 ├── job_debug_isomorphism.sh       # SLURM job: precision diagnostic (one-shot)
-├── job_kmfv_kms.sh                # SLURM job: D1 KM compute (array 0-2 over archs)
-├── job_kmfv_baselines.sh          # SLURM job: D2 baselines (Grad-CAM/IG/SmoothGrad/feature-maps/PGD)
-├── job_kmfv_deepdream.sh          # SLURM job: D3 DeepDream (array 0-2 over archs)
-├── job_kmfv_formulations.sh       # SLURM job: D4 counterfactual-LP + Jacobian-sensitivity
-├── job_kmfv_bundle.sh             # SLURM job: D5 tar bundle
+├── job_calibrate.sh               # SLURM job: Step A1 per-arch 3-tier batch-size calibration
+├── job_adv_scaleup.sh             # SLURM job: Step A2 N=200 → N=5000 adversarial pairs
+├── job_phase1_s1.sh               # SLURM job: Step B′ S1 panel (within-arch invariance)
+├── job_phase1_s2.sh               # SLURM job: Step F  S2 panel (cross-architecture, Study 3)
+├── job_phase1_s3.sh               # SLURM job: Step C′ S3 panel (adversarial-pair amplification)
+├── job_phase1_reduce.sh           # SLURM job: Step G aggregate + bootstrap CI + sanity report
+├── job_tar_artifacts.sh           # SLURM job: Step H final tar artifact
+├── job_cross_model.sh             # SLURM job: Step E same-arch cross-recipe pairs
+├── cross_model_experiment.py      # Step E driver
+├── cka_similarity/                # Phase 1 worker scripts + 9-measure implementations
+├── bin/
+│   ├── calibrate.py               # Per-arch 3-tier batch-size calibration
+│   └── sentinel.sh                # OOM/timeout retry sbatch wrapper
 ├── constants/
 │   └── constants.py               # Experiment configs, architectures, attacks
-├── km_feature_viz/                # Pillar 3: KM as canonical saliency
-│   ├── manifest.py                # TIER_A_MODELS = [resnet152, densenet121, googlenet]
-│   ├── compute_kms.py             # D1: chunked KM computation per arch
-│   ├── compute_baselines.py       # D2: Grad-CAM, IG, SmoothGrad, feature-maps, PGD
-│   ├── compute_deepdream.py       # D3: noise+jitter DeepDream per (arch, layer, channel)
-│   ├── jacobian_sensitivity.py    # D4: Jacobian-based sensitivity baseline
-│   └── dictionary.py              # KM dictionary helpers (drops bias column)
-├── scripts/
-│   └── render_km_viz.py           # Render results/km-feature-viz-cluster/ → PNG gallery
 ├── utils/
 │   ├── utils.py                   # Model loading, datasets, get_architecture with ResNet fixes
 │   ├── features.py                # Penultimate feature extraction
 │   └── atomic_io.py               # Atomic file writes
 ├── patches/                       # neuralteleportation PyTorch 2.x compatibility
-├── experiments/                   # Per-experiment outputs (isomorphism + theorem45 results)
+├── experiments/                   # Per-experiment outputs (calibration + theorem45 results)
 ├── results/teleportation/         # Teleportation experiment outputs
-├── results/km-feature-viz/        # Pillar 3 raw .pt outputs + state/ files
+├── results/cross_model/           # Step E cross-recipe per-pair results
+├── results/phase1/                # Phase-1 panel chunks + aggregated tables + artifact
 └── legacy/                        # Archived adversarial-detection pipeline + CIFAR training code
 ```
 
@@ -458,27 +398,15 @@ If you upgrade `knowledgematrix` past `0d26c7a`, revisit these — upstream may 
 
 ## Experiment × step coverage
 
-The three experiment keys (defined in `constants/constants.py`) drive Steps A and C. Step B uses a parallel set of raw torchvision architectures because `neuralteleportation` ships its own COB models, not `knowledgematrix` wrappers. Step D (Pillar 3) uses a third arch list — heavier ImageNet models that span the dominant CNN family lines.
+The three experiment keys (defined in `constants/constants.py`) drive every step in the active pipeline. Step B uses the same architectures as Steps C/E/F via the `neuralteleportation` library's COB wrappers (with this paper's parallel-branch patch for the concat topologies of DenseNet-121 and GoogLeNet).
 
-| Experiment key | Step A (isomorphism) | Step C (theorem 4.5) | Architecture |
-|----------------|:--------------------:|:---------------------:|--------------|
-| `alexnet_imagenet` | ✅ | ✅ | torchvision `alexnet` |
-| `resnet_imagenet`  | ✅ | ✅ | torchvision `resnet18` |
-| `vgg_imagenet`     | ✅ | ✅ | torchvision `vgg11` |
+| Experiment key | Step B (Study 1b) | Step C (Study 2) | Step E (cross-recipe) | Step F (Study 3) | Architecture |
+|----------------|:-----------------:|:----------------:|:---------------------:|:----------------:|--------------|
+| `resnet152_imagenet`   | ✅ | ✅ | ✅ (10 pairs) | ✅ | torchvision `resnet152` |
+| `densenet121_imagenet` | ✅ | ✅ | ✅ (1 pair)   | ✅ | torchvision `densenet121` |
+| `googlenet_imagenet`   | ✅ | ✅ | —             | ✅ | torchvision `googlenet` (InceptionV1, **not** Inception_v3) |
 
-| Step B architecture (teleportation) | Source |
-|-------------------------------------|--------|
-| `resnet18`  | `neuralteleportation.models.model_zoo.resnetcob` |
-| `vgg11_bn`  | `neuralteleportation.models.model_zoo.vggcob` |
-| `resnet50`  | `neuralteleportation.models.model_zoo.resnetcob` |
-
-| Step D architecture (km-feature-viz, Pillar 3) | Family | Source |
-|------------------------------------------------|--------|--------|
-| `resnet152`   | residual               | torchvision `resnet152` |
-| `densenet121` | dense connectivity     | torchvision `densenet121` |
-| `googlenet`   | multi-branch inception | torchvision `googlenet` (InceptionV1, **not** Inception_v3) |
-
-All eight torchvision weight variants (`alexnet`, `resnet18`, `vgg11`, `vgg11_bn`, `resnet50`, `resnet152`, `densenet121`, `googlenet`) must be pre-cached on a login node — see Setup above.
+All three torchvision weight variants (`resnet152`, `densenet121`, `googlenet`) must be pre-cached on a login node — see Setup above.
 
 ---
 

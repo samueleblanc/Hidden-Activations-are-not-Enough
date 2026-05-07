@@ -25,7 +25,7 @@ mkdir -p $SLURM_SUBMIT_DIR/slurm_err
 #     not ship one).
 # Apply both via:  bash patches/apply_neuralteleportation_patches.sh
 #
-# Sizing rationale (matches job_kmfv_kms.sh): full ImageNet val pass with
+# Sizing rationale: full ImageNet val pass with
 # 100 teleportations on resnet152 and densenet121 needs ~3-4h on H100 with
 # 192G CPU RAM (CPU memory holds the per-teleportation feature matrices).
 # May 2026 scale-up: N bumped 500 -> 1000 samples/split, time 8h -> 18h

@@ -168,9 +168,9 @@ def build_km_model_with_alt_weights(arch: str, ckpt_alias: str,
     """
     # Lazy imports so module loads on machines without knowledgematrix.
     if arch == "resnet152":
-        from km_feature_viz.compute_kms import _build_resnet152 as _km_build
+        from utils.km_models import _build_resnet152 as _km_build
     elif arch == "densenet121":
-        from km_feature_viz.compute_kms import _build_densenet121 as _km_build
+        from utils.km_models import _build_densenet121 as _km_build
     else:
         raise ValueError(f"No KM wrapper factory wired for arch {arch!r}")
 

@@ -1,8 +1,6 @@
-"""KM correctness invariant: model.forward(x) == A.sum(1) at machine epsilon.
+"""KM correctness invariant: model.forward(x) == M(x).sum(1) at machine epsilon.
 
-This test runs against a tiny CNN — it does NOT load the cached KM cache.
-For a cache-wide invariant check, use the dedicated script that the notebook
-calls before rendering figures.
+Runs against a tiny CNN — does not depend on any cached KMs.
 """
 import unittest
 
@@ -17,7 +15,6 @@ torch.set_default_dtype(torch.float64)
 class TestKMInvariant(unittest.TestCase):
 
     def test_invariant_on_small_cnn(self):
-        # Create a small CNN using the NN factory pattern
         model = NN(input_shape=(3, 8, 8), save=True)
         model.conv(3, 8, kernel_size=3, padding=1)
         model.relu()

@@ -7,6 +7,8 @@
 #SBATCH --output=slurm_out/A1_calibrate_%A_%a.out
 #SBATCH --error=slurm_err/A1_calibrate_%A_%a.err
 
+set -euo pipefail
+
 # Step A1 — per-architecture KM batch-size calibration.
 # 3 array tasks (one per arch). Dispatches bin/calibrate.py.
 # All later Phase 1 workers (S1/S2/S3) read the resulting calibration.json.
@@ -22,4 +24,7 @@ ARCH=${ARCHS[$SLURM_ARRAY_TASK_ID]}
 OUT_PATH="experiments/calibration/${ARCH}_imagenet/calibration.json"
 mkdir -p "$(dirname "$OUT_PATH")"
 
-python bin/calibrate.py --arch "$ARCH" --out_path "$OUT_PATH"
+# Use `python -m` so the repo root is on sys.path; otherwise
+# `from utils.utils import …` inside bin/calibrate.py fails with
+# ModuleNotFoundError (sys.path[0] would be bin/, not the repo root).
+python -m bin.calibrate --arch "$ARCH" --out_path "$OUT_PATH"

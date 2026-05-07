@@ -7,10 +7,10 @@
 #SBATCH --output=slurm_out/A_iso_%A_%a.out
 #SBATCH --error=slurm_err/A_iso_%A_%a.err
 
-# Pillar 3 alignment (TMLR resubmission): Step A migrated to the same three
-# architectures used by Pillar 3 KM-feature-viz (commit 9e5e9f4) and Step B
-# teleportation (commit 369c9dc). Resource bumped to 8h/192G/h100:1 to match
-# job_kmfv_kms.sh sizing for the larger pretrained models on full ImageNet val.
+# Phase-1 alignment (TMLR resubmission): Step A migrated to the same three
+# architectures (resnet152, densenet121, googlenet) used by Step B
+# teleportation (commit 369c9dc). Resource bumped to 8h/192G/h100:1 for the
+# larger pretrained models on full ImageNet val.
 #
 # IMPORTANT — array bound to 0-0 (resnet152 only):
 #   * resnet152_imagenet: random neuron permutation supported via the new

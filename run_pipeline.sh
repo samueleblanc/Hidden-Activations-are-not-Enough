@@ -6,18 +6,14 @@
 # Phase 2: Submit only the SLURM jobs that are still needed
 #
 # Steps:
-#   B: Teleportation       (Pillar 1, job_teleportation.sh, array 0-2)
-#   C: Theorem 4.5         (Pillar 2, job_theorem45.sh,    array 0-17 + agg)
-#   E: Cross-model         (Pillar 3, job_cross_model.sh,  array 0-10;
+#   B: Teleportation       (Study 1b, job_teleportation.sh, array 0-2)
+#   C: Theorem 4.5         (Study 2,  job_theorem45.sh,    array 0-17 + agg)
+#   E: Cross-model         (positioned vs. Study 3, job_cross_model.sh, array 0-10;
 #                           pre-flight verify on login node first)
 #
-# Note: Steps A (random neuron permutation isomorphism) and D (km-feature-viz
-# visualization comparison) were both dropped from the new TMLR direction.
-# - Step A script: legacy/isomorphism_experiment.py
-# - Step D scripts: km_feature_viz/, job_kmfv_*.sh — kept for the appendix
-#   but no longer auto-launched. Existing results in results/km-feature-viz/
-#   are preserved as appendix data; re-render via job_kmfv_*.sh manually
-#   if you need fresh appendix figures.
+# Note: Step A (random neuron permutation isomorphism, Study 1a) was dropped
+# from the orchestrator. Direct invocation still works via
+# isomorphism_experiment.py at the repo root.
 #
 # All independent steps (B, C-attacks, E) launch in parallel.
 # Dependencies: C-aggregate after C-attacks.
@@ -124,7 +120,7 @@ C_CHECKPOINTS=(
     "experiments/googlenet_imagenet/theorem45/theorem45_checkpoint.json"
 )
 
-# Step E: Cross-model representation comparison (Pillar 3, May 2026 reframing).
+# Step E: Cross-model representation comparison (positioned vs. Study 3, May 2026 reframing).
 # All checkpoints are differently-trained (different recipes, not same-recipe
 # seed variants); see km-notes.md 2026-05-02 + paper-plan.md §1.1.
 # Pair indices match job_cross_model.sh's ALL_PAIRS array exactly.

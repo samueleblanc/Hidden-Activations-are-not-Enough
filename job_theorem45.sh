@@ -7,6 +7,12 @@
 #SBATCH --output=slurm_out/C_thm45_%A_%a.out
 #SBATCH --error=slurm_err/C_thm45_%A_%a.err
 
+set -euo pipefail
+# Without `set -e`, a non-zero exit from python is masked by the trailing
+# `echo "Task X completed"` below — SLURM then mistakenly marks the array
+# task COMPLETED and the per-attack file silently goes missing (observed
+# 2026-05-06 when 12 tasks landed on a broken-GPU node and silently failed).
+
 # Pillar 3 alignment (TMLR resubmission): Step C now estimates γ for the same
 # three architectures used by Pillar 3 KM-feature-viz (commit 9e5e9f4) and
 # Steps A/B. ResNet152's KM is ~2× the size of ResNet18's; bumped to

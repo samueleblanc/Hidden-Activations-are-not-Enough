@@ -385,8 +385,8 @@ def validate_theorem45(experiment_name, num_samples=200, attacks=None,
     """
     exp_config = DEFAULT_EXPERIMENTS[experiment_name]
     dataset = exp_config['dataset']
-    # Pillar 3 archs use 'model_name' instead of 'architecture_index' to route
-    # through km_feature_viz.compute_kms.build_model (see constants.py comment).
+    # Phase-1 archs use 'model_name' instead of 'architecture_index' to route
+    # through utils.km_models.build_model (see constants.py comment).
     model_name = exp_config.get('model_name')
     arch_idx = exp_config.get('architecture_index')
     epoch = exp_config['epochs']
@@ -400,12 +400,12 @@ def validate_theorem45(experiment_name, num_samples=200, attacks=None,
 
     # Load model
     if model_name is not None:
-        # Pillar 3 path: knowledgematrix wrappers loaded via km_feature_viz
+        # Phase-1 path: knowledgematrix wrappers loaded via utils.km_models
         # factories (resnet152/densenet121/googlenet). pretrained-only.
-        from km_feature_viz.compute_kms import build_model as _kmfv_build_model
-        print(f"Using km_feature_viz factory for model_name={model_name!r}",
+        from utils.km_models import build_model as _km_build_model
+        print(f"Using utils.km_models factory for model_name={model_name!r}",
               flush=True)
-        model = _kmfv_build_model(model_name, str(device))
+        model = _km_build_model(model_name, str(device))
     elif exp_config.get('pretrained', False) and epoch == 0:
         print("Using pretrained torchvision weights (no local weight file)",
               flush=True)

@@ -155,15 +155,16 @@ DEFAULT_EXPERIMENTS = {
         'weight_decay': 0.0,
         'scheduler': 'cosine',
     },
-    # Pillar 3 alignment (TMLR resubmission, 2026-04-27): the new model set
-    # {ResNet152, DenseNet121, GoogLeNet} replaces the old AlexNet/ResNet18/
-    # VGG11 trio across Steps A (isomorphism) and C (Theorem 4.5), matching
-    # Step B (commit 369c9dc) and Pillar 3 km-feature-viz (commit 9e5e9f4).
-    # These entries route through km_feature_viz.compute_kms.build_model via
-    # the 'model_name' field rather than constants.ARCHITECTURES — the new
-    # KM-library wrappers (knowledgematrix.models.{resnet152,densenet,googlenet})
-    # take pretrained=True directly, side-stepping the legacy
-    # pretrained_model monkey-patch path in utils.get_architecture.
+    # Phase 1 model set (TMLR resubmission, 2026-04-27): {ResNet152,
+    # DenseNet121, GoogLeNet} replaces the old AlexNet/ResNet18/VGG11 trio
+    # across Steps A (isomorphism, retired), C (Theorem 4.5, Study 2),
+    # B (teleportation, Study 1b, commit 369c9dc), E (cross-recipe), and
+    # F (cross-architecture, Study 3). These entries route through the
+    # `utils.km_models.build_model` factory via the 'model_name' field
+    # rather than constants.ARCHITECTURES — the KM-library wrappers
+    # (knowledgematrix.models.{resnet152,densenet,googlenet}) take
+    # pretrained=True directly, side-stepping the legacy pretrained_model
+    # monkey-patch path in utils.get_architecture.
     'resnet152_imagenet': {
         'pretrained': True,
         'dataset': 'imagenet',
