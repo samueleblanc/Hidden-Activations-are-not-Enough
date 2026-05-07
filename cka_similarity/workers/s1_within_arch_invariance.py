@@ -13,6 +13,7 @@ from argparse import ArgumentParser
 from copy import deepcopy
 from pathlib import Path
 
+import numpy as np
 import torch
 
 from utils.utils import get_device, get_imagenet_val_dataset
@@ -22,24 +23,66 @@ from cka_similarity.measures.panel import PANEL
 
 
 def load_pretrained(arch: str):
-    """Load the torchvision-pretrained network for the given arch."""
+    """Load a COB-aware ImageNet-pretrained network for the given arch.
+
+    S1 uses neural-teleportation as the source of weight-space symmetry, and
+    the ``neuralteleportation`` library only operates on its COB-aware model
+    classes (e.g. ``resnet152COB``). Torchvision-trained state_dicts load
+    directly into the COB equivalents — this matches the recipe used by
+    ``teleportation_experiment.create_model`` + the ``--pretrained`` branch in
+    that script.
+    """
     import torchvision.models as tvm
-    model = {
-        "resnet152": lambda: tvm.resnet152(weights="DEFAULT"),
-        "densenet121": lambda: tvm.densenet121(weights="DEFAULT"),
-        "googlenet": lambda: tvm.googlenet(aux_logits=False, weights="DEFAULT"),
-    }[arch]()
-    return model.eval()
+    if arch == "resnet152":
+        from neuralteleportation.models.model_zoo.resnetcob import resnet152COB
+        cob = resnet152COB(pretrained=False, num_classes=1000)
+        tv = tvm.resnet152(weights="DEFAULT")
+        cob.load_state_dict(tv.state_dict(), strict=True)
+    elif arch == "densenet121":
+        from neuralteleportation.models.model_zoo.densenetcob import densenet121COB
+        cob = densenet121COB(pretrained=False, num_classes=1000)
+        tv = tvm.densenet121(weights="DEFAULT")
+        cob.load_state_dict(tv.state_dict(), strict=True)
+    elif arch == "googlenet":
+        # Mirror teleportation_experiment.py:439-455: torchvision insists on
+        # aux_logits=True for pretrained weights, so we strip the aux
+        # classifiers' state-dict keys before loading into GoogLeNetCOB
+        # (which never carries aux classifiers). transform_input=False keeps
+        # the dataset normalization consistent with the rest of the repo.
+        from neuralteleportation.models.model_zoo.googlenetcob import GoogLeNetCOB
+        cob = GoogLeNetCOB(num_classes=1000, init_weights=False)
+        tv = tvm.googlenet(weights="DEFAULT", transform_input=False)
+        tv.aux_logits = False
+        tv.aux1 = None
+        tv.aux2 = None
+        sd = {k: v for k, v in tv.state_dict().items()
+              if not k.startswith("aux1.") and not k.startswith("aux2.")}
+        cob.load_state_dict(sd, strict=True)
+    else:
+        raise ValueError(f"Unsupported arch: {arch!r}")
+    cob.eval()
+    return cob
 
 
 def teleport(model, seed: int):
-    """Apply the seed-th random neural teleportation to a copy of the model."""
-    from neuralteleportation.changeofbasisutils import get_random_cob
-    teleported = deepcopy(model)
+    """Apply the seed-th random neural teleportation to a copy of the model.
+
+    Uses the canonical pattern from ``teleportation_experiment.teleport_model``
+    (line 183-202): wrap a deepcopy in ``NeuralTeleportationModel`` and call
+    ``random_teleport(cob_range=1)``. The wrapper mutates the copy's weights
+    in place; we return the copy itself so downstream forwards run through
+    the underlying nn.Module rather than the teleportation harness.
+
+    Both seeds (torch + numpy) are set explicitly because COB sampling uses
+    ``np.random`` internally — see teleportation_experiment.py:198-199.
+    """
+    from neuralteleportation.neuralteleportationmodel import NeuralTeleportationModel
+    model_copy = deepcopy(model)
     torch.manual_seed(seed)
-    cob = get_random_cob(teleported, cob_range=1.0)
-    teleported.apply_cob(cob)
-    return teleported.eval()
+    np.random.seed(seed)
+    tp = NeuralTeleportationModel(model_copy, input_shape=(1, 3, 224, 224))
+    tp.random_teleport(cob_range=1)
+    return model_copy.eval()
 
 
 def _get_classifier_module(model):
@@ -92,6 +135,26 @@ def load_imagenet_val_chunk(start: int, end: int, data_dir: str):
     return torch.cat(xs, dim=0)
 
 
+def _write_complete_sentinel_if_done(out_dir, archs, num_teleports, num_chunks):
+    """Touch ``{out_dir}/.complete`` when every (arch, teleport, chunk) file is on disk.
+
+    The orchestrator (``run_pipeline.sh``) gates s1 re-submission on this
+    sentinel. It must be written by whichever chunk-task happens to land
+    last — so each task probes the full grid of expected outputs and only
+    touches the marker once they are all present. ``Path.touch()`` is
+    idempotent, so a TOCTOU race between two simultaneously-finishing
+    tasks is benign.
+    """
+    out_path = Path(out_dir)
+    for arch in archs:
+        for tj in range(num_teleports):
+            for ci in range(num_chunks):
+                expected = out_path / f"{arch}_teleport{tj}_chunk{ci}.pt"
+                if not expected.exists():
+                    return
+    (out_path / ".complete").touch()
+
+
 def run_chunk(chunk_id, num_chunks, num_samples_total, archs, num_teleports,
               out_dir, data_dir, batch_size=32):
     """Compute per-chunk S1 accumulators for one chunk slice."""
@@ -137,6 +200,10 @@ def run_chunk(chunk_id, num_chunks, num_samples_total, archs, num_teleports,
             del W_tilde, h_W_tilde, logits_W_tilde
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
+
+    # Once this chunk's outputs land, check whether the full grid is on disk
+    # and, if so, mark the worker complete for run_pipeline.sh.
+    _write_complete_sentinel_if_done(out_dir, archs, num_teleports, num_chunks)
 
 
 def main():

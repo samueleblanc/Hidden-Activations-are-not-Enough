@@ -22,12 +22,45 @@ from pathlib import Path
 import torch
 
 from utils.utils import get_device
+from utils.km_models import build_model
 from utils.atomic_io import atomic_torch_save, atomic_json_dump, atomic_json_load
 from cka_similarity.workers.common import chunk_slice, load_active_km_batch_size, calibration_path_for
 from cka_similarity.measures.panel import PANEL
-from cka_similarity.workers.s1_within_arch_invariance import (
-    load_pretrained, forward_penultimate, forward_logits, load_imagenet_val_chunk,
-)
+from cka_similarity.workers.s1_within_arch_invariance import load_imagenet_val_chunk
+
+
+def load_pretrained(arch: str):
+    """Load the knowledgematrix-wrapped pretrained ImageNet network.
+
+    S2/S3 both feed their model into ``KnowledgeMatrixComputer``, which reads
+    ``model.layers`` and ``model.input_shape``; raw torchvision models lack
+    both, so the wrapper from ``utils.km_models.build_model`` is required.
+
+    Note this is a different ``load_pretrained`` from S1's: S1 needs a
+    COB-aware model for neural teleportation, S2/S3 need the wrapper for KM
+    extraction. They cannot share a single helper.
+    """
+    return build_model(arch, get_device())
+
+
+def forward_penultimate(model, x):
+    """Penultimate-layer features (input to the final classifier).
+
+    The knowledgematrix wrapper's ``forward`` accepts a ``return_penultimate``
+    kwarg (see knowledgematrix/neural_net.py:523-536) which short-circuits
+    ``self.layers[:-1]`` — exactly the input to the final Linear. This is a
+    cleaner contract than the forward-hook pattern used in S1 (where the
+    classifier is exposed as ``model.fc`` / ``model.classifier`` on COB
+    models) because the wrapper's classifier is anonymous (just
+    ``model.layers[-1]``).
+    """
+    with torch.no_grad():
+        return model(x, return_penultimate=True)
+
+
+def forward_logits(model, x):
+    with torch.no_grad():
+        return model(x)
 
 
 def extract_km_per_sample(model, x_batch, batch_size: int):
@@ -81,6 +114,29 @@ def pca_project(X: torch.Tensor, target_dim: int) -> torch.Tensor:
         )
         target_dim = Vh.shape[0]
     return Xc @ Vh[:target_dim].T
+
+
+def _write_complete_sentinel_if_done(out_dir, archs, num_chunks):
+    """Touch ``{out_dir}/.complete`` once every per-chunk file has landed.
+
+    For each cross-arch pair this worker emits three files per chunk:
+    ``{pname}_KM_chunk{i}.json``, ``{pname}_D1_chunk{i}.pt``,
+    ``{pname}_D2_chunk{i}.pt``. We probe the full grid here so whichever
+    chunk-task happens to finish last detects the all-done state and marks
+    the sentinel for run_pipeline.sh. ``Path.touch()`` is idempotent — a
+    TOCTOU race between two simultaneously-finishing tasks is benign.
+    """
+    out_path = Path(out_dir)
+    short_names = {"resnet152": "RN", "densenet121": "DN", "googlenet": "GN"}
+    pair_names = [f"{short_names[a]}_{short_names[b]}"
+                  for a, b in combinations(archs, 2)]
+    for pname in pair_names:
+        for ci in range(num_chunks):
+            for kind in ("KM_chunk{}.json", "D1_chunk{}.pt", "D2_chunk{}.pt"):
+                expected = out_path / f"{pname}_{kind.format(ci)}"
+                if not expected.exists():
+                    return
+    (out_path / ".complete").touch()
 
 
 def run_chunk(chunk_id, num_chunks, num_samples_total, archs, out_dir, data_dir,
@@ -145,6 +201,16 @@ def run_chunk(chunk_id, num_chunks, num_samples_total, archs, out_dir, data_dir,
                 with torch.no_grad():
                     M_a_i = mc_a.forward(x_i)         # (1000, d+1) on GPU
                     M_b_i = mc_b.forward(x_i)
+                    # Cross-arch KM Frobenius distance is only meaningful when
+                    # the two matrices share shape — i.e. both archs produce
+                    # the canonical 1000 × 150529 KM. utils.km_models.build_model
+                    # holds this for the three Phase-1 archs; assert here so a
+                    # future arch that breaks the shape contract fails loudly
+                    # rather than silently broadcasting through ``norm``.
+                    assert M_a_i.shape == M_b_i.shape, (
+                        f"Cross-arch KM shape mismatch on sample {i}: "
+                        f"{a}={tuple(M_a_i.shape)} vs {b}={tuple(M_b_i.shape)}"
+                    )
                     d = float((M_a_i - M_b_i).norm(p='fro').item())
                 km_distances.append(d)
                 atomic_json_dump(str(km_dist_path), km_distances)
@@ -193,6 +259,10 @@ def run_chunk(chunk_id, num_chunks, num_samples_total, archs, out_dir, data_dir,
                 "accumulators": d2_acc,
                 "convention": "D2", "target_dim": target_dim,
             })
+
+    # Once this chunk's outputs land, check whether the full grid is on disk
+    # and, if so, mark the worker complete for run_pipeline.sh.
+    _write_complete_sentinel_if_done(out_dir, archs, num_chunks)
 
 
 def main():

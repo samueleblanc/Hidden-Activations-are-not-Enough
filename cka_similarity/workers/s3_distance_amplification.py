@@ -12,6 +12,7 @@ Output:
 import json
 import os
 from argparse import ArgumentParser
+from itertools import product
 from pathlib import Path
 
 import torch
@@ -20,10 +21,34 @@ from utils.utils import get_device
 from utils.atomic_io import atomic_json_dump, atomic_json_load, atomic_torch_save
 from cka_similarity.workers.common import chunk_slice, load_active_km_batch_size, calibration_path_for
 from cka_similarity.measures.panel import PANEL
-from cka_similarity.workers.s1_within_arch_invariance import (
-    load_pretrained, forward_penultimate, forward_logits,
+# Pull the wrapper-aware loaders from S2 (NOT S1): S3 feeds models into
+# KnowledgeMatrixComputer which requires ``.layers`` / ``.input_shape``,
+# both of which the knowledgematrix wrapper exposes natively. S1's
+# ``load_pretrained`` returns a COB-aware torchvision model — fine for
+# teleportation, broken for KMC.
+from cka_similarity.workers.s2_cross_architecture import (
+    load_pretrained, forward_penultimate, forward_logits, extract_km_per_sample,
 )
-from cka_similarity.workers.s2_cross_architecture import extract_km_per_sample
+
+
+def _write_complete_sentinel_if_done(out_dir, archs, attacks, num_chunks):
+    """Touch ``{out_dir}/.complete`` once every per-chunk file has landed.
+
+    For each (arch, attack) pair this worker emits two files per chunk:
+    ``{arch}_{attack}_chunk{i}.json`` and ``{arch}_{attack}_panel_chunk{i}.pt``.
+    We probe the full grid here so whichever chunk-task happens to land
+    last detects the all-done state and marks the sentinel for
+    run_pipeline.sh. ``Path.touch()`` is idempotent — a TOCTOU race
+    between two simultaneously-finishing tasks is benign.
+    """
+    out_path = Path(out_dir)
+    for arch, attack in product(archs, attacks):
+        for ci in range(num_chunks):
+            for kind in ("chunk{}.json", "panel_chunk{}.pt"):
+                expected = out_path / f"{arch}_{attack}_{kind.format(ci)}"
+                if not expected.exists():
+                    return
+    (out_path / ".complete").touch()
 
 
 def run_chunk(chunk_id, num_chunks, total_pairs_per_attack, archs, attacks, out_dir, pairs_root):
@@ -130,6 +155,10 @@ def run_chunk(chunk_id, num_chunks, total_pairs_per_attack, archs, attacks, out_
         del model
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+
+    # Once this chunk's outputs land, check whether the full grid is on disk
+    # and, if so, mark the worker complete for run_pipeline.sh.
+    _write_complete_sentinel_if_done(out_dir, archs, attacks, num_chunks)
 
 
 def main():

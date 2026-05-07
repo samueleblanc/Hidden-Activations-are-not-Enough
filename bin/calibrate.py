@@ -242,17 +242,15 @@ def main():
     # Lazy import: utils.utils pulls in knowledgematrix model classes; don't
     # force that during the JSON-only unit tests.
     from utils.utils import get_device
+    from utils.km_models import build_model
     device = get_device()
 
-    # Load pretrained arch (on CPU first, then transfer to GPU)
-    import torchvision.models as tvm
-    arch_loader = {
-        "resnet152": tvm.resnet152,
-        "densenet121": tvm.densenet121,
-        "googlenet": lambda **kw: tvm.googlenet(aux_logits=False, **kw),
-    }[args.arch]
-    model = arch_loader(weights="DEFAULT").to(device).eval()
-    model.input_shape = (3, 224, 224)
+    # Load the knowledgematrix-wrapped pretrained arch. KnowledgeMatrixComputer
+    # reads ``model.layers`` and ``model.input_shape``, both of which the
+    # wrapper exposes natively (raw torchvision models would crash with
+    # AttributeError on ``model.layers``). build_model handles ``.to(device)``
+    # and ``.eval()`` internally — see utils/km_models.py:60-78.
+    model = build_model(args.arch, device)
 
     # Sample input -- random ImageNet-shaped tensor for calibration purposes
     sample = torch.randn(3, 224, 224)
