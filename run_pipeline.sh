@@ -53,6 +53,95 @@ fi
 TIMESTAMP=$(date -Iseconds)
 
 # ==============================================================
+# Phase 0: Login-node preflights (BEFORE any sbatch)
+# ==============================================================
+# All preflights run before any sbatch so a broken env fails fast at the
+# login node rather than after a SLURM allocation. Idempotent throughout —
+# re-runs are fast no-ops on the cached path. Run on --dry-run too so the
+# dry-run output reflects a real verified state.
+
+# --- Phase 0a: module + venv -----------------------------------
+# Activate the project venv. The SLURM jobs do the same dance inside each
+# job; this block handles the orchestrator's preflight. Always prefer env/
+# when present — defends against system pythons that happen to have torch
+# but are too old to parse the knowledgematrix typing (e.g. anaconda 3.8).
+if type module >/dev/null 2>&1; then
+    module load StdEnv/2023 python/3.11.5 scipy-stack/2025a 2>/dev/null || true
+fi
+HAS_ENV=false
+if [ -f env/bin/activate ]; then
+    # shellcheck disable=SC1091
+    source env/bin/activate
+    HAS_ENV=true
+fi
+
+# --- Phase 0b: neuralteleportation patches ---------------------
+# Apply the local PyTorch-2.x compatibility patches + GoogLeNetCOB drop-in
+# to the venv-installed neuralteleportation package. Idempotent: cmp -s
+# short-circuits on already-applied patches. Doing this once on the login
+# node patches the shared-FS venv, eliminating the per-array-task race
+# from job_phase1_s1.sh's safety-net invocation.
+# Skipped on local dev without env/ (developer is presumably running a
+# different python and can apply patches manually).
+if [ "$HAS_ENV" = true ] && [ -f patches/apply_neuralteleportation_patches.sh ]; then
+    echo "Preflight: applying neuralteleportation patches..."
+    if ! bash patches/apply_neuralteleportation_patches.sh ./env >/dev/null 2>&1; then
+        echo "ERROR: neuralteleportation patches failed. Run interactively to see details:" >&2
+        echo "  bash patches/apply_neuralteleportation_patches.sh ./env" >&2
+        exit 1
+    fi
+fi
+
+# --- Phase 0c: import smoke-test -------------------------------
+# Import every entry point the orchestrator will submit. A NameError or
+# missing module surfaces here, not after a SLURM allocation.
+if ! python -c "
+import sys
+try:
+    from validate_theorem45 import validate_theorem45
+    from cross_model_experiment import main as _xm
+    from teleportation_experiment import run_experiment as _tp
+    from bin.calibrate import main as _cal
+    from cka_similarity.workers import s1_within_arch_invariance as _s1
+    from cka_similarity.workers import s2_cross_architecture as _s2
+    from cka_similarity.workers import s3_distance_amplification as _s3
+except Exception as e:
+    print(f'preflight import failure: {type(e).__name__}: {e}', file=sys.stderr)
+    sys.exit(1)
+" >/dev/null 2>&1; then
+    echo "ERROR: preflight imports failed. Run interactively to see details:" >&2
+    echo "  module load StdEnv/2023 python/3.11.5 scipy-stack/2025a" >&2
+    echo "  source env/bin/activate" >&2
+    echo "  python -c 'from validate_theorem45 import validate_theorem45'" >&2
+    exit 1
+fi
+
+# --- Phase 0d: torchvision pretrained weight cache -------------
+# Compute nodes have no internet — a missing pretrained weight would only
+# surface after a SLURM allocation. Cache all 3 Phase-1 archs on the login
+# node where internet is available. torchvision detects the cached .pth
+# file and skips the download on re-runs (~milliseconds when cached;
+# ~30s for first-time download of all three). Same .pth file backs every
+# downstream invocation regardless of the aux_logits / weights variant
+# chosen by individual call sites, so one cache call per arch suffices.
+# Skipped on local dev without env/.
+if [ "$HAS_ENV" = true ]; then
+    echo "Preflight: caching torchvision pretrained weights (resnet152, densenet121, googlenet)..."
+    if ! python -c "
+import torchvision.models as tvm
+tvm.resnet152(weights='DEFAULT')
+tvm.densenet121(weights='DEFAULT')
+tvm.googlenet(weights='DEFAULT')
+" 2>&1; then
+        echo "ERROR: torchvision weight caching failed. The login node needs internet" >&2
+        echo "  access on first run. Re-run on a login node with internet:" >&2
+        echo "    bash run_pipeline.sh" >&2
+        exit 1
+    fi
+fi
+echo ""
+
+# ==============================================================
 # Phase -1: Calibration (must precede all other Phase 1 steps)
 # ==============================================================
 # Step A1 produces experiments/calibration/{arch}_imagenet/calibration.json.
@@ -80,43 +169,6 @@ if [ ${#CALIB_NEEDED[@]} -gt 0 ]; then
         echo "  Job ID: $CALIB_JOB_ID"
     fi
 fi
-
-# ==============================================================
-# Phase 0: Environment setup
-# ==============================================================
-# Activate the project venv (cluster + local). The SLURM jobs do the same
-# dance inside each job; this block handles the orchestrator's preflight.
-# Always prefer env/ when present — defends against system pythons that
-# happen to have torch but are too old to parse the knowledgematrix typing
-# (e.g. anaconda 3.8 on a dev laptop).
-if type module >/dev/null 2>&1; then
-    module load StdEnv/2023 python/3.11.5 scipy-stack/2025a 2>/dev/null || true
-fi
-if [ -f env/bin/activate ]; then
-    # shellcheck disable=SC1091
-    source env/bin/activate
-fi
-if ! python -c "
-import sys
-try:
-    from validate_theorem45 import validate_theorem45
-    from cross_model_experiment import main as _xm
-    from teleportation_experiment import run_experiment as _tp
-    from bin.calibrate import main as _cal
-    from cka_similarity.workers import s1_within_arch_invariance as _s1
-    from cka_similarity.workers import s2_cross_architecture as _s2
-    from cka_similarity.workers import s3_distance_amplification as _s3
-except Exception as e:
-    print(f'preflight import failure: {type(e).__name__}: {e}', file=sys.stderr)
-    sys.exit(1)
-" >/dev/null 2>&1; then
-    echo "ERROR: preflight imports failed. Run interactively to see details:" >&2
-    echo "  module load StdEnv/2023 python/3.11.5 scipy-stack/2025a" >&2
-    echo "  source env/bin/activate" >&2
-    echo "  python -c 'from validate_theorem45 import validate_theorem45'" >&2
-    exit 1
-fi
-echo ""
 
 # ---- Task definitions ----
 

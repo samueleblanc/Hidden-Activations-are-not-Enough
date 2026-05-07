@@ -299,33 +299,34 @@ pip install -r requirements-slurm.txt
 # Do not pip-install upstream samueleblanc/knowledgematrix on top — the
 # wrapper APIs differ.
 
-# Cache pretrained weights on login node (no internet on compute nodes)
-python -c "
-import torchvision.models as m
-m.resnet152(weights='DEFAULT')    # Studies 1b, 2, 3
-m.densenet121(weights='DEFAULT')  # Studies 1b, 2, 3
-m.googlenet(weights='DEFAULT')    # Studies 1b, 2, 3 (InceptionV1)
-print('All weights cached.')
-"
+# neuralteleportation is not in requirements-slurm.txt — install it
+# directly. The PyTorch-2.x compatibility patches and the GoogLeNetCOB
+# drop-in are applied automatically by the first `bash run_pipeline.sh`
+# (idempotent — re-applies are no-ops).
+pip install git+https://github.com/vitalab/neuralteleportation.git
 ```
 
-For the teleportation experiment, install the patched `neuralteleportation`:
-```bash
-pip install git+https://github.com/vitalab/neuralteleportation.git
-bash patches/apply_neuralteleportation_patches.sh
-```
+That's the entire one-time setup. From then on, `bash run_pipeline.sh` is the only command needed — see §"Pipeline Orchestration" for the preflight chain it runs (weight caching, patches, import smoke-test, queue idempotency check) before any `sbatch`.
 
 ---
 
 ## Pipeline Orchestration
 
-`run_pipeline.sh` is the single entry point for running all experiments on the cluster:
+`run_pipeline.sh` is the single entry point for running all experiments on the cluster. Every step runs on the login node before any `sbatch`, so a misconfigured environment fails fast rather than after a SLURM allocation.
 
-1. **Aborts** if any of its known job names are already running (`squeue` idempotency check), preventing duplicate submission on a re-run.
-2. **Smoke-tests imports** of every entry point (`validate_theorem45`, `cross_model_experiment`, `teleportation_experiment`, `bin.calibrate`, the three `cka_similarity.workers`) so a `NameError` is caught at the login node, not after a SLURM allocation.
-3. **Scans** for existing results and checkpoints across all active sub-steps (Step 0 calibration, Step B teleportation, Steps C/C-agg theorem 4.5, Step E cross-recipe pairs, Phase-1 Steps A2/B′/C′/F/G/H).
-4. **Writes** `pipeline_state.json` (atomic via `mktemp` + `os.replace`; **skipped on `--dry-run`**) with the current state of each task (`done`, `in_progress`, or `pending`).
-5. **Submits** only the needed SLURM array jobs, skipping completed tasks. Phase-1 array deps use `afterany:` so a single failing array task doesn't cancel the whole cascade.
+**Phase 0 — login-node preflights (idempotent; all run on `--dry-run` too):**
+
+1. **Queue idempotency check.** Aborts if any of the orchestrator's known job names are already running. Prevents duplicate submission on accidental re-runs.
+2. **Module + venv activate.** `module load StdEnv/2023 python/3.11.5 scipy-stack/2025a`, then `source env/bin/activate`.
+3. **`neuralteleportation` patches.** `bash patches/apply_neuralteleportation_patches.sh ./env`. Idempotent (`cmp -s` short-circuits on already-applied). Applying once on the shared-FS venv covers every Phase-1 array task.
+4. **Import smoke-test.** Imports every entry point (`validate_theorem45`, `cross_model_experiment`, `teleportation_experiment`, `bin.calibrate`, the three `cka_similarity.workers`). A `NameError` or missing module surfaces here.
+5. **Torchvision pretrained-weight cache.** `weights='DEFAULT'` for `resnet152`, `densenet121`, `googlenet`. Compute nodes have no internet; this populates `~/.cache/torch/hub/checkpoints/` on the login node where they do. ~30 s for a first-time download of all three; ~milliseconds on subsequent runs.
+
+**Phase -1 / Phase 1 — scan and submit:**
+
+6. **Scans** for existing results and checkpoints across all active sub-steps (Step 0 calibration, Step B teleportation, Steps C/C-agg theorem 4.5, Step E cross-recipe pairs, Phase-1 Steps A2/B′/C′/F/G/H).
+7. **Writes** `pipeline_state.json` (atomic via `mktemp` + `os.replace`; **skipped on `--dry-run`**) with the current state of each task (`done`, `in_progress`, or `pending`).
+8. **Submits** calibration first (Phase −1), then everything else. Only the SLURM array tasks corresponding to missing outputs are submitted. Phase-1 array deps use `afterany:` so a single failing array task doesn't cancel the whole cascade.
 
 The pipeline is **idempotent** -- safe to re-run after partial failures. For Theorem 4.5, it detects checkpoint files and resumes from where it left off. For the Phase-1 panel jobs, per-chunk artifacts in `results/phase1/{s1,s2,s3}/` are accumulated by the reduce step (Step G); each worker writes a `.complete` sentinel only when the FULL chunk × arch grid is on disk, so a re-run after partial completion submits only the missing chunks. For Step D (adversarial scale-up), the orchestrator enumerates all 3 archs × 6 attacks and submits only the missing combinations.
 
