@@ -1,10 +1,13 @@
 #!/bin/bash
+#SBATCH --account=def-amorales
 #SBATCH --array=0-2
 #SBATCH --time=00:10:00
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=4G
 #SBATCH --output=slurm_out/C_thm45_agg_%A_%a.out
 #SBATCH --error=slurm_err/C_thm45_agg_%A_%a.err
+
+set -euo pipefail
 
 mkdir -p $SLURM_SUBMIT_DIR/slurm_out
 mkdir -p $SLURM_SUBMIT_DIR/slurm_err

@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --account=def-jcbus
+#SBATCH --account=def-amorales
 #SBATCH --array=0-63
 #SBATCH --time=01:30:00
 #SBATCH --gpus=h100:1
@@ -7,6 +7,8 @@
 #SBATCH --mem=96G
 #SBATCH --output=slurm_out/B1_s1_%A_%a.out
 #SBATCH --error=slurm_err/B1_s1_%A_%a.err
+
+set -euo pipefail
 
 # Step B1 — S1 within-arch invariance measure panel.
 

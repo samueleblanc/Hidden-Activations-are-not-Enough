@@ -1,11 +1,15 @@
 #!/bin/bash
+#SBATCH --account=def-amorales
 #SBATCH --array=0-10
 #SBATCH --time=08:00:00
 #SBATCH --gpus=h100:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=96G
+#SBATCH --partition=gpubackfill
 #SBATCH --output=slurm_out/E_xmodel_%A_%a.out
 #SBATCH --error=slurm_err/E_xmodel_%A_%a.err
+
+set -euo pipefail
 
 # Pillar 3 (May 2026 reframing): Cross-model representation comparison.
 # Tests the conjecture that knowledge matrices admit basis-free per-sample

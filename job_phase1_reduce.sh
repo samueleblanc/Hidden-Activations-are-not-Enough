@@ -1,11 +1,13 @@
 #!/bin/bash
-#SBATCH --account=def-jcbus
+#SBATCH --account=def-amorales
 #SBATCH --time=02:00:00
 #SBATCH --mem=256G
 #SBATCH --cpus-per-task=16
 #SBATCH --gpus=h100:1
 #SBATCH --output=slurm_out/C_reduce_%A.out
 #SBATCH --error=slurm_err/C_reduce_%A.err
+
+set -euo pipefail
 
 # Phase-1 Step C — Reduce + sanity + LaTeX tables.
 # Single task; depends on B′, C′, F finishing.

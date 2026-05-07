@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --account=def-jcbus
+#SBATCH --account=def-amorales
 #SBATCH --array=0-7
 #SBATCH --time=00:20:00  # Increased to accommodate potential longer runs
 #SBATCH --gpus=h100:1
@@ -8,6 +8,8 @@
 #SBATCH --output=slurm_out/B_mats_%A_%a.out
 #SBATCH --error=slurm_err/B_mats_%A_%a.err
 #SBATCH --exclude=fc10512
+
+set -euo pipefail
 
 mkdir -p $SLURM_SUBMIT_DIR/slurm_out
 mkdir -p $SLURM_SUBMIT_DIR/slurm_err

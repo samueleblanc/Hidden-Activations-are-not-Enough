@@ -1,12 +1,15 @@
 #!/bin/bash
-#SBATCH --account=def-jcbus
+#SBATCH --account=def-amorales
 #SBATCH --array=0-17
 #SBATCH --time=08:00:00
 #SBATCH --gpus=h100:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=96G
+#SBATCH --partition=gpubackfill
 #SBATCH --output=slurm_out/A2_advscale_%A_%a.out
 #SBATCH --error=slurm_err/A2_advscale_%A_%a.err
+
+set -euo pipefail
 
 # Step A2 — adversarial pair scale-up.
 # 18 array tasks = 6 attacks × 3 architectures.

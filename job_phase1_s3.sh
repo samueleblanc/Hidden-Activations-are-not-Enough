@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --account=def-jcbus
+#SBATCH --account=def-amorales
 #SBATCH --array=0-63
 #SBATCH --time=02:00:00
 #SBATCH --gpus=h100:1
@@ -7,6 +7,8 @@
 #SBATCH --mem=128G
 #SBATCH --output=slurm_out/B3_s3_%A_%a.out
 #SBATCH --error=slurm_err/B3_s3_%A_%a.err
+
+set -euo pipefail
 
 mkdir -p $SLURM_SUBMIT_DIR/slurm_out $SLURM_SUBMIT_DIR/slurm_err
 module load StdEnv/2023 python/3.11.5 scipy-stack/2025a

@@ -1,7 +1,7 @@
 #!/bin/bash
 # bin/tar_artifacts.sh -- Step D: produce final tarball, gated on sanity_report.json.
 
-set -uo pipefail
+set -euo pipefail
 
 OUT_DIR="${OUT_DIR:-results/phase1/artifact}"
 SANITY_FILE="${SANITY_FILE:-results/phase1/aggregated/sanity_report.json}"

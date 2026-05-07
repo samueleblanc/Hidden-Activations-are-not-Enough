@@ -1,11 +1,15 @@
 #!/bin/bash
+#SBATCH --account=def-amorales
 #SBATCH --array=0-2
 #SBATCH --time=18:00:00
 #SBATCH --gpus=h100:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=192G
+#SBATCH --partition=gpubackfill
 #SBATCH --output=slurm_out/B_teleport_%A_%a.out
 #SBATCH --error=slurm_err/B_teleport_%A_%a.err
+
+set -euo pipefail
 
 mkdir -p $SLURM_SUBMIT_DIR/slurm_out
 mkdir -p $SLURM_SUBMIT_DIR/slurm_err

@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --account=def-jcbus
+#SBATCH --account=def-amorales
 #SBATCH --time=00:20:00
 #SBATCH --gpus=h100:1
 #SBATCH --cpus-per-task=4

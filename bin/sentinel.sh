@@ -23,7 +23,7 @@
 # being executed directly so tests can `source bin/sentinel.sh` to expose
 # helpers without triggering execution.
 
-set -uo pipefail
+set -euo pipefail
 
 LOG_DIR="${LOG_DIR:-slurm_err}"
 ERR_LOG="${ERR_LOG:-overall_errors.json}"

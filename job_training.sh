@@ -1,12 +1,14 @@
 #!/bin/bash
 
-#SBATCH --account=def-assem
+#SBATCH --account=def-amorales
 #SBATCH --gpus=a100_2g.10gb:1
 #SBATCH --cpus-per-task=3
 #SBATCH --time=00:30:00
 #SBATCH --mem=31G
 #SBATCH --output=slurm_out/A_train_%A.out
 #SBATCH --error=slurm_err/A_train_%A.err
+
+set -euo pipefail
 
 mkdir $SLURM_SUBMIT_DIR/slurm_err
 mkdir $SLURM_SUBMIT_DIR/slurm_out
