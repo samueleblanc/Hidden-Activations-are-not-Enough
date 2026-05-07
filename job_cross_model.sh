@@ -57,6 +57,39 @@ echo "Step E: Cross-model — $ARCH / $CKPT_I vs $CKPT_J (task $SLURM_ARRAY_TASK
 module load StdEnv/2023 python/3.11.5 scipy-stack/2025a
 source env/bin/activate
 
+# Self-skip on verify failure. The orchestrator no longer filters E_NEEDED
+# (verify runs as its own SLURM CPU job, after which we get scheduled here
+# via --dependency=afterany). Conservative semantics: skip ONLY if the file
+# explicitly marks a pair member "failed". Missing entries / missing file
+# default to "passed" so manual sbatch (outside run_pipeline.sh) still works.
+VERIFY_FILE="results/cross_model/verify_results.json"
+if [ -f "$VERIFY_FILE" ]; then
+    STATUS_I=$(python3 -c "
+import json, sys
+try:
+    with open('$VERIFY_FILE') as f: d = json.load(f)
+    print(d.get('checkpoints', {}).get('${ARCH}:${CKPT_I}', 'missing'))
+except Exception:
+    print('missing')
+" 2>/dev/null || echo missing)
+    STATUS_J=$(python3 -c "
+import json, sys
+try:
+    with open('$VERIFY_FILE') as f: d = json.load(f)
+    print(d.get('checkpoints', {}).get('${ARCH}:${CKPT_J}', 'missing'))
+except Exception:
+    print('missing')
+" 2>/dev/null || echo missing)
+    if [ "$STATUS_I" = "failed" ] || [ "$STATUS_J" = "failed" ]; then
+        echo "SKIP: ${ARCH}/${CKPT_I}=${STATUS_I}, ${ARCH}/${CKPT_J}=${STATUS_J} — verify failed for at least one pair member; not running pair compute."
+        echo "      Fix the remap in cross_model_experiment.py:build_km_model_with_alt_weights() and re-run."
+        exit 0
+    fi
+    echo "Verify gate: ${ARCH}/${CKPT_I}=${STATUS_I}, ${ARCH}/${CKPT_J}=${STATUS_J} → proceeding."
+else
+    echo "Verify gate: $VERIFY_FILE not found — proceeding (manual sbatch path)."
+fi
+
 # Apply patches (idempotent) — needed for the knowledgematrix wrappers to
 # load alternate state-dicts from torchvision V2 / timm RSB checkpoints.
 bash patches/apply_neuralteleportation_patches.sh ./env || {

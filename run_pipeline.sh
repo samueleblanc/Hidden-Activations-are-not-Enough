@@ -40,7 +40,7 @@ done
 
 if [ "$DRY_RUN" != true ] && command -v squeue >/dev/null 2>&1; then
     RUNNING_JOBS=$(squeue -u "$USER" -h -o "%j" 2>/dev/null || true)
-    KNOWN_JOB_NAMES="job_calibrate.sh|job_phase1_s1.sh|job_phase1_s2.sh|job_phase1_s3.sh|job_phase1_reduce.sh|job_adv_scaleup.sh|job_teleportation.sh|job_theorem45.sh|job_theorem45_agg.sh|job_cross_model.sh|job_tar_artifacts.sh"
+    KNOWN_JOB_NAMES="job_calibrate.sh|job_phase1_s1.sh|job_phase1_s2.sh|job_phase1_s3.sh|job_phase1_reduce.sh|job_adv_scaleup.sh|job_teleportation.sh|job_theorem45.sh|job_theorem45_agg.sh|job_verify_cross_model.sh|job_cross_model.sh|job_tar_artifacts.sh"
     if echo "$RUNNING_JOBS" | grep -qE "^($KNOWN_JOB_NAMES)$"; then
         echo "ERROR: existing pipeline jobs running. Cancel them first or wait:" >&2
         echo "$RUNNING_JOBS" | grep -E "^($KNOWN_JOB_NAMES)$" >&2
@@ -242,7 +242,6 @@ for spec in "${E_PAIR_SPECS[@]}"; do
     IFS=':' read -r _arch _i _j <<< "$spec"
     E_FILES+=("results/cross_model/${_arch}/per_pair/${_i}__${_j}.json")
 done
-E_VERIFY_RESULTS="results/cross_model/verify_results.json"
 
 # ==============================================================
 # Phase 1: Scan
@@ -359,54 +358,32 @@ for i in "${!E_PAIR_SPECS[@]}"; do
 done
 echo ""
 
-# ---- E pre-flight: verify alternate-weight checkpoints on the login node ----
-# Only run verify if there are pairs that need to launch — saves ~5 min on
-# repeat invocations once everything is done. The verify script itself caches
-# downloaded weights in ~/.cache so subsequent runs are fast.
-declare -a E_BLOCKED  # pair indices skipped due to a failed checkpoint
+# ---- E pre-flight: verify alternate-weight checkpoints (deferred to compute node) ----
+# Verify runs as its own SLURM CPU job (job_verify_cross_model.sh), not on the
+# login node — wrapper construction is ~5 min of CPU work and the user wants
+# only downloads + orchestration on the login node. Step E pair tasks read
+# results/cross_model/verify_results.json at startup and self-skip if either
+# pair member failed verify. The orchestrator gates Step E on the verify job
+# via --dependency=afterany for ordering only (verify always exits 0; per-pair
+# decisions live on the compute node).
+#
+# E_BLOCKED stays empty here because the orchestrator can no longer determine
+# which pairs are blocked at submit time (verify hasn't run yet). The state-
+# file's "blocked" count therefore reports 0; per-pair self-skip is still
+# accurate at run time.
+declare -a E_BLOCKED
 E_BLOCKED=()
+VERIFY_JOB_ID=""
 if [ ${#E_NEEDED[@]} -gt 0 ]; then
     if [ "$DRY_RUN" = true ]; then
-        echo "Step E pre-flight: skipping checkpoint verify (--dry-run)"
+        echo "[DRY RUN] sbatch --account=$ACCOUNT job_verify_cross_model.sh"
         echo ""
     else
-        echo "Step E pre-flight: verifying cross-model checkpoints on login node…"
-        bash verify_cross_model_checkpoints.sh
+        echo "Step E pre-flight: submitting verify job to compute node…"
+        VERIFY_JOB_ID=$(sbatch --parsable --account="$ACCOUNT" job_verify_cross_model.sh)
+        echo "  Verify Job ID: $VERIFY_JOB_ID"
         echo ""
     fi
-    if [ "$DRY_RUN" != true ] && [ ! -f "$E_VERIFY_RESULTS" ]; then
-        echo "WARNING: verify_results.json not produced. Skipping all Step E pairs." >&2
-        E_BLOCKED=("${E_NEEDED[@]}")
-        E_NEEDED=()
-    elif [ "$DRY_RUN" = true ] && [ ! -f "$E_VERIFY_RESULTS" ]; then
-        : # dry-run with no prior verify → assume all runnable for the report
-    else
-        # Filter E_NEEDED: a pair is runnable iff BOTH its checkpoints passed.
-        E_RUNNABLE=()
-        for i in "${E_NEEDED[@]}"; do
-            spec=${E_PAIR_SPECS[$i]}
-            IFS=':' read -r _arch _i _j <<< "$spec"
-            STATUS_I=$(python3 -c "
-import json
-with open('$E_VERIFY_RESULTS') as f: d=json.load(f)
-print(d['checkpoints'].get('${_arch}:${_i}','missing'))
-" 2>/dev/null || echo missing)
-            STATUS_J=$(python3 -c "
-import json
-with open('$E_VERIFY_RESULTS') as f: d=json.load(f)
-print(d['checkpoints'].get('${_arch}:${_j}','missing'))
-" 2>/dev/null || echo missing)
-            if [ "$STATUS_I" = "passed" ] && [ "$STATUS_J" = "passed" ]; then
-                E_RUNNABLE+=("$i")
-            else
-                E_STATUS[$i]="blocked_by_verify"
-                E_BLOCKED+=("$i")
-                echo "  [$i] ${spec}: BLOCKED (${_arch}:${_i}=${STATUS_I}, ${_arch}:${_j}=${STATUS_J})"
-            fi
-        done
-        E_NEEDED=("${E_RUNNABLE[@]}")
-    fi
-    echo ""
 fi
 
 # ==============================================================
@@ -533,7 +510,10 @@ if [ "$DRY_RUN" = true ]; then
             echo "  sbatch --account=$ACCOUNT --array=$C_AGG_ARRAY_STR job_theorem45_agg.sh"
         fi
     fi
-    [ ${#E_NEEDED[@]} -gt 0 ] && echo "  sbatch --account=$ACCOUNT --array=$E_ARRAY_STR job_cross_model.sh"
+    if [ ${#E_NEEDED[@]} -gt 0 ]; then
+        echo "  sbatch --account=$ACCOUNT job_verify_cross_model.sh"
+        echo "  sbatch --account=$ACCOUNT --array=$E_ARRAY_STR --dependency=afterany:\$VERIFY_JOB_ID job_cross_model.sh"
+    fi
 else
     echo "Submitting SLURM jobs (account=$ACCOUNT)..."
     echo ""
@@ -559,11 +539,14 @@ else
         fi
     fi
 
-    # Step E (cross-model) — independent of B/C. Verify already ran on the
-    # login node; E_NEEDED is filtered to runnable pairs only.
+    # Step E (cross-model) — independent of B/C. Gated by the SLURM verify
+    # job (above) via --dependency=afterany; per-pair tasks self-skip if
+    # their pair members failed verify (see job_cross_model.sh).
     if [ ${#E_NEEDED[@]} -gt 0 ]; then
-        echo "  Step E (cross-model): --array=$E_ARRAY_STR"
-        sbatch --account="$ACCOUNT" --array="$E_ARRAY_STR" job_cross_model.sh
+        E_DEP_FLAG=""
+        [ -n "$VERIFY_JOB_ID" ] && E_DEP_FLAG="--dependency=afterany:$VERIFY_JOB_ID"
+        echo "  Step E (cross-model): --array=$E_ARRAY_STR (after verify $VERIFY_JOB_ID)"
+        sbatch --account="$ACCOUNT" --array="$E_ARRAY_STR" $E_DEP_FLAG job_cross_model.sh
     fi
 fi
 
