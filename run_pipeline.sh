@@ -25,9 +25,10 @@
 set -euo pipefail
 
 # ---- Cluster account ----
-# Edit this on the cluster to the real account (e.g., "def-bruestle_gpu").
-# Locally it stays as the placeholder so the value isn't checked in.
-ACCOUNT="def-xxxx"
+# Defaults to def-amorales (Nibi) per reference_nibi_sbatch.md. Override
+# by exporting ACCOUNT=<acct> before invoking the orchestrator, e.g.:
+#   ACCOUNT=def-bruestle_gpu bash run_pipeline.sh
+ACCOUNT="${ACCOUNT:-def-amorales}"
 
 DRY_RUN=false
 for arg in "$@"; do
