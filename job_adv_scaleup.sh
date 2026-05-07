@@ -5,7 +5,6 @@
 #SBATCH --gpus=h100:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=96G
-#SBATCH --partition=gpubackfill
 #SBATCH --output=slurm_out/A2_advscale_%A_%a.out
 #SBATCH --error=slurm_err/A2_advscale_%A_%a.err
 

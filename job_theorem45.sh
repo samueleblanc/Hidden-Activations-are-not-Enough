@@ -5,7 +5,6 @@
 #SBATCH --gpus=h100:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=96G
-#SBATCH --partition=gpubackfill
 #SBATCH --output=slurm_out/C_thm45_%A_%a.out
 #SBATCH --error=slurm_err/C_thm45_%A_%a.err
 
