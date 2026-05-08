@@ -192,8 +192,8 @@ def run_chunk(chunk_id, num_chunks, num_samples_total, archs, out_dir, data_dir,
             # pair, skip the pair rather than crashing the whole chunk task.
             # Mirrors the robustness pattern in s3_distance_amplification.
             try:
-                bs_a = load_active_km_batch_size(calibration_path_for(a))
-                bs_b = load_active_km_batch_size(calibration_path_for(b))
+                bs_a_full = load_active_km_batch_size(calibration_path_for(a))
+                bs_b_full = load_active_km_batch_size(calibration_path_for(b))
             except FileNotFoundError as e:
                 print(
                     f"WARNING: calibration missing for pair ({a}, {b}) — {e}; "
@@ -201,6 +201,20 @@ def run_chunk(chunk_id, num_chunks, num_samples_total, archs, out_dir, data_dir,
                     flush=True,
                 )
                 continue
+
+            # Calibration's active tier (93%) is sized for ONE model on the GPU.
+            # S2 holds TWO archs' KnowledgeMatrixComputers concurrently, so each
+            # must yield half the GPU. Halving the per-arch bs caps each KMC's
+            # working set at ~half its calibrated peak; the two together then
+            # fit. min floor of 64 prevents pathological tiny bs from breaking
+            # KMC's batched compute on archs with very small calibrated bs.
+            bs_a = max(64, bs_a_full // 2)
+            bs_b = max(64, bs_b_full // 2)
+            print(
+                f"S2 cross-arch concurrent-model bs cap: ({a}) {bs_a_full}->{bs_a}, "
+                f"({b}) {bs_b_full}->{bs_b}",
+                flush=True,
+            )
 
             model_a = load_pretrained(a).to(device)
             mc_a = KnowledgeMatrixComputer(model_a, batch_size=bs_a, device=device)
