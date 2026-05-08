@@ -166,12 +166,9 @@ def build_km_model_with_alt_weights(arch: str, ckpt_alias: str,
         RuntimeError if the remap can't align shapes (signals a real
         architectural mismatch worth investigating, not silent corruption).
     """
-    # Lazy imports so module loads on machines without knowledgematrix.
-    if arch == "resnet152":
-        from utils.km_models import _build_resnet152 as _km_build
-    elif arch == "densenet121":
-        from utils.km_models import _build_densenet121 as _km_build
-    else:
+    # Cross-model only supports archs with multiple public checkpoints.
+    # GoogLeNet has only k=1 (declined to self-train) and is excluded by design.
+    if arch not in ("resnet152", "densenet121"):
         raise ValueError(f"No KM wrapper factory wired for arch {arch!r}")
 
     if ckpt_alias not in CHECKPOINT_REGISTRY[arch]:
@@ -180,8 +177,16 @@ def build_km_model_with_alt_weights(arch: str, ckpt_alias: str,
             f"known: {list_checkpoints(arch)}"
         )
 
+    # Use build_model (not the raw _build_* helpers): build_model adds the
+    # explicit .to(device) + residuals-dict walk that the knowledgematrix
+    # wrapper requires — its residual projections live in plain Python lists
+    # under nn.ModuleDict values, which Module.to() does not recurse into.
+    # Skipping that walk leaves them on CPU and crashes KMC.forward with
+    # "Input type (cuda.FloatTensor) and weight type (FloatTensor) should be
+    # the same" the first time conv2d sees a residual path.
+    from utils.km_models import build_model
     logger.info("Building KM wrapper for %s (default weights)…", arch)
-    km_model = _km_build(device)
+    km_model = build_model(arch, device)
     km_model.eval()
 
     factory, recipe_desc = CHECKPOINT_REGISTRY[arch][ckpt_alias]

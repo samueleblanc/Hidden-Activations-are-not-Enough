@@ -188,12 +188,24 @@ def run_chunk(chunk_id, num_chunks, num_samples_total, archs, out_dir, data_dir,
             # computed so the smoke test can monkey-patch it before run_chunk.
             from knowledgematrix.matrix_computer import KnowledgeMatrixComputer
 
+            # Calibration is per-arch; if it's missing for either arch in this
+            # pair, skip the pair rather than crashing the whole chunk task.
+            # Mirrors the robustness pattern in s3_distance_amplification.
+            try:
+                bs_a = load_active_km_batch_size(calibration_path_for(a))
+                bs_b = load_active_km_batch_size(calibration_path_for(b))
+            except FileNotFoundError as e:
+                print(
+                    f"WARNING: calibration missing for pair ({a}, {b}) — {e}; "
+                    f"skipping this pair in chunk {chunk_id}",
+                    flush=True,
+                )
+                continue
+
             model_a = load_pretrained(a).to(device)
-            bs_a = load_active_km_batch_size(calibration_path_for(a))
             mc_a = KnowledgeMatrixComputer(model_a, batch_size=bs_a, device=device)
 
             model_b = load_pretrained(b).to(device)
-            bs_b = load_active_km_batch_size(calibration_path_for(b))
             mc_b = KnowledgeMatrixComputer(model_b, batch_size=bs_b, device=device)
 
             for i in range(start_local, inputs.shape[0]):

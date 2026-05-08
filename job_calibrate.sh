@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --account=def-amorales
-#SBATCH --time=00:20:00
+#SBATCH --time=00:45:00
 #SBATCH --gpus=h100:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=32G

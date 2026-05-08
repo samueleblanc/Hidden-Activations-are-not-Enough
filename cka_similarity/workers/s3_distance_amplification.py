@@ -61,8 +61,20 @@ def run_chunk(chunk_id, num_chunks, total_pairs_per_attack, archs, attacks, out_
     panel_cls = list(PANEL)
 
     for arch in archs:
+        # Calibration is per-arch; if it failed for one arch (e.g. CUDA-OOM
+        # tiered out), keep processing the other archs rather than aborting
+        # the whole chunk task. The orchestrator's afterany dep means S3 may
+        # legitimately fire on partial calibration.
+        try:
+            bs = load_active_km_batch_size(calibration_path_for(arch))
+        except FileNotFoundError as e:
+            print(
+                f"WARNING: calibration missing for {arch} ({e}); skipping all "
+                f"({arch}, *) attacks in this chunk",
+                flush=True,
+            )
+            continue
         model = load_pretrained(arch).to(device)
-        bs = load_active_km_batch_size(calibration_path_for(arch))
 
         for attack in attacks:
             pairs_path = Path(pairs_root) / f"{arch}_imagenet" / "adversarial_pairs_N5000" / attack / "pairs.pth"

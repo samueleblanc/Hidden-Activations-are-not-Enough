@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --account=def-amorales
 #SBATCH --time=02:00:00
-#SBATCH --mem=256G
+#SBATCH --mem=512G
 #SBATCH --cpus-per-task=16
 #SBATCH --gpus=h100:1
 #SBATCH --output=slurm_out/C_reduce_%A.out
