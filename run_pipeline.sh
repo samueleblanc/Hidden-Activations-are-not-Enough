@@ -52,6 +52,14 @@ fi
 
 TIMESTAMP=$(date -Iseconds)
 
+# Clear stale sentinel retry markers so each orchestrator run starts with a
+# fresh "first attempt" state for every job script. Without this, a previous
+# run that failed twice on the same script would leave the marker behind and
+# the next sentinel would refuse to retry. See bin/sentinel.sh:retry_marker.
+if [ "$DRY_RUN" != true ]; then
+    rm -f .retried_*.marker 2>/dev/null || true
+fi
+
 # ==============================================================
 # Phase 0: Login-node preflights (BEFORE any sbatch)
 # ==============================================================
@@ -665,13 +673,14 @@ fi
 # bin/sentinel.sh handles (system-OOM, timeout, CUDA-OOM tier-step,
 # generic retry). No-op when USE_SENTINEL is unset/false or in dry-run
 # (no real job ids exist to attach to).
-if [ "${USE_SENTINEL:-false}" = "true" ] && [ "$DRY_RUN" != true ]; then
+if [ "${USE_SENTINEL:-true}" = "true" ] && [ "$DRY_RUN" != true ]; then
     for SENT_PAIR in \
         "$B1_JOB_ID:job_phase1_s1.sh" \
         "$B2_JOB_ID:job_phase1_s2.sh" \
         "$B3_JOB_ID:job_phase1_s3.sh" \
         "$A2_JOB_ID:job_adv_scaleup.sh" \
-        "$P1C_JOB_ID:job_phase1_reduce.sh"; do
+        "$P1C_JOB_ID:job_phase1_reduce.sh" \
+        "$D_JOB_ID:job_tar_artifacts.sh"; do
         IFS=':' read -r SENT_JID SENT_SCRIPT <<< "$SENT_PAIR"
         [ -z "$SENT_JID" ] && continue
         # Pass the calibration directory (not a single-arch file) so the

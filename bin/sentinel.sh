@@ -140,6 +140,26 @@ sbatch_with_account() {
     fi
 }
 
+resubmit_with_sentinel() {
+    # Resubmit the failed job AND attach a fresh sentinel to the resubmitted
+    # job, so subsequent timeouts/OOMs/CUDA-OOMs are also auto-handled.
+    # Without this, a job that times out would be resubmitted ONCE; if the
+    # resubmit also times out, no further auto-handling occurs.
+    local NEW_JOB_ID
+    NEW_JOB_ID=$(sbatch_with_account --parsable "$@" "$JOB_SCRIPT")
+    if [ -z "$NEW_JOB_ID" ]; then
+        echo "FAIL: sbatch resubmit returned empty job id" >&2
+        log_error "resubmit_failed" "args=$*"
+        exit 1
+    fi
+    echo "Resubmitted as $NEW_JOB_ID; attaching recursive sentinel" >&2
+    sbatch ${SENTINEL_ACCOUNT:+--account=$SENTINEL_ACCOUNT} \
+        --parsable --time=00:05:00 --mem=4G \
+        --dependency=afterany:"$NEW_JOB_ID" \
+        --wrap="bash bin/sentinel.sh ${SENTINEL_ACCOUNT:+--account=$SENTINEL_ACCOUNT} $NEW_JOB_ID $JOB_SCRIPT ${CALIB_FILE:-}" \
+        > /dev/null 2>&1 || echo "Warning: failed to attach recursive sentinel to $NEW_JOB_ID" >&2
+}
+
 # --- main entry point ---
 
 main() {
@@ -204,7 +224,7 @@ main() {
             echo "FAIL: CUDA OOM but every calibration is already at the lowest tier" >&2
             exit 1
         fi
-        sbatch_with_account "$JOB_SCRIPT"
+        resubmit_with_sentinel
         exit 0
     fi
 
@@ -219,14 +239,14 @@ main() {
         if [ -n "$current_mem" ]; then
             new_mem=$(double_mem "$current_mem")
             echo "System OOM: doubling --mem from $current_mem to $new_mem" >&2
-            sbatch_with_account --mem="$new_mem" "$JOB_SCRIPT"
+            resubmit_with_sentinel --mem="$new_mem"
             exit 0
         fi
         current_mem=$(grep -E "^#SBATCH --mem-per-cpu=" "$JOB_SCRIPT" | head -1 | sed 's/.*--mem-per-cpu=//')
         if [ -n "$current_mem" ]; then
             new_mem=$(double_mem "$current_mem")
             echo "System OOM: doubling --mem-per-cpu from $current_mem to $new_mem" >&2
-            sbatch_with_account --mem-per-cpu="$new_mem" "$JOB_SCRIPT"
+            resubmit_with_sentinel --mem-per-cpu="$new_mem"
             exit 0
         fi
         echo "FAIL: no mem directive found in $JOB_SCRIPT -- cannot escalate memory" >&2
@@ -240,7 +260,7 @@ main() {
         current_time=$(grep -E "^#SBATCH --time=" "$JOB_SCRIPT" | head -1 | sed 's/.*--time=//')
         new_time=$(double_slurm_time "$current_time")
         echo "Timeout: doubling --time from $current_time to $new_time" >&2
-        sbatch_with_account --time="$new_time" "$JOB_SCRIPT"
+        resubmit_with_sentinel --time="$new_time"
         exit 0
     fi
 
@@ -252,7 +272,7 @@ main() {
             exit 1
         fi
         touch "$(retry_marker)"
-        sbatch_with_account "$JOB_SCRIPT"
+        resubmit_with_sentinel
         exit 0
     fi
 
