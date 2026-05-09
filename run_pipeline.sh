@@ -550,11 +550,13 @@ else
     # Step E (cross-model) — independent of B/C. Gated by the SLURM verify
     # job (above) via --dependency=afterany; per-pair tasks self-skip if
     # their pair members failed verify (see job_cross_model.sh).
+    E_JOB_ID=""
     if [ ${#E_NEEDED[@]} -gt 0 ]; then
         E_DEP_FLAG=""
         [ -n "$VERIFY_JOB_ID" ] && E_DEP_FLAG="--dependency=afterany:$VERIFY_JOB_ID"
         echo "  Step E (cross-model): --array=$E_ARRAY_STR (after verify $VERIFY_JOB_ID)"
-        sbatch --account="$ACCOUNT" --array="$E_ARRAY_STR" $E_DEP_FLAG job_cross_model.sh
+        E_JOB_ID=$(sbatch --parsable --account="$ACCOUNT" --array="$E_ARRAY_STR" $E_DEP_FLAG job_cross_model.sh)
+        echo "    Job ID: $E_JOB_ID"
     fi
 fi
 
@@ -675,6 +677,7 @@ fi
 # (no real job ids exist to attach to).
 if [ "${USE_SENTINEL:-true}" = "true" ] && [ "$DRY_RUN" != true ]; then
     for SENT_PAIR in \
+        "${E_JOB_ID:-}:job_cross_model.sh" \
         "$B1_JOB_ID:job_phase1_s1.sh" \
         "$B2_JOB_ID:job_phase1_s2.sh" \
         "$B3_JOB_ID:job_phase1_s3.sh" \

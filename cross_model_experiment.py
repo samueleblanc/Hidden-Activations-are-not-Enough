@@ -68,6 +68,71 @@ def _timm_create(tag: str):
     return timm.create_model(tag, pretrained=True)
 
 
+def _rewrap_timm_to_tv_resnet152(timm_model: nn.Module) -> nn.Module:
+    """Path B (Pillar 3, May 2026): rewrap a timm RSB-A1/A2/A3 ResNet-152 into a
+    fresh ``torchvision.models.resnet152`` architecture by direct state_dict
+    key-match. Used when the timm-shaped wrapper produces unacceptable KM
+    completeness drift (timm RSB-A1 specifically: 0.022 vs the 0.01 gate).
+
+    The KM library's resnet152 builder was authored against torchvision's
+    layout, so even when timm and torchvision share identical state_dict keys
+    (they do for the standard RSB recipes), timm-only forward-path modules
+    (e.g. ``aa_layer``, custom act_layer) can leak into the linearization.
+    Loading the timm weights into a fresh torchvision arch eliminates that
+    leakage and feeds the existing ``_stratified_remap`` a clean tv-shaped
+    state_dict.
+
+    Verifies logit match (atol 1e-3 on three random seeds) before returning;
+    raises RuntimeError on mismatch so the pair fails fast (≤3 s) rather than
+    burning an 8h walltime on a structurally-wrong remap.
+    """
+    import torchvision.models as tv
+
+    tv_model = tv.resnet152(weights=None).eval()
+
+    timm_sd = timm_model.state_dict()
+    tv_sd_keys = set(tv_model.state_dict().keys())
+
+    extra_in_timm = sorted(set(timm_sd.keys()) - tv_sd_keys)
+    missing_in_timm = sorted(tv_sd_keys - set(timm_sd.keys()))
+    if extra_in_timm or missing_in_timm:
+        raise RuntimeError(
+            f"timm vs tv ResNet-152 state_dict key mismatch — "
+            f"Path B requires identical key sets. "
+            f"missing_in_timm={missing_in_timm[:5]} "
+            f"extra_in_timm={extra_in_timm[:5]}"
+        )
+
+    matched_sd = {k: timm_sd[k] for k in tv_sd_keys}
+    tv_model.load_state_dict(matched_sd, strict=True)
+
+    # Logit-match verification: timm forward must equal tv forward on the
+    # rewrapped weights. Diverges only if timm has non-state_dict modules
+    # in its forward path (aa_layer / act_layer / norm_layer overrides).
+    timm_model.eval()
+    for seed in (0, 42, 1729):
+        torch.manual_seed(seed)
+        x = torch.randn(1, 3, 224, 224)
+        with torch.no_grad():
+            f_timm = timm_model(x)
+            f_tv = tv_model(x)
+        diff = (f_timm - f_tv).abs().max().item()
+        if diff > 1e-3:
+            raise RuntimeError(
+                f"Path B logit mismatch at seed={seed}: max|f_timm - f_tv| "
+                f"= {diff:.3e} (gate 1e-3). State_dict keys aligned but "
+                f"forward paths differ — timm has non-state_dict modules "
+                f"(e.g. aa_layer, custom activation). Path B is not "
+                f"applicable; investigate timm vs tv arch diff."
+            )
+    return tv_model
+
+
+def _timm_resnet152_via_tv(tag: str):
+    """Build timm model + rewrap into torchvision arch via Path B."""
+    return _rewrap_timm_to_tv_resnet152(_timm_create(tag))
+
+
 CHECKPOINT_REGISTRY: Dict[str, Dict[str, Tuple[Callable[[], nn.Module], str]]] = {
     "resnet152": {
         # tv_v1 = ResNet152_Weights.IMAGENET1K_V1 (He 2015 recipe)
@@ -76,13 +141,19 @@ CHECKPOINT_REGISTRY: Dict[str, Dict[str, Tuple[Callable[[], nn.Module], str]]] =
         # tv_v2 = ResNet152_Weights.IMAGENET1K_V2 (modern recipe)
         "tv_v2":  (lambda: _tv_resnet152("IMAGENET1K_V2"),
                    "torchvision V2 (FixRes + long schedule + label smoothing)"),
-        # timm RSB recipes (Wightman 2021)
-        "timm_a1": (lambda: _timm_create("resnet152.a1_in1k"),
-                    "RSB A1 (LAMB + BCE + RandAug)"),
-        "timm_a2": (lambda: _timm_create("resnet152.a2_in1k"),
-                    "RSB A2 (different LR/epoch budget)"),
-        "timm_a3": (lambda: _timm_create("resnet152.a3_in1k"),
-                    "RSB A3 (160px lower-budget)"),
+        # timm RSB recipes (Wightman 2021).
+        # All three routed through Path B (_timm_resnet152_via_tv) so timm-only
+        # forward-path modules don't leak into the KM linearization. timm_a1
+        # specifically failed completeness at 0.022 with the direct timm model;
+        # rewrapping into torchvision arch fixes that. timm_a2/a3 currently
+        # pass via direct path (~7e-3 / not-yet-tested) but routing them
+        # through Path B uniformly avoids surprise drift on weight updates.
+        "timm_a1": (lambda: _timm_resnet152_via_tv("resnet152.a1_in1k"),
+                    "RSB A1 (LAMB + BCE + RandAug) [via Path B]"),
+        "timm_a2": (lambda: _timm_resnet152_via_tv("resnet152.a2_in1k"),
+                    "RSB A2 (different LR/epoch budget) [via Path B]"),
+        "timm_a3": (lambda: _timm_resnet152_via_tv("resnet152.a3_in1k"),
+                    "RSB A3 (160px lower-budget) [via Path B]"),
     },
     "densenet121": {
         "tv_v1":  (lambda: _tv_densenet121("IMAGENET1K_V1"),

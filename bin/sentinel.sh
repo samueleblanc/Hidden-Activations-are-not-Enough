@@ -72,11 +72,19 @@ PYEOF
 }
 
 get_exit_code() {
-    sacct -j "$1" --format=ExitCode --noheader 2>/dev/null | head -1 | awk -F: '{print $1}' | tr -d ' '
+    # For array jobs, scan ALL task rows and return the maximum exit code.
+    # head -1 on the first task is wrong: it can return 0 (n_done-skip task)
+    # while other tasks failed. Filter out .batch/.extern step rows since
+    # they duplicate the parent task's exit code.
+    sacct -j "$1" --format=JobID,ExitCode --noheader -P 2>/dev/null \
+        | awk -F'|' '$1 !~ /\.(batch|extern)$/ {split($2,a,":"); if (a[1]+0 > max) max=a[1]+0} END {print max+0}'
 }
 
 get_state() {
-    sacct -j "$1" --format=State --noheader 2>/dev/null | head -1 | tr -d ' '
+    # Worst-case state across all array tasks: TIMEOUT > FAILED > CANCELLED > COMPLETED.
+    # head -1 on the first task is wrong: a successful first task masks downstream failures.
+    sacct -j "$1" --format=JobID,State --noheader -P 2>/dev/null \
+        | awk -F'|' '$1 !~ /\.(batch|extern)$/ {gsub(/^ +| +$/,"",$2); if ($2=="TIMEOUT") to=1; else if ($2=="FAILED") fa=1; else if ($2=="CANCELLED") ca=1; else if ($2=="COMPLETED") co=1} END {if (to) print "TIMEOUT"; else if (fa) print "FAILED"; else if (ca) print "CANCELLED"; else if (co) print "COMPLETED"; else print "UNKNOWN"}'
 }
 
 double_slurm_time() {

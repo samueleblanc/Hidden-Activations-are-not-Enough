@@ -75,7 +75,7 @@ def main():
     arch_loader = {
         "resnet152": tvm.resnet152,
         "densenet121": tvm.densenet121,
-        "googlenet": lambda **kw: tvm.googlenet(aux_logits=False, **kw),
+        "googlenet": tvm.googlenet,
     }[args.arch]
     model = arch_loader(weights="DEFAULT").to(device).eval()
 
