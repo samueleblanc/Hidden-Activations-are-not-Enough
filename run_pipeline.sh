@@ -25,10 +25,11 @@
 set -euo pipefail
 
 # ---- Cluster account ----
-# Defaults to def-amorales (Nibi) per reference_nibi_sbatch.md. Override
+# Defaults to def-assem (Nibi operational umbrella; SLURM auto-routes to
+# def-assem_gpu / def-assem_cpu based on the per-job partition). Override
 # by exporting ACCOUNT=<acct> before invoking the orchestrator, e.g.:
 #   ACCOUNT=def-bruestle_gpu bash run_pipeline.sh
-ACCOUNT="${ACCOUNT:-def-amorales}"
+ACCOUNT="${ACCOUNT:-def-assem}"
 
 DRY_RUN=false
 for arg in "$@"; do
