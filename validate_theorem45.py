@@ -34,7 +34,9 @@ from utils.utils import (
 )
 from constants.constants import DEFAULT_EXPERIMENTS, ATTACKS, IMAGENET_ATTACKS
 from utils.features import extract_penultimate_features
-from utils.atomic_io import atomic_json_dump
+from utils.atomic_io import (
+    atomic_json_dump, atomic_json_load, atomic_torch_save,
+)
 from utils.scaling import (
     rescale_amp_M_to_rms, rescale_amp_h_to_rms, rescale_gamma_to_rms,
     penultimate_dim, km_numel,
@@ -89,7 +91,8 @@ ATTACK_OVERRIDES = {
 
 def generate_adversarial_pairs(model, data, labels, attack_name, device,
                                dataset='imagenet', batch_size=8,
-                               experiment_name=None):
+                               experiment_name=None,
+                               pairs_save_path=None):
     """Generate adversarial examples, keeping ALL paired (clean, adv) samples.
 
     Args:
@@ -102,11 +105,30 @@ def generate_adversarial_pairs(model, data, labels, attack_name, device,
         batch_size: batch size for attack generation.
         experiment_name: experiment key — used to look up per-experiment
             attack hyperparameter overrides in ATTACK_OVERRIDES.
+        pairs_save_path: optional path. If provided:
+          * On entry: if the file exists, load (clean, adv) from it and skip
+            attack generation entirely (full-restart resume — saves the
+            expensive multi-iter attack on slow attacks like Square).
+          * During: after each batch, atomically dump the accumulated pairs
+            so a SLURM kill loses at most one batch's worth of attack work.
 
     Returns:
         (clean_tensor, adv_tensor): tensors on CPU of shape (N, C, H, W).
         Returns (None, None) if the attack class is unavailable.
     """
+    # Full-restart resume: if pairs are already on disk, skip everything.
+    if pairs_save_path is not None and Path(pairs_save_path).exists():
+        try:
+            saved = torch.load(pairs_save_path, map_location="cpu")
+            clean_saved = saved["clean"]
+            adv_saved = saved["adv"]
+            print(f"  [resume] loaded {len(clean_saved)} cached "
+                  f"{attack_name} pairs from {pairs_save_path}", flush=True)
+            return clean_saved, adv_saved
+        except Exception as e:
+            print(f"  [resume] failed to load {pairs_save_path}: {e}; "
+                  f"regenerating from scratch.", flush=True)
+
     cls_name = ATTACK_MAP.get(attack_name)
     if cls_name is None:
         print(f"  Unknown attack: {attack_name}", flush=True)
@@ -151,6 +173,13 @@ def generate_adversarial_pairs(model, data, labels, attack_name, device,
         del xb, yb, adv_batch
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+        # Atomic per-batch persistence: bounded loss on timeout to one batch.
+        if pairs_save_path is not None and clean_list:
+            atomic_torch_save(
+                str(pairs_save_path),
+                {"clean": torch.cat(clean_list), "adv": torch.cat(adv_list),
+                 "attack": attack_name, "n_done": len(torch.cat(clean_list))},
+            )
 
     # Aggressive cleanup: release attack internals before matrix computation
     del attack_instance
@@ -164,6 +193,13 @@ def generate_adversarial_pairs(model, data, labels, attack_name, device,
 
     clean_all = torch.cat(clean_list)
     adv_all = torch.cat(adv_list)
+    # Final flush of the complete pairs (overwrite any partial of the same name).
+    if pairs_save_path is not None:
+        atomic_torch_save(
+            str(pairs_save_path),
+            {"clean": clean_all, "adv": adv_all,
+             "attack": attack_name, "n_done": len(clean_all)},
+        )
 
     # Diagnostic: report actual perturbation magnitudes. If adv == clean here,
     # the attack silently noop'd (see e.g. the skip path at line ~425).
@@ -209,18 +245,59 @@ def compute_penultimate_distances(model, clean, adversarial, batch_size=128):
 
 
 def compute_matrix_distances(model, clean, adversarial, device,
-                             batch_size_mc=1800):
+                             batch_size_mc=1800,
+                             partial_path=None, flush_every=20,
+                             prefilled=None):
     """||M(W,f)(x) - M(W,f)(x')|| for each pair (Frobenius norm).
 
     KnowledgeMatrixComputer expects 3D input (C, H, W), so we process
     one sample at a time.
+
+    Args:
+        partial_path: optional path to a partial-progress JSON. If provided:
+          * On entry: load `d_M` array from the file's "d_M" key if present
+            and resume the loop from that index.
+          * During: every `flush_every` iterations, atomically dump the
+            partial dict (merging in any prefilled d_f/d_h via `prefilled`).
+        flush_every: write the partial JSON every N pairs.
+        prefilled: dict like {"d_f": [...], "d_h": [...]} to include in the
+            partial JSON for symmetry — these arrays are computed by the
+            other two distance functions before this slow one, so we may as
+            well co-persist them in the same partial file.
     """
     model.eval()
     mc = KnowledgeMatrixComputer(model, batch_size=batch_size_mc, device=device)
 
     n = len(clean)
     distances = np.zeros(n)
-    for i in range(n):
+
+    # ---- Resume ----
+    start_i = 0
+    if partial_path is not None:
+        existing = atomic_json_load(str(partial_path), default=None)
+        if existing and isinstance(existing.get("d_M"), list):
+            saved = existing["d_M"]
+            if len(saved) > n:
+                print(f"    WARNING: partial d_M has {len(saved)} entries "
+                      f"but n={n}; truncating to n.", flush=True)
+                saved = saved[:n]
+            for i, v in enumerate(saved):
+                distances[i] = float(v)
+            start_i = len(saved)
+            if start_i > 0:
+                print(f"    [resume] continuing matrix distances from "
+                      f"pair {start_i}/{n}", flush=True)
+
+    def _flush():
+        if partial_path is None:
+            return
+        partial = dict(prefilled or {})
+        partial["d_M"] = distances[:i + 1].tolist()
+        partial["n_done"] = int(i + 1)
+        partial["n_total"] = int(n)
+        atomic_json_dump(str(partial_path), partial)
+
+    for i in range(start_i, n):
         # 3D input: (C, H, W) — no unsqueeze!
         sample_c = clean[i].to(device).float()
         sample_a = adversarial[i].to(device).float()
@@ -232,6 +309,9 @@ def compute_matrix_distances(model, clean, adversarial, device,
             torch.cuda.empty_cache()
         if (i + 1) % 50 == 0 or i == n - 1:
             print(f"    Matrix distances: {i + 1}/{n}", flush=True)
+        # Per-pair checkpoint: bounded loss on timeout to `flush_every` pairs.
+        if (i + 1) % flush_every == 0 or i == n - 1:
+            _flush()
     return distances
 
 
@@ -509,10 +589,20 @@ def validate_theorem45(experiment_name, num_samples=200, attacks=None,
         print(f"{'='*60}", flush=True)
         t0 = time.perf_counter()
 
-        # Generate paired adversarial examples
+        # Per-attack checkpoint paths. The persisted-pairs .pt allows a fresh
+        # SLURM slot to skip attack generation (the expensive part on slow
+        # attacks like Square); the partial .json carries d_M progress across
+        # restarts so we never recompute pairs we already evaluated.
+        pa_dir = Path(f'experiments/{experiment_name}/theorem45/per_attack')
+        pa_dir.mkdir(parents=True, exist_ok=True)
+        pairs_save_path = pa_dir / f'{attack_name}.pairs.pt'
+        partial_path = pa_dir / f'{attack_name}.partial.json'
+
+        # Generate (or load from cache) paired adversarial examples
         clean, adv = generate_adversarial_pairs(
             model, test_data, test_labels, attack_name, device,
-            dataset=dataset, experiment_name=experiment_name)
+            dataset=dataset, experiment_name=experiment_name,
+            pairs_save_path=pairs_save_path)
         if clean is None:
             print(f"  Skipping {attack_name} (generation failed).", flush=True)
             continue
@@ -520,16 +610,33 @@ def validate_theorem45(experiment_name, num_samples=200, attacks=None,
         n_pairs = len(clean)
         print(f"  Pairs: {n_pairs}", flush=True)
 
-        # Compute distances
-        print("  Computing logit distances...", flush=True)
-        d_f = compute_logit_distances(model, clean, adv, device)
+        # Try to reuse cached fast-path distances if a partial run already
+        # computed them. d_f / d_h are cheap to recompute (seconds), so the
+        # cache hit is a small optimization, not load-bearing.
+        cached_partial = atomic_json_load(str(partial_path), default={}) or {}
+        if isinstance(cached_partial.get("d_f"), list) and len(cached_partial["d_f"]) == n_pairs:
+            d_f = np.asarray(cached_partial["d_f"], dtype=float)
+            print(f"  Loaded cached logit distances (n={n_pairs}).", flush=True)
+        else:
+            print("  Computing logit distances...", flush=True)
+            d_f = compute_logit_distances(model, clean, adv, device)
 
-        print("  Computing penultimate distances...", flush=True)
-        d_h = compute_penultimate_distances(model, clean, adv)
+        if isinstance(cached_partial.get("d_h"), list) and len(cached_partial["d_h"]) == n_pairs:
+            d_h = np.asarray(cached_partial["d_h"], dtype=float)
+            print(f"  Loaded cached penultimate distances (n={n_pairs}).", flush=True)
+        else:
+            print("  Computing penultimate distances...", flush=True)
+            d_h = compute_penultimate_distances(model, clean, adv)
 
-        print("  Computing matrix distances...", flush=True)
-        d_M = compute_matrix_distances(model, clean, adv, device,
-                                       batch_size_mc=matrix_batch_size)
+        print("  Computing matrix distances (with per-pair checkpointing)...",
+              flush=True)
+        d_M = compute_matrix_distances(
+            model, clean, adv, device,
+            batch_size_mc=matrix_batch_size,
+            partial_path=partial_path,
+            flush_every=20,
+            prefilled={"d_f": d_f.tolist(), "d_h": d_h.tolist()},
+        )
 
         # Filter pairs where d_f > 0 to avoid division by zero
         # Use relative threshold to avoid discarding valid pairs in low-magnitude regimes
@@ -564,6 +671,14 @@ def validate_theorem45(experiment_name, num_samples=200, attacks=None,
                 experiment_name, num_samples,
                 f'{attack_name}_SKIPPED', skipped_result,
             )
+            # Clean up the resume caches for this attack — the SKIPPED file
+            # is the terminal result for this (experiment, attack) pair.
+            for cache_path in (partial_path, pairs_save_path):
+                try:
+                    if cache_path.exists():
+                        cache_path.unlink()
+                except OSError:
+                    pass
             continue
 
         d_f_v = d_f[valid]
@@ -700,9 +815,21 @@ def validate_theorem45(experiment_name, num_samples=200, attacks=None,
                 'per_attack': per_attack,
             })
 
-        # Save per-attack file (parallel-safe)
+        # Save per-attack file (parallel-safe). Atomic write — only the success
+        # path reaches the cache-cleanup below, so a crash on this write
+        # leaves the partial + pairs caches intact for next-attempt resume.
         _save_per_attack_file(experiment_name, num_samples, attack_name,
                               per_attack[attack_name])
+
+        # Resume-cache cleanup: now that the canonical per-attack file is on
+        # disk, the partial and the pairs.pt are no longer needed.
+        for cache_path in (partial_path, pairs_save_path):
+            try:
+                if cache_path.exists():
+                    cache_path.unlink()
+            except OSError as e:
+                print(f"  WARNING: failed to remove resume cache "
+                      f"{cache_path}: {e}", flush=True)
 
         # Cleanup
         del clean, adv, d_f, d_h, d_M
