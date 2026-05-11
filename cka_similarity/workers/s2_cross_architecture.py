@@ -24,6 +24,7 @@ import torch
 from utils.utils import get_device
 from utils.km_models import build_model
 from utils.atomic_io import atomic_torch_save, atomic_json_dump, atomic_json_load
+from utils.scaling import IMAGENET_INPUT_NUMEL, IMAGENET_NUM_CLASSES, km_numel
 from cka_similarity.workers.common import chunk_slice, load_active_km_batch_size, calibration_path_for
 from cka_similarity.measures.panel import PANEL
 from cka_similarity.workers.s1_within_arch_invariance import load_imagenet_val_chunk
@@ -177,9 +178,17 @@ def run_chunk(chunk_id, num_chunks, num_samples_total, archs, out_dir, data_dir,
     short_names = {"resnet152": "RN", "densenet121": "DN", "googlenet": "GN"}
     pair_names = {(a, b): f"{short_names[a]}_{short_names[b]}" for a, b in combinations(archs, 2)}
 
+    # KM-space scale factor used to convert raw Frobenius to RMS-per-coord.
+    # See utils/scaling.py and docs/Final-twist/km-notes.md (2026-05-10).
+    s_KM = 1.0 / (km_numel(IMAGENET_NUM_CLASSES, IMAGENET_INPUT_NUMEL) ** 0.5)
+
     for (a, b), pname in pair_names.items():
         # --- Per-sample KM Frobenius distance (streaming, append-and-overwrite) ---
+        # Raw distances are saved to {pname}_KM_chunk{i}.json (preserves the
+        # original on-disk schema); RMS-scaled values are saved alongside to
+        # {pname}_KM_rms_chunk{i}.json. Reducers can choose which to consume.
         km_dist_path = Path(out_dir) / f"{pname}_KM_chunk{chunk_id}.json"
+        km_dist_rms_path = Path(out_dir) / f"{pname}_KM_rms_chunk{chunk_id}.json"
         km_distances = atomic_json_load(str(km_dist_path), default=[])
         start_local = len(km_distances)
 
@@ -240,6 +249,13 @@ def run_chunk(chunk_id, num_chunks, num_samples_total, archs, out_dir, data_dir,
                     d = float((M_a_i - M_b_i).norm(p='fro').item())
                 km_distances.append(d)
                 atomic_json_dump(str(km_dist_path), km_distances)
+                # Mirror the raw list onto disk in RMS-per-coordinate units
+                # for downstream consumers; kept in lock-step with the raw
+                # file (overwrite both on every appended pair).
+                atomic_json_dump(
+                    str(km_dist_rms_path),
+                    [v * s_KM for v in km_distances],
+                )
                 del M_a_i, M_b_i
 
             del model_a, model_b, mc_a, mc_b

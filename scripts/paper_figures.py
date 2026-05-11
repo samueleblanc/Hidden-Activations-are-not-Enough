@@ -4,9 +4,17 @@ Outputs to docs/Final-twist/paper/figures/:
   - teleportation_drift.pdf       — Study 1b per-arch drift box-plot
   - amplification_per_attack.pdf  — Study 2 d_M/d_f & d_h/d_f per attack/arch
 
-Run:  python scripts/paper_figures.py
+The amplification figure consumes the per-coordinate RMS amplification values
+(from theorem45 per_attack JSON's `rms` block) by default — see
+utils/scaling.py and docs/Final-twist/km-notes.md (2026-05-10) for why raw
+ratios are not dimensionally comparable across the logit / penult / KM spaces.
+
+Run:
+  python scripts/paper_figures.py            # RMS (canonical)
+  python scripts/paper_figures.py --raw      # legacy raw norms
 """
 from __future__ import annotations
+import argparse
 import json
 from pathlib import Path
 
@@ -74,7 +82,7 @@ def fig_teleportation_drift():
 # ---------------------------------------------------------------------------
 # Figure 2: amplification per attack
 # ---------------------------------------------------------------------------
-def fig_amplification():
+def fig_amplification(metric: str = "rms"):
     fig, axes = plt.subplots(1, len(ARCHS), figsize=(13, 4), sharey=True)
     for ax, (arch, disp) in zip(axes, ARCHS):
         amp_M = []
@@ -86,12 +94,27 @@ def fig_amplification():
                 continue
             with open(p) as f:
                 d = json.load(f)
-            r = d.get("result", {})
-            if r.get("skipped"):
+            r_raw = d.get("result", {})
+            if r_raw.get("skipped"):
                 continue
+            if metric == "rms":
+                r = r_raw.get("rms")
+                if not r:
+                    raise SystemExit(
+                        f"{p}: missing 'rms' block — run "
+                        f"scripts/renormalize_distances.py first, or use --raw."
+                    )
+            else:
+                r = r_raw
             amp_M.append(r["amplification_M_median"])
-            amp_h.append(r["amplification_h_median"])
+            # h-amplification can be absent for legacy archs (no penult dim)
+            amp_h.append(r.get("amplification_h_median"))
             labels.append(atk)
+        # Drop attacks where h-amp is missing to keep parallel bars aligned.
+        keep = [i for i, v in enumerate(amp_h) if v is not None]
+        amp_M = [amp_M[i] for i in keep]
+        amp_h = [amp_h[i] for i in keep]
+        labels = [labels[i] for i in keep]
         x = np.arange(len(labels))
         ax.bar(x - 0.2, amp_M, width=0.4, label=r"$d_M / d_f$", color="C0")
         ax.bar(x + 0.2, amp_h, width=0.4, label=r"$d_h / d_f$", color="C3")
@@ -100,21 +123,31 @@ def fig_amplification():
         ax.set_xticklabels(labels, rotation=30, ha="right", fontsize=9)
         ax.set_title(disp, fontsize=10)
         if ax is axes[0]:
-            ax.set_ylabel("amplification (median ratio)", fontsize=10)
+            unit_lab = "RMS-per-coord" if metric == "rms" else "raw"
+            ax.set_ylabel(f"amplification (median ratio, {unit_lab})", fontsize=10)
             ax.legend(fontsize=9, frameon=False, loc="upper left")
         ax.grid(axis="y", linestyle=":", alpha=0.5)
     fig.suptitle("Per-attack amplification of logit distance\n"
-                 "(values > 1 mean the representation distance EXCEEDS logit distance)",
+                 "(values > 1 mean the representation distance EXCEEDS logit distance "
+                 f"in the chosen unit system: {'RMS-per-coord' if metric=='rms' else 'raw'})",
                  fontsize=11)
     fig.tight_layout()
-    fig.savefig(OUT_DIR / "amplification_per_attack.pdf", bbox_inches="tight")
+    suffix = "" if metric == "rms" else "_raw"
+    out_path = OUT_DIR / f"amplification_per_attack{suffix}.pdf"
+    fig.savefig(out_path, bbox_inches="tight")
     plt.close(fig)
-    print(f"  wrote {OUT_DIR / 'amplification_per_attack.pdf'}")
+    print(f"  wrote {out_path}")
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--raw", action="store_true",
+                        help="Use raw (native L2/Frobenius) units instead of "
+                             "RMS-per-coordinate for the amplification figure.")
+    args = parser.parse_args()
+    metric = "raw" if args.raw else "rms"
     print("Generating teleportation drift figure...")
     fig_teleportation_drift()
-    print("Generating amplification per-attack figure...")
-    fig_amplification()
+    print(f"Generating amplification per-attack figure (metric={metric})...")
+    fig_amplification(metric=metric)
     print("Done.")

@@ -7,22 +7,25 @@ Research implementation of "Hidden Activations Are Not Enough: A General Approac
 - **Language:** Python 3.11 + Bash (Slurm job scripts)
 - **Cluster:** Compute Canada Alliance HPC (Rorqual, H100 GPUs)
 - **License:** Apache 2.0
-- **Key dependencies:** torch 2.2.2, torchvision 0.17.2, torchattacks 3.5.1, knowledgematrix (git+MarcoArmenta/knowledgematrix-cluster@fe64a13 — Pillar-3 fork; pinned in `requirements-{slurm,local}.txt`), scikit-learn 1.3.2, scipy 1.10.1, neuralteleportation (for teleportation experiment)
+- **Key dependencies:** torch 2.2.2, torchvision 0.17.2, torchattacks 3.5.1, knowledgematrix (git+MarcoArmenta/knowledgematrix-cluster@fe64a13 — Phase-1 fork; pinned in `requirements-{slurm,local}.txt`), scikit-learn 1.3.2, scipy 1.10.1, neuralteleportation (for teleportation experiment)
 
 ## TMLR Resubmission Direction
 
-Paper rejected by TMLR (Nov 2024). New direction: **"Knowledge Matrices as Canonical Neural Network Representations"** — dropping adversarial detection claims entirely. Two pillars:
+Paper rejected by TMLR (Nov 2024). New direction: **"Knowledge Matrices as Canonical Neural Network Representations"** — dropping adversarial detection claims entirely. Three studies:
 
-1. **Isomorphism Invariance** — KMs are provably invariant under neuron permutations; no other practically computable representation has this. Applications: model comparison (no CKA alignment needed), federated learning, reproducibility.
-2. **Theorem 4.5 Distance Lower Bound** — KM distances are guaranteed to exceed logit-space distances. Novel empirical finding: the amplification factor splits cleanly by attack type.
+1. **Study 1 — Isomorphism Invariance.** KMs are provably invariant under neuron permutations and broader quiver isomorphisms; no other practically computable representation has this. Sub-studies: 1a (random neuron permutation, retired from orchestrator), 1b (neural teleportation), 1c (within-arch invariance under the 9-measure similarity panel).
+2. **Study 2 — Theorem 4.5 Distance Lower Bound.** KM distances are guaranteed to exceed logit-space distances. Novel empirical finding: the amplification factor splits cleanly by attack type.
+3. **Study 3 — Cross-architecture canonical comparison.** KMs are uniformly $1000 \times 150{,}529$ for any feedforward network on $224 \times 224$ ImageNet inputs, so KM Frobenius distance compares ResNet-152, DenseNet-121, and GoogLeNet directly without any alignment step. Includes a same-arch cross-recipe positioning experiment (Step E).
+
+Phase 1 (added 2026-05-03) extends Studies 1, 2, and 3 with a 9-measure representation-similarity panel and Cui/Murphy controls (`docs/superpowers/specs/2026-05-03-cka-similarity-experiments-design.md`).
 
 Additionally: testing how penultimate activation distances behave when increasing network size (using pretrained torchvision models directly, no training needed).
 
 ## Directory Structure
 
 ```
-├── isomorphism_experiment.py      # Pillar 1: KM invariance under neuron permutations
-├── validate_theorem45.py          # Pillar 2: empirical Theorem 4.5 validation
+├── isomorphism_experiment.py      # Study 1a: KM invariance under neuron permutations (retired)
+├── validate_theorem45.py          # Study 2: empirical Theorem 4.5 validation
 ├── teleportation_experiment.py    # Penultimate activation instability under teleportation
 ├── training.py                    # Model training with checkpointing
 ├── generate_matrices.py           # Clean knowledge matrix computation (chunked)
@@ -51,7 +54,7 @@ Additionally: testing how penultimate activation distances behave when increasin
 
 ## Experiments
 
-### Pillar 1: Isomorphism Invariance (`isomorphism_experiment.py`)
+### Study 1a: Isomorphism Invariance (`isomorphism_experiment.py`)
 
 Applies random neuron permutations to create isomorphic networks. Shows:
 - Permuted network produces identical outputs
@@ -62,7 +65,7 @@ Applies random neuron permutations to create isomorphic networks. Shows:
 python isomorphism_experiment.py --experiment alexnet_cifar10
 ```
 
-### Pillar 1: Teleportation (`teleportation_experiment.py`)
+### Study 1b: Teleportation (`teleportation_experiment.py`)
 
 Demonstrates penultimate activation instability under neural teleportation (quiver isomorphism via the `neuralteleportation` library's COB models).
 
@@ -70,7 +73,7 @@ Demonstrates penultimate activation instability under neural teleportation (quiv
 python teleportation_experiment.py --arch resnet18 --dataset cifar10 --num_teleportations 10
 ```
 
-### Pillar 2: Theorem 4.5 Validation (`validate_theorem45.py`)
+### Study 2: Theorem 4.5 Validation (`validate_theorem45.py`)
 
 Empirically validates `||M(x) - M(x')|| >= gamma * ||f(x) - f(x')||`. Generates adversarial pairs on-the-fly, computes logit/penultimate/KM distances, estimates gamma with bootstrap 95% CI.
 
@@ -111,13 +114,22 @@ The `knowledgematrix` package's AlexNet may not accept `freeze_features` kwarg. 
 ### neuralteleportation patches
 The `neuralteleportation` library requires patches for PyTorch 2.x compatibility. Run `bash patches/apply_neuralteleportation_patches.sh` after installation.
 
+### Canonical distance metric: RMS-per-coordinate
+Cross-space distance comparisons (logit vs penultimate vs KM) use **RMS-per-coordinate** (`||·|| / sqrt(numel)`) as the canonical fair-comparison metric, not raw L2/Frobenius. Raw norms inflate KM distances by a factor of `sqrt(d+1) ≈ 388` for ImageNet purely from dimensionality, confounding Theorem-4.5 γ values and amplification ratios.
+
+- Helpers: `utils/scaling.py` (`rms_distance`, `rescale_gamma_to_rms`, `rescale_amp_M_to_rms`, `rescale_amp_h_to_rms`, `penultimate_dim`, `km_numel`).
+- Source-of-truth save: `validate_theorem45.py`, `cross_model_experiment.py`, `cka_similarity/workers/s2_cross_architecture.py`, `cka_similarity/workers/s3_distance_amplification.py` all save both raw and RMS values in their result JSONs.
+- Post-hoc salvage: `python scripts/renormalize_distances.py` walks existing result trees and adds `rms` blocks to legacy JSONs without modifying raw fields (idempotent).
+- Consumers (`generate_theorem45_tables.py`, `cka_similarity/reduce/tables.py`, `scripts/paper_figures.py`, `wire_paper_results.py`) default to RMS; pass `--raw` / `--metric raw` for the legacy view.
+- Background: `docs/Final-twist/km-notes.md` (2026-05-10 entry).
+
 ## Environment
 
 - **Cluster modules:** `StdEnv/2023 python/3.11.5 scipy-stack/2025a`
 - **Virtual env:** `env/` (created via `python -m venv env`)
 - **Cluster deps:** `requirements-slurm.txt` (torch 2.2.2)
 - **Local deps:** `requirements-local.txt` (torch 2.6.0)
-- **Key packages:** knowledgematrix (`git+MarcoArmenta/knowledgematrix-cluster@fe64a13` — Pillar-3 fork stacking `extract_weff` + `densenet121` + `googlenet` + `resnet152` PRs), neuralteleportation (with patches)
+- **Key packages:** knowledgematrix (`git+MarcoArmenta/knowledgematrix-cluster@fe64a13` — Phase-1 fork stacking `extract_weff` + `densenet121` + `googlenet` + `resnet152` PRs), neuralteleportation (with patches)
 
 ## Legacy Code
 

@@ -35,6 +35,10 @@ from utils.utils import (
 from constants.constants import DEFAULT_EXPERIMENTS, ATTACKS, IMAGENET_ATTACKS
 from utils.features import extract_penultimate_features
 from utils.atomic_io import atomic_json_dump
+from utils.scaling import (
+    rescale_amp_M_to_rms, rescale_amp_h_to_rms, rescale_gamma_to_rms,
+    penultimate_dim, km_numel,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -584,6 +588,66 @@ def validate_theorem45(experiment_name, num_samples=200, attacks=None,
 
         elapsed = time.perf_counter() - t0
 
+        # ----------------------------------------------------------------
+        # RMS-per-coordinate rescaling for fair cross-space comparison.
+        # See docs/Final-twist/km-notes.md (2026-05-10) and utils/scaling.py.
+        # gamma and amplification ratios are scale-equivariant under uniform
+        # per-space multiplication, so rescaling is exact (no rerun needed).
+        # ----------------------------------------------------------------
+        input_numel = int(np.prod(input_shape))
+        arch_for_dim = model_name if model_name is not None else None
+        try:
+            D_penult = penultimate_dim(arch_for_dim) if arch_for_dim else None
+        except KeyError:
+            D_penult = None
+        s_f_factor = float(1.0 / np.sqrt(num_classes))
+        s_M_factor = float(1.0 / np.sqrt(km_numel(num_classes, input_numel)))
+        s_h_factor = (float(1.0 / np.sqrt(D_penult))
+                      if D_penult is not None else None)
+        rms_block = {
+            'gamma_empirical': rescale_gamma_to_rms(gamma_empirical, input_numel),
+            'gamma_ci_95': [
+                rescale_gamma_to_rms(gamma_ci_lower, input_numel),
+                rescale_gamma_to_rms(gamma_ci_upper, input_numel),
+            ],
+            'amplification_M_median': rescale_amp_M_to_rms(
+                float(np.median(ratio_M)), input_numel),
+            'amplification_M_mean': rescale_amp_M_to_rms(
+                float(np.mean(ratio_M)), input_numel),
+            'amplification_M_std': rescale_amp_M_to_rms(
+                float(np.std(ratio_M)), input_numel),
+            'amplification_M_iqr': [
+                rescale_amp_M_to_rms(float(np.percentile(ratio_M, 25)),
+                                      input_numel),
+                rescale_amp_M_to_rms(float(np.percentile(ratio_M, 75)),
+                                      input_numel),
+            ],
+            'd_M_stats': {k: v * s_M_factor for k, v in _stats(d_M_v).items()},
+            'd_f_stats': {k: v * s_f_factor for k, v in _stats(d_f_v).items()},
+            '_scale_factors': {
+                's_f': s_f_factor, 's_M': s_M_factor, 's_h': s_h_factor,
+                'amp_M_factor': float(1.0 / np.sqrt(input_numel + 1)),
+                'num_classes': num_classes, 'input_numel': input_numel,
+                'penult_dim': D_penult, 'arch_for_dim': arch_for_dim,
+            },
+        }
+        if D_penult is not None:
+            rms_block['amplification_h_median'] = rescale_amp_h_to_rms(
+                float(np.median(ratio_h)), num_classes, D_penult)
+            rms_block['amplification_h_mean'] = rescale_amp_h_to_rms(
+                float(np.mean(ratio_h)), num_classes, D_penult)
+            rms_block['amplification_h_std'] = rescale_amp_h_to_rms(
+                float(np.std(ratio_h)), num_classes, D_penult)
+            rms_block['amplification_h_iqr'] = [
+                rescale_amp_h_to_rms(float(np.percentile(ratio_h, 25)),
+                                      num_classes, D_penult),
+                rescale_amp_h_to_rms(float(np.percentile(ratio_h, 75)),
+                                      num_classes, D_penult),
+            ]
+            rms_block['d_h_stats'] = {
+                k: v * s_h_factor for k, v in _stats(d_h_v).items()
+            }
+
         result = {
             'num_pairs': n_pairs,
             'num_valid_pairs': n_valid,
@@ -603,6 +667,12 @@ def validate_theorem45(experiment_name, num_samples=200, attacks=None,
             'd_M_stats': _stats(d_M_v),
             'd_h_stats': _stats(d_h_v),
             'd_f_stats': _stats(d_f_v),
+            'per_pair_raw': {
+                'd_f': d_f_v.tolist(),
+                'd_h': d_h_v.tolist(),
+                'd_M': d_M_v.tolist(),
+            },
+            'rms': rms_block,
             'elapsed_seconds': float(elapsed),
         }
         per_attack[attack_name] = result

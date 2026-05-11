@@ -19,6 +19,9 @@ import torch
 
 from utils.utils import get_device
 from utils.atomic_io import atomic_json_dump, atomic_json_load, atomic_torch_save
+from utils.scaling import (
+    IMAGENET_INPUT_NUMEL, IMAGENET_NUM_CLASSES, penultimate_dim, km_numel,
+)
 from cka_similarity.workers.common import chunk_slice, load_active_km_batch_size, calibration_path_for
 from cka_similarity.measures.panel import PANEL
 # Pull the wrapper-aware loaders from S2 (NOT S1): S3 feeds models into
@@ -126,17 +129,30 @@ def run_chunk(chunk_id, num_chunks, total_pairs_per_attack, archs, attacks, out_
             M_clean = extract_km_per_sample(model, x_clean, batch_size=bs)
             M_adv   = extract_km_per_sample(model, x_adv,   batch_size=bs)
 
-            # Append per-pair distances
+            # Append per-pair distances. Both raw and RMS-per-coordinate
+            # values are saved: raw norms preserve Theorem 4.5's exact
+            # statement, RMS values enable fair cross-space comparison.
+            # See utils/scaling.py and docs/Final-twist/km-notes.md (2026-05-10).
+            D_penult = penultimate_dim(arch)
+            s_f = 1.0 / (IMAGENET_NUM_CLASSES ** 0.5)
+            s_h = 1.0 / (D_penult ** 0.5)
+            s_M = 1.0 / (km_numel(IMAGENET_NUM_CLASSES, IMAGENET_INPUT_NUMEL) ** 0.5)
             dist_path = Path(out_dir) / f"{arch}_{attack}_chunk{chunk_id}.json"
             existing = atomic_json_load(str(dist_path), default=[])
             for i in range(len(existing), attack_n_pairs):
                 completeness_clean = float((M_clean[i].sum(1) - f_clean[i].cpu()).abs().max())
                 completeness_adv   = float((M_adv[i].sum(1)   - f_adv[i].cpu()).abs().max())
+                d_f_raw = float((f_clean[i] - f_adv[i]).norm(p=2))
+                d_h_raw = float((h_clean[i] - h_adv[i]).norm(p=2))
+                d_M_raw = float((M_clean[i] - M_adv[i]).norm(p='fro'))
                 existing.append({
                     "pair_idx": start + i,
-                    "d_f": float((f_clean[i] - f_adv[i]).norm(p=2)),
-                    "d_h": float((h_clean[i] - h_adv[i]).norm(p=2)),
-                    "d_M": float((M_clean[i] - M_adv[i]).norm(p='fro')),
+                    "d_f": d_f_raw,
+                    "d_h": d_h_raw,
+                    "d_M": d_M_raw,
+                    "d_f_rms": d_f_raw * s_f,
+                    "d_h_rms": d_h_raw * s_h,
+                    "d_M_rms": d_M_raw * s_M,
                     "completeness_residual_clean": completeness_clean,
                     "completeness_residual_adv":   completeness_adv,
                 })

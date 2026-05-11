@@ -44,6 +44,11 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Subset
 
+from utils.scaling import (
+    IMAGENET_INPUT_NUMEL, IMAGENET_NUM_CLASSES,
+    penultimate_dim, km_numel,
+)
+
 logger = logging.getLogger("cross_model")
 
 
@@ -536,6 +541,32 @@ def run_pair(arch: str, ckpt_i: str, ckpt_j: str,
     logger.info("Pair done in %.1fs: gamma_cross = %.4f  CKA = %.4f",
                 elapsed_total, gamma_cross, cka_lin)
 
+    # ------------------------------------------------------------------
+    # RMS-per-coordinate rescaling (canonical fair-comparison metric).
+    # See utils/scaling.py and docs/Final-twist/km-notes.md (2026-05-10).
+    # ------------------------------------------------------------------
+    D_penult = penultimate_dim(arch)
+    s_KM = 1.0 / np.sqrt(km_numel(IMAGENET_NUM_CLASSES, IMAGENET_INPUT_NUMEL))
+    s_h = 1.0 / np.sqrt(D_penult)
+    s_f = 1.0 / np.sqrt(IMAGENET_NUM_CLASSES)
+    d_KM_rms_arr = d_KM_arr * s_KM
+    d_h_rms_arr = d_h_arr * s_h
+    d_f_rms_arr = d_logit_arr * s_f
+    if valid.sum() > 0:
+        ratio_rms = d_KM_rms_arr[valid] / d_f_rms_arr[valid]
+        gamma_cross_rms = float(ratio_rms.min())
+        rng_rms = np.random.default_rng(43)
+        boot_rms = [
+            float(ratio_rms[rng_rms.integers(0, len(ratio_rms),
+                                              len(ratio_rms))].min())
+            for _ in range(1000)
+        ]
+        gamma_ci_rms = [float(np.percentile(boot_rms, 2.5)),
+                        float(np.percentile(boot_rms, 97.5))]
+    else:
+        gamma_cross_rms = float("nan")
+        gamma_ci_rms = [float("nan"), float("nan")]
+
     return {
         "arch": arch,
         "ckpt_i": ckpt_i,
@@ -562,6 +593,28 @@ def run_pair(arch: str, ckpt_i: str, ckpt_j: str,
             "cka_distance": 1.0 - cka_lin,
             "gamma_cross":  gamma_cross,
             "gamma_cross_ci_95": gamma_ci,
+        },
+        "rms": {
+            "per_sample": {
+                "d_KM":    d_KM_rms_arr.tolist(),
+                "d_h":     d_h_rms_arr.tolist(),
+                "d_logit": d_f_rms_arr.tolist(),
+            },
+            "aggregate": {
+                "d_KM_mean":    float(d_KM_rms_arr.mean()),
+                "d_KM_std":     float(d_KM_rms_arr.std()),
+                "d_h_mean":     float(d_h_rms_arr.mean()),
+                "d_h_std":      float(d_h_rms_arr.std()),
+                "d_logit_mean": float(d_f_rms_arr.mean()),
+                "d_logit_std":  float(d_f_rms_arr.std()),
+                "gamma_cross":  gamma_cross_rms,
+                "gamma_cross_ci_95": gamma_ci_rms,
+            },
+            "_scale_factors": {
+                "s_KM": s_KM, "s_h": s_h, "s_f": s_f,
+                "arch": arch, "num_classes": IMAGENET_NUM_CLASSES,
+                "penult_dim": D_penult, "input_numel": IMAGENET_INPUT_NUMEL,
+            },
         },
     }
 

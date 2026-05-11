@@ -43,18 +43,41 @@ def aggregate_s1(s1_dir: str, archs: List[str], num_teleports: int, num_chunks: 
 
 
 def aggregate_s2(s2_dir: str, archs: List[str], num_chunks: int) -> Dict:
-    """For each unordered arch pair, aggregate KM Frobenius distances + D1/D2 panels."""
+    """For each unordered arch pair, aggregate KM Frobenius distances + D1/D2 panels.
+
+    Per-pair KM Frobenius distances are stored on disk in both raw units
+    ({pname}_KM_chunk*.json) and per-coordinate RMS units
+    ({pname}_KM_rms_chunk*.json — written by
+    cka_similarity/workers/s2_cross_architecture.py since 2026-05-10).
+    If RMS files are missing (pre-2026-05-10 chunks), fall back to deriving
+    RMS values from raw using utils.scaling.km_numel — this preserves the
+    canonical metric across legacy and fresh data.
+    """
     from itertools import combinations
+    from utils.scaling import (
+        IMAGENET_INPUT_NUMEL, IMAGENET_NUM_CLASSES, km_numel,
+    )
     short_names = {"resnet152": "RN", "densenet121": "DN", "googlenet": "GN"}
+    s_KM = 1.0 / (km_numel(IMAGENET_NUM_CLASSES, IMAGENET_INPUT_NUMEL) ** 0.5)
     out = {}
     for a, b in combinations(archs, 2):
         pname = f"{short_names[a]}_{short_names[b]}"
 
-        # KM Frobenius — concatenate per-chunk lists
+        # KM Frobenius — concatenate per-chunk lists (raw)
         km_files = sorted(Path(s2_dir).glob(f"{pname}_KM_chunk*.json"))
         all_distances = []
         for f in km_files:
             all_distances.extend(json.loads(Path(f).read_text()))
+
+        # KM Frobenius — RMS variant. Prefer on-disk files if they exist;
+        # otherwise derive from raw on the fly.
+        km_rms_files = sorted(Path(s2_dir).glob(f"{pname}_KM_rms_chunk*.json"))
+        if km_rms_files:
+            all_distances_rms = []
+            for f in km_rms_files:
+                all_distances_rms.extend(json.loads(Path(f).read_text()))
+        else:
+            all_distances_rms = [d * s_KM for d in all_distances]
 
         # D1 panel
         d1_files = sorted(Path(s2_dir).glob(f"{pname}_D1_chunk*.pt"))
@@ -78,7 +101,9 @@ def aggregate_s2(s2_dir: str, archs: List[str], num_chunks: int) -> Dict:
 
         out[pname] = {
             "km_distances": all_distances,
+            "km_distances_rms": all_distances_rms,
             "km_mean": sum(all_distances) / max(1, len(all_distances)),
+            "km_mean_rms": sum(all_distances_rms) / max(1, len(all_distances_rms)),
             "km_n": len(all_distances),
             "D1": d1_results,
             "D2": d2_results,
