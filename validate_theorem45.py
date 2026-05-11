@@ -634,7 +634,7 @@ def validate_theorem45(experiment_name, num_samples=200, attacks=None,
             model, clean, adv, device,
             batch_size_mc=matrix_batch_size,
             partial_path=partial_path,
-            flush_every=20,
+            flush_every=5,
             prefilled={"d_f": d_f.tolist(), "d_h": d_h.tolist()},
         )
 

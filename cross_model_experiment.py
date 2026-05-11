@@ -44,6 +44,9 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Subset
 
+from utils.atomic_io import (
+    atomic_json_dump, atomic_json_load, atomic_torch_save,
+)
 from utils.scaling import (
     IMAGENET_INPUT_NUMEL, IMAGENET_NUM_CLASSES,
     penultimate_dim, km_numel,
@@ -432,15 +435,74 @@ def linear_cka(X: torch.Tensor, Y: torch.Tensor) -> float:
 
 def run_pair(arch: str, ckpt_i: str, ckpt_j: str,
              dataloader: DataLoader, device: str,
-             matrix_batch_size: int = 1024) -> Dict:
+             matrix_batch_size: int = 1024,
+             partial_dir: Optional[str] = None,
+             flush_every: int = 50) -> Dict:
     """Compute per-sample d_KM, d_h, d_logit + population CKA for a pair.
 
     Streaming: only model_i and model_j are in memory at once. KMs for
     each sample are materialized briefly, distances streamed, then freed.
+
+    Args:
+        partial_dir: optional directory for per-pair resume artifacts. If
+            provided, two files are maintained:
+              {partial_dir}/{ckpt_i}__{ckpt_j}.partial.json   (d_KM/d_h/d_logit lists)
+              {partial_dir}/{ckpt_i}__{ckpt_j}.h_features.pt  (penultimate buffers for CKA)
+            On entry both are loaded if present; the dataloader skips
+            already-done samples; every `flush_every` new samples both files
+            are atomically rewritten. Caller is responsible for unlinking
+            them after the canonical per-pair JSON is written.
+        flush_every: per-pair checkpoint cadence (samples).
     """
     from knowledgematrix.matrix_computer import KnowledgeMatrixComputer
 
     logger.info("=== Pair: %s vs %s ===", ckpt_i, ckpt_j)
+
+    # ---- Resume state ----
+    d_KM: list = []
+    d_h: list = []
+    d_logit: list = []
+    h_i_all: list = []
+    h_j_all: list = []
+    n_done = 0
+    partial_json_path = None
+    partial_pt_path = None
+    if partial_dir is not None:
+        partial_json_path = Path(partial_dir) / f"{ckpt_i}__{ckpt_j}.partial.json"
+        partial_pt_path = Path(partial_dir) / f"{ckpt_i}__{ckpt_j}.h_features.pt"
+        existing = atomic_json_load(str(partial_json_path), default=None)
+        if existing and isinstance(existing.get("d_KM"), list):
+            d_KM = list(existing["d_KM"])
+            d_h = list(existing.get("d_h", []))
+            d_logit = list(existing.get("d_logit", []))
+            # Truncate to the consistent prefix (all three lists same length).
+            consistent_n = min(len(d_KM), len(d_h), len(d_logit))
+            d_KM, d_h, d_logit = d_KM[:consistent_n], d_h[:consistent_n], d_logit[:consistent_n]
+            n_done = consistent_n
+            if partial_pt_path.exists():
+                try:
+                    feats = torch.load(partial_pt_path, map_location="cpu")
+                    if (feats["h_i"].shape[0] == n_done
+                            and feats["h_j"].shape[0] == n_done):
+                        h_i_all = [feats["h_i"]]
+                        h_j_all = [feats["h_j"]]
+                    else:
+                        logger.warning("  [resume] h_features shape mismatch "
+                                       "(got %s, expected n_done=%d) — "
+                                       "feature buffer discarded; CKA on resume "
+                                       "may be biased toward later samples.",
+                                       feats["h_i"].shape, n_done)
+                        h_i_all, h_j_all = [], []
+                        # Penultimate distances depend only on per-sample h_i/h_j
+                        # (already saved in d_h), so this only affects CKA.
+                except Exception as e:
+                    logger.warning("  [resume] failed to load h_features: %s; "
+                                   "CKA on resume may be biased.", e)
+            if n_done > 0:
+                logger.info("  [resume] continuing from sample %d "
+                            "(d_KM=%d, d_h=%d, d_logit=%d, h_features=%s)",
+                            n_done, len(d_KM), len(d_h), len(d_logit),
+                            "loaded" if h_i_all else "missing")
 
     # Build BOTH KM models (each carries its alternate weights).
     model_i = build_km_model_with_alt_weights(arch, ckpt_i, device)
@@ -466,16 +528,49 @@ def run_pair(arch: str, ckpt_i: str, ckpt_j: str,
     mc_i = KnowledgeMatrixComputer(model_i, batch_size=matrix_batch_size, device=device)
     mc_j = KnowledgeMatrixComputer(model_j, batch_size=matrix_batch_size, device=device)
 
-    d_KM, d_h, d_logit = [], [], []
-    h_i_all, h_j_all = [], []  # population CKA needs the full feature matrices
+    def _flush_partial():
+        """Atomically write the per-sample lists + cumulative h_features."""
+        if partial_json_path is None:
+            return
+        atomic_json_dump(str(partial_json_path), {
+            "arch": arch, "ckpt_i": ckpt_i, "ckpt_j": ckpt_j,
+            "n_done": len(d_KM),
+            "d_KM":    d_KM,
+            "d_h":     d_h,
+            "d_logit": d_logit,
+        })
+        # Concatenate the running h-feature buffer once per flush rather
+        # than each sample — torch.cat over a small list is fast, and
+        # writing the contiguous tensor is faster than dozens of pieces.
+        if h_i_all and h_j_all:
+            H_i_cat = torch.cat(h_i_all, dim=0)
+            H_j_cat = torch.cat(h_j_all, dim=0)
+            atomic_torch_save(str(partial_pt_path),
+                              {"h_i": H_i_cat, "h_j": H_j_cat})
 
     t0 = time.perf_counter()
-    n_processed = 0
+    sample_idx = 0     # global counter ratcheting through the dataloader
+    n_processed = 0    # NEW samples processed this run
+    flush_counter = 0
     for batch_idx, (xb, _yb) in enumerate(dataloader):
-        xb = xb.to(device).float()
+        batch_size_this = xb.shape[0]
+        batch_start = sample_idx
+        batch_end = sample_idx + batch_size_this
+        sample_idx = batch_end
 
+        # Skip entire batch if every sample was already computed.
+        if batch_end <= n_done:
+            continue
+        # Skip a prefix of the batch if part of it was already done.
+        if batch_start < n_done:
+            skip = n_done - batch_start
+            xb = xb[skip:]
+            if xb.shape[0] == 0:
+                continue
+
+        xb = xb.to(device).float()
         with torch.no_grad():
-            f_i = model_i(xb)  # (B, 1000)
+            f_i = model_i(xb)  # (B', 1000)
             f_j = model_j(xb)
             h_i = extract_i(xb)
             h_j = extract_j(xb)
@@ -501,9 +596,18 @@ def run_pair(arch: str, ckpt_i: str, ckpt_j: str,
         h_j_all.append(h_j.cpu())
 
         n_processed += xb.shape[0]
+        flush_counter += xb.shape[0]
+        if flush_counter >= flush_every:
+            _flush_partial()
+            flush_counter = 0
+
         if batch_idx % 5 == 0:
             elapsed = time.perf_counter() - t0
-            logger.info("  [%d samples] elapsed=%.1fs", n_processed, elapsed)
+            logger.info("  [%d new samples, %d cumulative] elapsed=%.1fs",
+                        n_processed, len(d_KM), elapsed)
+
+    # Final flush — even if `flush_every` wasn't hit on the last partial batch.
+    _flush_partial()
 
     extract_i.handle.remove()
     extract_j.handle.remove()
@@ -728,11 +832,16 @@ def main() -> int:
 
     dataloader = load_imagenet_val(args.imagenet_root, args.num_samples,
                                     batch_size=args.batch_size)
-    result = run_pair(args.arch, args.ckpt_i, args.ckpt_j, dataloader,
-                      args.device, matrix_batch_size=args.matrix_batch_size)
-
     out_dir = Path(args.output_dir) / args.arch / "per_pair"
     out_dir.mkdir(parents=True, exist_ok=True)
+    # Per-pair resume artifacts live next to the canonical output so a
+    # SLURM timeout of any wall-time setting can be picked up by the next
+    # array slot. They are deleted after the final atomic write.
+    partial_dir = out_dir
+    result = run_pair(args.arch, args.ckpt_i, args.ckpt_j, dataloader,
+                      args.device, matrix_batch_size=args.matrix_batch_size,
+                      partial_dir=str(partial_dir), flush_every=50)
+
     out_path = out_dir / f"{args.ckpt_i}__{args.ckpt_j}.json"
     # Atomic write
     tmp_path = out_path.with_suffix(".json.tmp")
@@ -740,6 +849,16 @@ def main() -> int:
         json.dump(result, f, indent=2)
     tmp_path.rename(out_path)
     logger.info("Wrote %s", out_path)
+
+    # Clean up resume artifacts now that the canonical result is on disk.
+    partial_json = partial_dir / f"{args.ckpt_i}__{args.ckpt_j}.partial.json"
+    partial_pt = partial_dir / f"{args.ckpt_i}__{args.ckpt_j}.h_features.pt"
+    for p in (partial_json, partial_pt):
+        try:
+            if p.exists():
+                p.unlink()
+        except OSError as e:
+            logger.warning("Failed to remove resume artifact %s: %s", p, e)
     return 0
 
 
