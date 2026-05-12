@@ -299,7 +299,28 @@ C_AGG_NEEDED=()    # experiments needing aggregation
 
 echo "Step C: Theorem 4.5"
 for i in 0 1 2; do
+    # Aggregate file presence alone is NOT sufficient — a stale aggregate
+    # written from a partial run (3/6 attacks) leaves theorem45_results.json
+    # on disk while per_attack/ remains short. Inspect the aggregate's
+    # per_attack dict and only declare DONE if it has all 6 attacks.
+    AGG_HAS_ALL_ATTACKS=false
     if [ -f "${C_RESULTS[$i]}" ]; then
+        N_AGG_ATTACKS=$(python3 -c "
+import json
+try:
+    with open('${C_RESULTS[$i]}') as f: d=json.load(f)
+    print(len(d.get('per_attack',{})))
+except Exception:
+    print(0)
+" 2>/dev/null || echo 0)
+        if [ "$N_AGG_ATTACKS" -ge 6 ]; then
+            AGG_HAS_ALL_ATTACKS=true
+        else
+            echo "  [$i] ${C_NAMES[$i]}: STALE aggregate (${N_AGG_ATTACKS}/6 attacks) — re-evaluating per-attack state"
+        fi
+    fi
+
+    if [ "$AGG_HAS_ALL_ATTACKS" = "true" ]; then
         C_STATUS[$i]="done"
         echo "  [$i] ${C_NAMES[$i]}: DONE"
     else
