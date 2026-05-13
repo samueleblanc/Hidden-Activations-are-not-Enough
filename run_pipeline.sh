@@ -232,17 +232,17 @@ C_CHECKPOINTS=(
 # All checkpoints are differently-trained (different recipes, not same-recipe
 # seed variants); see km-notes.md 2026-05-02 + paper-plan.md §1.1.
 # Pair indices match job_cross_model.sh's ALL_PAIRS array exactly.
-# 11 pairs = 10 resnet152 (k=5) + 1 densenet121 (k=2). GoogLeNet excluded.
+# 7 pairs = 6 resnet152 (k=4, timm_a1 excluded) + 1 densenet121 (k=2).
+# GoogLeNet excluded (k=1 public).
+# timm_a1 excluded: KM completeness fails at 2.243e-02 even with the Path B
+# rewrap (see km-notes.md 2026-05-13). Recipe remains in CHECKPOINT_REGISTRY
+# for debugging via --verify; it is not safe as a cross-model member.
 E_PAIR_SPECS=(
     "resnet152:tv_v1:tv_v2"
-    "resnet152:tv_v1:timm_a1"
     "resnet152:tv_v1:timm_a2"
     "resnet152:tv_v1:timm_a3"
-    "resnet152:tv_v2:timm_a1"
     "resnet152:tv_v2:timm_a2"
     "resnet152:tv_v2:timm_a3"
-    "resnet152:timm_a1:timm_a2"
-    "resnet152:timm_a1:timm_a3"
     "resnet152:timm_a2:timm_a3"
     "densenet121:tv_v1:timm_ra"
 )
@@ -599,12 +599,21 @@ A2_JOB_ID=""
 A2_ARCHS=("resnet152" "densenet121" "googlenet")
 A2_ATTACKS=("fgsm" "pgd" "cw" "deepfool" "apgd" "square")
 A2_NEEDED=()
+# Use the .done sentinel (written only after n_done >= target_n) rather than
+# bare pairs.pth presence. The script does intermediate atomic_torch_save
+# snapshots to pairs.pth, so a partial run (OOM/timeout mid-attack) can leave
+# a multi-GB pairs.pth on disk that passes [ -f ] but actually has fewer than
+# target_n pairs. Observed 2026-05-13: googlenet apgd's pairs.pth was 3.6GB
+# (≈60% of expected 6GB) because the producing job OOM-crashed at 13:45:13
+# right after a checkpoint write; orchestrator saw the file and skipped
+# re-queuing. The .done sentinel pattern (mirroring phase1/.complete) makes
+# the check meaningful.
 for ai in "${!A2_ARCHS[@]}"; do
     for atki in "${!A2_ATTACKS[@]}"; do
         ARCH=${A2_ARCHS[$ai]}
         ATK=${A2_ATTACKS[$atki]}
-        PFILE="experiments/${ARCH}_imagenet/adversarial_pairs_N5000/${ATK}/pairs.pth"
-        if [ ! -f "$PFILE" ]; then
+        DFILE="experiments/${ARCH}_imagenet/adversarial_pairs_N5000/${ATK}/.done"
+        if [ ! -f "$DFILE" ]; then
             TASK_ID=$(( ai * 6 + atki ))
             A2_NEEDED+=("$TASK_ID")
         fi

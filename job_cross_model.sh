@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --account=def-amorales
-#SBATCH --array=0-10
-#SBATCH --time=08:00:00
+#SBATCH --array=0-6
+#SBATCH --time=24:00:00
 #SBATCH --gpus=h100:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=96G
@@ -16,8 +16,12 @@ set -euo pipefail
 # penultimate features require learned alignment (CKA / Re-Basin) to be
 # even defined.
 #
-# Scope: resnet152 (k=5) -> 10 pairs; densenet121 (k=2) -> 1 pair = 11 total.
-# GoogLeNet excluded (only k=1 public; declined to self-train).
+# Scope: resnet152 (k=4, timm_a1 excluded) -> 6 pairs; densenet121 (k=2) -> 1
+# pair = 7 total. GoogLeNet excluded (only k=1 public; declined to self-train).
+# timm_a1 excluded because KM completeness fails at 2.243e-02 even with the
+# Path B rewrap (see km-notes.md 2026-05-13 entry); keeping it in
+# CHECKPOINT_REGISTRY for debugging via --verify but not as a cross-model
+# member.
 #
 # All checkpoints are differently-trained (different recipes, not same-recipe
 # seed variants). This is a deliberate framing choice — see km-notes.md
@@ -26,23 +30,24 @@ set -euo pipefail
 # Per-pair execution: each array task processes ONE (i, j) pair and writes
 # results/cross_model/<arch>/per_pair/<i>__<j>.json. Mirrors job_theorem45.sh
 # per-attack pattern.
+#
+# Walltime: 24h per task. ResNet-152 cross-model runs ~104 s/sample; N=1000
+# needs ~28h end-to-end. Per-KM checkpointing (d73bcc6) lets the second
+# attempt resume from sample ~280 and finish, but for a single-attempt
+# success the 24h budget closes the gap. See km-notes.md 2026-05-13.
 
 mkdir -p $SLURM_SUBMIT_DIR/slurm_out
 mkdir -p $SLURM_SUBMIT_DIR/slurm_err
 
 # Map array task ID to (arch, ckpt_i, ckpt_j)
-# 11 pairs = 10 resnet152 + 1 densenet121.
+# 7 pairs = 6 resnet152 (timm_a1 dropped) + 1 densenet121.
 ALL_PAIRS=(
-    # resnet152 — k=5 -> C(5,2) = 10 pairs (tv_v1, tv_v2, timm_a1, timm_a2, timm_a3)
+    # resnet152 — k=4 (tv_v1, tv_v2, timm_a2, timm_a3) -> C(4,2) = 6 pairs
     "resnet152:tv_v1:tv_v2"
-    "resnet152:tv_v1:timm_a1"
     "resnet152:tv_v1:timm_a2"
     "resnet152:tv_v1:timm_a3"
-    "resnet152:tv_v2:timm_a1"
     "resnet152:tv_v2:timm_a2"
     "resnet152:tv_v2:timm_a3"
-    "resnet152:timm_a1:timm_a2"
-    "resnet152:timm_a1:timm_a3"
     "resnet152:timm_a2:timm_a3"
     # densenet121 — k=2 -> 1 pair (tv_v1, timm_ra)
     "densenet121:tv_v1:timm_ra"

@@ -84,6 +84,13 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / "pairs.pth"
 
+    # Sentinel for orchestrator: presence of .done means pairs.pth holds
+    # n_done >= target_n. Intermediate atomic_torch_save snapshots also live
+    # at pairs.pth so [ -f pairs.pth ] alone can't distinguish complete from
+    # partial; the .done sentinel closes that gap (mirrors phase1's
+    # results/phase1/{s1,s2,s3}/.complete pattern).
+    done_path = out_dir / ".done"
+
     # Resume?
     state = resume_state(str(out_path))
     if state is not None:
@@ -93,6 +100,7 @@ def main():
         y_clean_all = state["y_clean"]
         y_adv_all   = state["y_adv"]
         if n_done >= args.target_n:
+            done_path.touch()
             print(f"Already done: n_done={n_done} >= target_n={args.target_n}")
             return
         print(f"Resuming from n_done={n_done}", flush=True)
@@ -162,6 +170,12 @@ def main():
             })
             print(f"  n_done={n_done}/{args.target_n}", flush=True)
 
+    # Loop exited cleanly with needed == 0 → write the .done sentinel last.
+    # If the loop was killed mid-iteration (OOM / timeout / segfault), .done
+    # is absent and orchestrator re-queues. Crucially the touch happens AFTER
+    # the final atomic_torch_save above, so .done can only exist alongside a
+    # complete pairs.pth.
+    done_path.touch()
     print(f"DONE: {out_path}")
 
 

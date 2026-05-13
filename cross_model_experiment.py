@@ -151,13 +151,22 @@ CHECKPOINT_REGISTRY: Dict[str, Dict[str, Tuple[Callable[[], nn.Module], str]]] =
                    "torchvision V2 (FixRes + long schedule + label smoothing)"),
         # timm RSB recipes (Wightman 2021).
         # All three routed through Path B (_timm_resnet152_via_tv) so timm-only
-        # forward-path modules don't leak into the KM linearization. timm_a1
-        # specifically failed completeness at 0.022 with the direct timm model;
-        # rewrapping into torchvision arch fixes that. timm_a2/a3 currently
-        # pass via direct path (~7e-3 / not-yet-tested) but routing them
-        # through Path B uniformly avoids surprise drift on weight updates.
+        # forward-path modules don't leak into the KM linearization.
+        #
+        # WARNING (2026-05-13): timm_a1 STILL fails KM completeness at the
+        # same 2.243e-02 magnitude even with Path B. _rewrap_timm_to_tv_*
+        # passes its internal logit-match gate (atol 1e-3 on 3 seeds), so
+        # f_timm ≈ f_tv after rewrap — but the KM library's resnet152 builder
+        # produces a decomposition whose row-sum diverges from f(x) at 2.243e-2.
+        # The drift is in KMC internals, not our remap. Not safe as a
+        # cross-model member: removed from E_PAIR_SPECS in run_pipeline.sh
+        # and ALL_PAIRS in job_cross_model.sh. Kept registered here so
+        # `python cross_model_experiment.py --arch resnet152 --verify timm_a1`
+        # remains available for future debugging. See km-notes.md 2026-05-13.
+        # timm_a2/a3 currently pass completeness via direct path (~7e-3) and
+        # are routed through Path B uniformly for forward-leakage hygiene.
         "timm_a1": (lambda: _timm_resnet152_via_tv("resnet152.a1_in1k"),
-                    "RSB A1 (LAMB + BCE + RandAug) [via Path B]"),
+                    "RSB A1 (LAMB + BCE + RandAug) [via Path B] — DO NOT USE in pairs"),
         "timm_a2": (lambda: _timm_resnet152_via_tv("resnet152.a2_in1k"),
                     "RSB A2 (different LR/epoch budget) [via Path B]"),
         "timm_a3": (lambda: _timm_resnet152_via_tv("resnet152.a3_in1k"),
