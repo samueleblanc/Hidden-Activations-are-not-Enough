@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --account=def-amorales
 #SBATCH --array=0-6
-#SBATCH --time=24:00:00
+#SBATCH --time=08:00:00
 #SBATCH --gpus=h100:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=96G
@@ -31,10 +31,14 @@ set -euo pipefail
 # results/cross_model/<arch>/per_pair/<i>__<j>.json. Mirrors job_theorem45.sh
 # per-attack pattern.
 #
-# Walltime: 24h per task. ResNet-152 cross-model runs ~104 s/sample; N=1000
-# needs ~28h end-to-end. Per-KM checkpointing (d73bcc6) lets the second
-# attempt resume from sample ~280 and finish, but for a single-attempt
-# success the 24h budget closes the gap. See km-notes.md 2026-05-13.
+# Walltime: 8h per task per d73bcc6. ResNet-152 cross-model runs ~104 s/sample
+# so N=1000 needs ~28h end-to-end — ≥3 slots of 8h each. The per-KM resume
+# (every 50 samples, written by cross_model_experiment.py) lets each subsequent
+# slot pick up where the previous one timed out; the sentinel chain in
+# bin/sentinel.sh auto-resubmits after timeout. NEVER bump this past 8h —
+# shorter walls queue faster (Nibi backfill priority) and accumulated KM
+# progress is preserved on timeout. If a single-slot finish is needed, the
+# fix is in the sentinel / checkpoint code, not in this header.
 
 mkdir -p $SLURM_SUBMIT_DIR/slurm_out
 mkdir -p $SLURM_SUBMIT_DIR/slurm_err
