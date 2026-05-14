@@ -20,8 +20,11 @@
 # Behavior:
 #   - System OOM (exit 137 / oom-killer): resubmit with --mem (or
 #     --mem-per-cpu) doubled. Fails loudly if neither directive is present.
-#   - Timeout (exit 124 / "DUE TO TIME LIMIT"): resubmit with --time doubled.
-#     Time strings can be "HH:MM:SS" or "D-HH:MM:SS" (SLURM day form).
+#   - Timeout (exit 124 / "DUE TO TIME LIMIT"): resubmit at the SAME wall
+#     (inherits #SBATCH --time from the job script — 8h cap per repo policy,
+#     see feedback_max_8h_walls). Relies on per-checkpoint resume in the
+#     producing workers; slow workloads finish via 2-3 chained 8h slots.
+#     NEVER bumps --time — that's the explicit trade-off in d73bcc6.
 #   - CUDA OOM (stderr contains "CUDA out of memory"):
 #       step calibration tier down (93->90->85) for every discovered
 #       calibration.json; fail if every calibration is already at 85.
@@ -263,12 +266,18 @@ main() {
     fi
 
     # Timeout
+    # Per repo policy (see feedback_max_8h_walls.md): NEVER bump --time past
+    # the 8h ceiling. Resubmit at the SAME wall and rely on per-checkpoint
+    # resume (validate_theorem45 per-pair flush every 20; cross_model per-KM
+    # flush every 50; S2/S3 per-chunk JSONs; A2 pairs.pth periodic atomic
+    # save). The resubmit inherits --time from the job script's #SBATCH
+    # directive, so omitting --time here pins it at the 8h ceiling.
+    # Slow workloads finish via 2-3 sentinel-chained 8h slots, not via
+    # walltime escalation.
     if [ "$state" = "TIMEOUT" ] || [ "$exit_code" = "124" ] || echo "$stderr_text" | grep -q "DUE TO TIME LIMIT"; then
         log_error "timeout" "state=$state"
-        current_time=$(grep -E "^#SBATCH --time=" "$JOB_SCRIPT" | head -1 | sed 's/.*--time=//')
-        new_time=$(double_slurm_time "$current_time")
-        echo "Timeout: doubling --time from $current_time to $new_time" >&2
-        resubmit_with_sentinel --time="$new_time"
+        echo "Timeout: resubmitting at the same 8h wall (relying on per-checkpoint resume)" >&2
+        resubmit_with_sentinel
         exit 0
     fi
 
