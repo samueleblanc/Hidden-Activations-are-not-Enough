@@ -324,11 +324,16 @@ except Exception:
         C_STATUS[$i]="done"
         echo "  [$i] ${C_NAMES[$i]}: DONE"
     else
-        # Check per-attack files
+        # Check per-attack files. EXCLUDE *.partial.json — those are pair-level
+        # checkpoint flushes from validate_theorem45.py:compute_matrix_distances
+        # (every 20 pairs), NOT completed-attack outputs. Counting them as
+        # "done" caused resnet152's scan on 2026-05-14 to report 6/6 attacks
+        # when only 3 (FGSM/PGD/DeepFool) were actually finished, leaving
+        # CW/APGD/Square un-queued and the aggregator running over stale data.
         PA_DIR="experiments/${C_NAMES[$i]}/theorem45/per_attack"
         CKPT_FILE="${C_CHECKPOINTS[$i]}"
         PA_COUNT=0
-        [ -d "$PA_DIR" ] && PA_COUNT=$(find "$PA_DIR" -maxdepth 1 -name '*.json' 2>/dev/null | wc -l)
+        [ -d "$PA_DIR" ] && PA_COUNT=$(find "$PA_DIR" -maxdepth 1 -name '*.json' ! -name '*.partial.json' 2>/dev/null | wc -l)
         CKPT_COUNT=0
         if [ -f "$CKPT_FILE" ]; then
             CKPT_COUNT=$(python3 -c "
