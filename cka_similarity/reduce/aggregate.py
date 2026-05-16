@@ -122,13 +122,19 @@ def aggregate_s3(s3_dir: str, archs: List[str], attacks: List[str], num_chunks: 
             for f in dist_files:
                 all_pairs.extend(json.loads(Path(f).read_text()))
 
-            # Panel accumulators
+            # Panel accumulators. S3 writes n_pairs=0 markers for chunks past
+            # the pair n_done (deepfool's partial pairs.pth — see
+            # workers/s3_distance_amplification.py). Filter those out before
+            # finalizing measures so an empty-marker chunk0 doesn't blank the
+            # measure_names list.
             panel_files = sorted(Path(s3_dir).glob(f"{arch}_{attack}_panel_chunk*.pt"))
+            loaded = [torch.load(f) for f in panel_files]
+            non_empty = [d for d in loaded if d.get("n_pairs", 0) > 0]
             panel_results = {}
-            if panel_files:
-                measure_names = list(torch.load(panel_files[0])["accumulators"].keys())
+            if non_empty:
+                measure_names = list(non_empty[0]["accumulators"].keys())
                 for mname in measure_names:
-                    chunk_accs = [torch.load(f)["accumulators"][mname] for f in panel_files]
+                    chunk_accs = [d["accumulators"][mname] for d in non_empty]
                     r = _measure_finalize(mname, chunk_accs)
                     panel_results[mname] = {"value": r.value, "extras": r.extras}
 

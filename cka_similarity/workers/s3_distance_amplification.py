@@ -110,11 +110,27 @@ def run_chunk(chunk_id, num_chunks, total_pairs_per_attack, archs, attacks, out_
                 attack_end = min(end, int(pairs["n_done"]))
             attack_n_pairs = attack_end - start
             if attack_n_pairs <= 0:
+                # DeepFool on ImageNet is too slow to reach target_n=5000;
+                # we accept the partial pairs.pth on disk (e.g. n_done=224 for
+                # resnet152, 928 for densenet121/googlenet). For chunks past
+                # n_done we emit empty markers so the full (arch, attack, chunk)
+                # grid still exists on disk — _write_complete_sentinel_if_done
+                # then fires and the orchestrator stops re-queueing S3.
+                # aggregate_s3 filters n_pairs==0 chunks out of panel finalize.
                 print(
                     f"WARNING: ({arch}, {attack}) chunk {chunk_id} has zero usable pairs after "
-                    f"clamping to n_done; skipping",
+                    f"clamping to n_done; writing empty markers",
                     flush=True,
                 )
+                dist_path = Path(out_dir) / f"{arch}_{attack}_chunk{chunk_id}.json"
+                if not dist_path.exists():
+                    atomic_json_dump(str(dist_path), [])
+                panel_path = Path(out_dir) / f"{arch}_{attack}_panel_chunk{chunk_id}.pt"
+                if not panel_path.exists():
+                    atomic_torch_save(str(panel_path), {
+                        "chunk_id": chunk_id, "arch": arch, "attack": attack,
+                        "n_pairs": 0, "accumulators": {},
+                    })
                 continue
 
             x_clean = pairs["x_clean"][start:attack_end].to(device)
