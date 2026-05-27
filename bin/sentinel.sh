@@ -2,13 +2,18 @@
 # bin/sentinel.sh -- post-job hook for OOM/timeout/CUDA-OOM handling.
 #
 # Usage (called by run_pipeline.sh after sbatch returns the job id):
-#   bash bin/sentinel.sh [--account=<acct>] <job_id> <job_script> [calibration_path]
+#   bash bin/sentinel.sh [--account=<acct> | --account-gpu=<acct> --account-cpu=<acct>] \
+#                        <job_id> <job_script> [calibration_path]
 #
-# --account=<acct>  Optional. When set, every sbatch resubmit receives
-#                   --account=<acct>, matching the orchestrator's account
-#                   choice. Without this flag the job-script's #SBATCH
-#                   --account= directive governs resubmits (which may
-#                   diverge if the user edits ACCOUNT in run_pipeline.sh).
+# --account=<acct>      Optional, back-compat. Same account for the GPU
+#                       resubmit AND the CPU recursive sentinel wrap.
+# --account-gpu=<acct>  Account used when resubmitting a GPU job (script
+#                       has #SBATCH --gpus). Required on clusters where the
+#                       principal alias does not auto-route to _gpu / _cpu
+#                       at submission time (every Nibi account except
+#                       def-assem). May be combined with --account-cpu.
+# --account-cpu=<acct>  Account used when resubmitting a CPU job AND for
+#                       the recursive sentinel-wrap launcher.
 #
 # calibration_path  May be a single calibration.json file OR a directory
 #                   containing {arch}_imagenet/calibration.json files.
@@ -36,10 +41,11 @@
 # All errors are logged to overall_errors.json (atomic append).
 #
 # The script is sourceable: helpers (double_slurm_time, double_mem,
-# get_exit_code, get_state, retry_marker, log_error, sbatch_with_account)
-# are defined as functions and only invoked from main(); main() is gated
-# on the script being executed directly so tests can `source bin/sentinel.sh`
-# to expose helpers without triggering execution.
+# get_exit_code, get_state, retry_marker, log_error, script_needs_gpu,
+# sbatch_with_account) are defined as functions and only invoked from
+# main(); main() is gated on the script being executed directly so tests
+# can `source bin/sentinel.sh` to expose helpers without triggering
+# execution.
 
 set -euo pipefail
 
@@ -146,10 +152,26 @@ retry_marker() {
     echo ".retried_$(echo "$script" | tr '/' '_').marker"
 }
 
+script_needs_gpu() {
+    # Returns 0 (true) if the job script requests a GPU via #SBATCH --gpus
+    # or #SBATCH --gres=gpu — so the sentinel knows whether to bill the
+    # resubmit on the GPU or CPU account variant.
+    grep -qE "^#SBATCH (--gpus|--gres=gpu)" "$1" 2>/dev/null
+}
+
 sbatch_with_account() {
-    # Wraps sbatch to inject --account if SENTINEL_ACCOUNT is set.
-    if [ -n "${SENTINEL_ACCOUNT:-}" ]; then
-        sbatch --account="$SENTINEL_ACCOUNT" "$@"
+    # Wraps sbatch to inject --account based on JOB_SCRIPT's resource type.
+    # SENTINEL_ACCOUNT_GPU is used for GPU job scripts, SENTINEL_ACCOUNT_CPU
+    # for CPU ones. If only the legacy single SENTINEL_ACCOUNT is set, it
+    # applies to both.
+    local acct
+    if script_needs_gpu "$JOB_SCRIPT"; then
+        acct="${SENTINEL_ACCOUNT_GPU:-${SENTINEL_ACCOUNT:-}}"
+    else
+        acct="${SENTINEL_ACCOUNT_CPU:-${SENTINEL_ACCOUNT:-}}"
+    fi
+    if [ -n "$acct" ]; then
+        sbatch --account="$acct" "$@"
     else
         sbatch "$@"
     fi
@@ -168,22 +190,41 @@ resubmit_with_sentinel() {
         exit 1
     fi
     echo "Resubmitted as $NEW_JOB_ID; attaching recursive sentinel" >&2
-    sbatch ${SENTINEL_ACCOUNT:+--account=$SENTINEL_ACCOUNT} \
+    # Recursive wrap is always CPU (4G, 5min, no --gpus); bill it on
+    # ACCOUNT_CPU. Propagate both GPU and CPU accounts to the inner call
+    # so it can route the next resubmit correctly.
+    local wrap_acct="${SENTINEL_ACCOUNT_CPU:-${SENTINEL_ACCOUNT:-}}"
+    local inner_flags=""
+    [ -n "${SENTINEL_ACCOUNT_GPU:-}" ] && inner_flags="$inner_flags --account-gpu=$SENTINEL_ACCOUNT_GPU"
+    [ -n "${SENTINEL_ACCOUNT_CPU:-}" ] && inner_flags="$inner_flags --account-cpu=$SENTINEL_ACCOUNT_CPU"
+    [ -z "$inner_flags" ] && [ -n "${SENTINEL_ACCOUNT:-}" ] && inner_flags="--account=$SENTINEL_ACCOUNT"
+    sbatch ${wrap_acct:+--account=$wrap_acct} \
         --parsable --time=00:05:00 --mem=4G \
         --dependency=afterany:"$NEW_JOB_ID" \
-        --wrap="bash bin/sentinel.sh ${SENTINEL_ACCOUNT:+--account=$SENTINEL_ACCOUNT} $NEW_JOB_ID $JOB_SCRIPT ${CALIB_FILE:-}" \
+        --wrap="bash bin/sentinel.sh $inner_flags $NEW_JOB_ID $JOB_SCRIPT ${CALIB_FILE:-}" \
         > /dev/null 2>&1 || echo "Warning: failed to attach recursive sentinel to $NEW_JOB_ID" >&2
 }
 
 # --- main entry point ---
 
 main() {
-    # Parse optional --account=<acct> flag.
+    # Parse optional --account / --account-gpu / --account-cpu flags.
+    # --account=X is back-compat (applies to both); --account-gpu=X and
+    # --account-cpu=X let the caller route GPU resubmits and CPU recursive
+    # wraps to different accounts (needed on clusters where the principal
+    # alias does not auto-route by partition, e.g. def-amorales on Nibi).
     SENTINEL_ACCOUNT=""
-    if [[ "${1:-}" == --account=* ]]; then
-        SENTINEL_ACCOUNT="${1#--account=}"
+    SENTINEL_ACCOUNT_GPU=""
+    SENTINEL_ACCOUNT_CPU=""
+    while [[ "${1:-}" == --account* ]]; do
+        case "$1" in
+            --account=*)      SENTINEL_ACCOUNT="${1#--account=}" ;;
+            --account-gpu=*)  SENTINEL_ACCOUNT_GPU="${1#--account-gpu=}" ;;
+            --account-cpu=*)  SENTINEL_ACCOUNT_CPU="${1#--account-cpu=}" ;;
+            *) echo "FAIL: unknown account flag: $1" >&2; exit 1 ;;
+        esac
         shift
-    fi
+    done
 
     JOB_ID="$1"
     JOB_SCRIPT="$2"

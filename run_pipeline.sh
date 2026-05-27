@@ -24,12 +24,19 @@
 # ==============================================================
 set -euo pipefail
 
-# ---- Cluster account ----
-# Defaults to def-assem (Nibi operational umbrella; SLURM auto-routes to
-# def-assem_gpu / def-assem_cpu based on the per-job partition). Override
-# by exporting ACCOUNT=<acct> before invoking the orchestrator, e.g.:
-#   ACCOUNT=def-bruestle_gpu bash run_pipeline.sh
-ACCOUNT="${ACCOUNT:-def-assem}"
+# ---- Cluster account routing ----
+# Defaults to def-amorales. Only def-assem auto-routes from the principal
+# alias to def-assem_{cpu,gpu} at submission time; every other account on
+# Nibi (def-amorales, def-bouchary, def-bruestle, ...) requires the
+# explicit _cpu / _gpu suffix on both sbatch and scontrol. We therefore
+# derive ACCOUNT_GPU / ACCOUNT_CPU from ACCOUNT (or accept them directly
+# if the caller wants asymmetric routing). Examples:
+#   bash run_pipeline.sh                                    # def-amorales_{gpu,cpu}
+#   ACCOUNT=def-assem bash run_pipeline.sh                  # def-assem_{gpu,cpu}
+#   ACCOUNT_GPU=def-bruestle_gpu ACCOUNT_CPU=def-amorales_cpu bash run_pipeline.sh
+ACCOUNT="${ACCOUNT:-def-amorales}"
+ACCOUNT_GPU="${ACCOUNT_GPU:-${ACCOUNT}_gpu}"
+ACCOUNT_CPU="${ACCOUNT_CPU:-${ACCOUNT}_cpu}"
 
 DRY_RUN=false
 for arg in "$@"; do
@@ -194,10 +201,10 @@ CALIB_JOB_ID=""
 if [ ${#CALIB_NEEDED[@]} -gt 0 ]; then
     CALIB_ARRAY=$(IFS=,; echo "${CALIB_NEEDED[*]}")
     if [ "$DRY_RUN" = true ]; then
-        echo "[DRY RUN] sbatch --account=$ACCOUNT --array=$CALIB_ARRAY job_calibrate.sh"
+        echo "[DRY RUN] sbatch --account=$ACCOUNT_GPU --array=$CALIB_ARRAY job_calibrate.sh"
     else
         echo "Phase 1 Step A1 (Calibration): --array=$CALIB_ARRAY"
-        CALIB_JOB_ID=$(sbatch --parsable --account="$ACCOUNT" --array="$CALIB_ARRAY" job_calibrate.sh)
+        CALIB_JOB_ID=$(sbatch --parsable --account="$ACCOUNT_GPU" --array="$CALIB_ARRAY" job_calibrate.sh)
         echo "  Job ID: $CALIB_JOB_ID"
     fi
 fi
@@ -411,11 +418,11 @@ E_BLOCKED=()
 VERIFY_JOB_ID=""
 if [ ${#E_NEEDED[@]} -gt 0 ]; then
     if [ "$DRY_RUN" = true ]; then
-        echo "[DRY RUN] sbatch --account=$ACCOUNT job_verify_cross_model.sh"
+        echo "[DRY RUN] sbatch --account=$ACCOUNT_CPU job_verify_cross_model.sh"
         echo ""
     else
         echo "Step E pre-flight: submitting verify job to compute node…"
-        VERIFY_JOB_ID=$(sbatch --parsable --account="$ACCOUNT" job_verify_cross_model.sh)
+        VERIFY_JOB_ID=$(sbatch --parsable --account="$ACCOUNT_CPU" job_verify_cross_model.sh)
         echo "  Verify Job ID: $VERIFY_JOB_ID"
         echo ""
     fi
@@ -535,42 +542,42 @@ fi
 C_JOB_ID=""
 
 if [ "$DRY_RUN" = true ]; then
-    echo "[DRY RUN] Would submit (account=$ACCOUNT):"
-    [ ${#B_NEEDED[@]} -gt 0 ] && echo "  sbatch --account=$ACCOUNT --array=$B_ARRAY_STR job_teleportation.sh"
-    [ ${#C_ATTACK_TASKS[@]} -gt 0 ] && echo "  sbatch --account=$ACCOUNT --array=$C_ATTACK_ARRAY_STR job_theorem45.sh"
+    echo "[DRY RUN] Would submit (account_gpu=$ACCOUNT_GPU, account_cpu=$ACCOUNT_CPU):"
+    [ ${#B_NEEDED[@]} -gt 0 ] && echo "  sbatch --account=$ACCOUNT_GPU --array=$B_ARRAY_STR job_teleportation.sh"
+    [ ${#C_ATTACK_TASKS[@]} -gt 0 ] && echo "  sbatch --account=$ACCOUNT_GPU --array=$C_ATTACK_ARRAY_STR job_theorem45.sh"
     if [ ${#C_EXPS_NEEDING_FINAL_AGG[@]} -gt 0 ]; then
         if [ ${#C_ATTACK_TASKS[@]} -gt 0 ]; then
-            echo "  sbatch --account=$ACCOUNT --array=$C_AGG_ARRAY_STR --dependency=afterany:\$C_JOB_ID job_theorem45_agg.sh"
+            echo "  sbatch --account=$ACCOUNT_CPU --array=$C_AGG_ARRAY_STR --dependency=afterany:\$C_JOB_ID job_theorem45_agg.sh"
         else
-            echo "  sbatch --account=$ACCOUNT --array=$C_AGG_ARRAY_STR job_theorem45_agg.sh"
+            echo "  sbatch --account=$ACCOUNT_CPU --array=$C_AGG_ARRAY_STR job_theorem45_agg.sh"
         fi
     fi
     if [ ${#E_NEEDED[@]} -gt 0 ]; then
-        echo "  sbatch --account=$ACCOUNT job_verify_cross_model.sh"
-        echo "  sbatch --account=$ACCOUNT --array=$E_ARRAY_STR --dependency=afterany:\$VERIFY_JOB_ID job_cross_model.sh"
+        echo "  sbatch --account=$ACCOUNT_CPU job_verify_cross_model.sh"
+        echo "  sbatch --account=$ACCOUNT_GPU --array=$E_ARRAY_STR --dependency=afterany:\$VERIFY_JOB_ID job_cross_model.sh"
     fi
 else
-    echo "Submitting SLURM jobs (account=$ACCOUNT)..."
+    echo "Submitting SLURM jobs (account_gpu=$ACCOUNT_GPU, account_cpu=$ACCOUNT_CPU)..."
     echo ""
 
     if [ ${#B_NEEDED[@]} -gt 0 ]; then
         echo "  Step B (Teleportation): --array=$B_ARRAY_STR"
-        sbatch --account="$ACCOUNT" --array="$B_ARRAY_STR" job_teleportation.sh
+        sbatch --account="$ACCOUNT_GPU" --array="$B_ARRAY_STR" job_teleportation.sh
     fi
 
     if [ ${#C_ATTACK_TASKS[@]} -gt 0 ]; then
         echo "  Step C (Theorem 4.5 per-attack):  --array=$C_ATTACK_ARRAY_STR"
-        C_JOB_ID=$(sbatch --parsable --account="$ACCOUNT" --array="$C_ATTACK_ARRAY_STR" job_theorem45.sh)
+        C_JOB_ID=$(sbatch --parsable --account="$ACCOUNT_GPU" --array="$C_ATTACK_ARRAY_STR" job_theorem45.sh)
         echo "    Job ID: $C_JOB_ID"
     fi
 
     if [ ${#C_EXPS_NEEDING_FINAL_AGG[@]} -gt 0 ]; then
         if [ -n "$C_JOB_ID" ]; then
             echo "  Step C (Theorem 4.5 aggregation):  --array=$C_AGG_ARRAY_STR (after $C_JOB_ID)"
-            sbatch --account="$ACCOUNT" --array="$C_AGG_ARRAY_STR" --dependency=afterany:"$C_JOB_ID" job_theorem45_agg.sh
+            sbatch --account="$ACCOUNT_CPU" --array="$C_AGG_ARRAY_STR" --dependency=afterany:"$C_JOB_ID" job_theorem45_agg.sh
         else
             echo "  Step C (Theorem 4.5 aggregation):  --array=$C_AGG_ARRAY_STR"
-            sbatch --account="$ACCOUNT" --array="$C_AGG_ARRAY_STR" job_theorem45_agg.sh
+            sbatch --account="$ACCOUNT_CPU" --array="$C_AGG_ARRAY_STR" job_theorem45_agg.sh
         fi
     fi
 
@@ -582,7 +589,7 @@ else
         E_DEP_FLAG=""
         [ -n "$VERIFY_JOB_ID" ] && E_DEP_FLAG="--dependency=afterany:$VERIFY_JOB_ID"
         echo "  Step E (cross-model): --array=$E_ARRAY_STR (after verify $VERIFY_JOB_ID)"
-        E_JOB_ID=$(sbatch --parsable --account="$ACCOUNT" --array="$E_ARRAY_STR" $E_DEP_FLAG job_cross_model.sh)
+        E_JOB_ID=$(sbatch --parsable --account="$ACCOUNT_GPU" --array="$E_ARRAY_STR" $E_DEP_FLAG job_cross_model.sh)
         echo "    Job ID: $E_JOB_ID"
     fi
 fi
@@ -628,7 +635,7 @@ done
 if [ ${#A2_NEEDED[@]} -gt 0 ]; then
     A2_ARRAY_STR=$(join_array "${A2_NEEDED[@]}")
     if [ "$DRY_RUN" != true ]; then
-        A2_JOB_ID=$(sbatch --parsable --account="$ACCOUNT" --array="$A2_ARRAY_STR" $DEP_FLAG_A1 job_adv_scaleup.sh)
+        A2_JOB_ID=$(sbatch --parsable --account="$ACCOUNT_GPU" --array="$A2_ARRAY_STR" $DEP_FLAG_A1 job_adv_scaleup.sh)
         echo "Phase 1 Step A2 (adv scaleup): $A2_JOB_ID --array=$A2_ARRAY_STR (${#A2_NEEDED[@]} of 18)"
     else
         echo "[DRY RUN] sbatch --array=$A2_ARRAY_STR job_adv_scaleup.sh (${#A2_NEEDED[@]} of 18)"
@@ -639,7 +646,7 @@ fi
 B1_JOB_ID=""
 if [ ! -f "results/phase1/s1/.complete" ]; then
     if [ "$DRY_RUN" != true ]; then
-        B1_JOB_ID=$(sbatch --parsable --account="$ACCOUNT" $DEP_FLAG_A1 job_phase1_s1.sh)
+        B1_JOB_ID=$(sbatch --parsable --account="$ACCOUNT_GPU" $DEP_FLAG_A1 job_phase1_s1.sh)
         echo "Phase 1 Step B1 (S1): $B1_JOB_ID"
     else
         echo "[DRY RUN] sbatch --array=0-63 job_phase1_s1.sh"
@@ -650,7 +657,7 @@ fi
 B2_JOB_ID=""
 if [ ! -f "results/phase1/s2/.complete" ]; then
     if [ "$DRY_RUN" != true ]; then
-        B2_JOB_ID=$(sbatch --parsable --account="$ACCOUNT" $DEP_FLAG_A1 job_phase1_s2.sh)
+        B2_JOB_ID=$(sbatch --parsable --account="$ACCOUNT_GPU" $DEP_FLAG_A1 job_phase1_s2.sh)
         echo "Phase 1 Step B2 (S2): $B2_JOB_ID"
     else
         echo "[DRY RUN] sbatch --array=0-63 job_phase1_s2.sh"
@@ -667,7 +674,7 @@ B3_DEP_FLAG=""
 [ -n "$B3_DEPS" ] && B3_DEP_FLAG="--dependency=afterany:$B3_DEPS"
 if [ ! -f "results/phase1/s3/.complete" ]; then
     if [ "$DRY_RUN" != true ]; then
-        B3_JOB_ID=$(sbatch --parsable --account="$ACCOUNT" $B3_DEP_FLAG job_phase1_s3.sh)
+        B3_JOB_ID=$(sbatch --parsable --account="$ACCOUNT_GPU" $B3_DEP_FLAG job_phase1_s3.sh)
         echo "Phase 1 Step B3 (S3): $B3_JOB_ID"
     else
         echo "[DRY RUN] sbatch --array=0-63 job_phase1_s3.sh"
@@ -687,7 +694,7 @@ P1C_QUEUED=false
 if [ ! -f "results/phase1/aggregated/sanity_report.json" ]; then
     P1C_QUEUED=true
     if [ "$DRY_RUN" != true ]; then
-        P1C_JOB_ID=$(sbatch --parsable --account="$ACCOUNT" $P1C_DEP_FLAG job_phase1_reduce.sh)
+        P1C_JOB_ID=$(sbatch --parsable --account="$ACCOUNT_GPU" $P1C_DEP_FLAG job_phase1_reduce.sh)
         echo "Phase-1 Step C (reduce): $P1C_JOB_ID"
     else
         echo "[DRY RUN] sbatch job_phase1_reduce.sh"
@@ -698,7 +705,7 @@ fi
 # was queued (in real mode we have a job id; in dry-run we use the flag).
 D_JOB_ID=""
 if [ -n "$P1C_JOB_ID" ] && [ "$DRY_RUN" != true ]; then
-    D_JOB_ID=$(sbatch --parsable --account="$ACCOUNT" --dependency=afterany:"$P1C_JOB_ID" job_tar_artifacts.sh)
+    D_JOB_ID=$(sbatch --parsable --account="$ACCOUNT_CPU" --dependency=afterany:"$P1C_JOB_ID" job_tar_artifacts.sh)
     echo "Step D (tar): $D_JOB_ID"
 elif [ "$P1C_QUEUED" = "true" ] && [ "$DRY_RUN" = true ]; then
     echo "[DRY RUN] sbatch job_tar_artifacts.sh"
@@ -727,9 +734,9 @@ if [ "${USE_SENTINEL:-true}" = "true" ] && [ "$DRY_RUN" != true ]; then
         # workers iterate all 3 archs per chunk, so the failing arch is
         # unknown; stepping all calibrations is the safe conservative choice.
         SENT_CALIB_DIR="experiments/calibration"
-        sbatch --parsable --account="$ACCOUNT" --time=00:05:00 --mem=4G \
+        sbatch --parsable --account="$ACCOUNT_CPU" --time=00:05:00 --mem=4G \
             --dependency=afterany:"$SENT_JID" \
-            --wrap="bash bin/sentinel.sh --account=$ACCOUNT $SENT_JID $SENT_SCRIPT $SENT_CALIB_DIR" \
+            --wrap="bash bin/sentinel.sh --account-gpu=$ACCOUNT_GPU --account-cpu=$ACCOUNT_CPU $SENT_JID $SENT_SCRIPT $SENT_CALIB_DIR" \
             > /dev/null
     done
 fi

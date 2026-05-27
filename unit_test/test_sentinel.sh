@@ -102,6 +102,31 @@ SACCT_MOCK_OUTPUT="$TMPDIR_TEST/case_oom_vs_failed.txt"
 } > "$SACCT_MOCK_OUTPUT"
 assert_eq "OUT_OF_MEMORY" "$(get_state 7777777)" "get_state: OUT_OF_MEMORY outranks FAILED"
 
+# --- Test 5: script_needs_gpu detects GPU and CPU job scripts ---
+GPU_SCRIPT="$TMPDIR_TEST/fake_gpu_job.sh"
+CPU_SCRIPT="$TMPDIR_TEST/fake_cpu_job.sh"
+cat > "$GPU_SCRIPT" <<'GPUEOF'
+#!/bin/bash
+#SBATCH --gpus=h100:1
+#SBATCH --mem=128G
+echo hi
+GPUEOF
+cat > "$CPU_SCRIPT" <<'CPUEOF'
+#!/bin/bash
+#SBATCH --mem=4G
+echo hi
+CPUEOF
+if script_needs_gpu "$GPU_SCRIPT"; then
+    PASSES=$((PASSES + 1)); echo "PASS: script_needs_gpu: detects --gpus directive"
+else
+    FAILS=$((FAILS + 1)); echo "FAIL: script_needs_gpu: missed --gpus directive in $GPU_SCRIPT"
+fi
+if script_needs_gpu "$CPU_SCRIPT"; then
+    FAILS=$((FAILS + 1)); echo "FAIL: script_needs_gpu: false positive on CPU-only $CPU_SCRIPT"
+else
+    PASSES=$((PASSES + 1)); echo "PASS: script_needs_gpu: returns false on CPU-only script"
+fi
+
 echo
 echo "=== $PASSES passed, $FAILS failed ==="
 exit "$FAILS"
