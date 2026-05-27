@@ -18,8 +18,9 @@
 #                   so a CUDA OOM cannot be attributed to a single arch.
 #
 # Behavior:
-#   - System OOM (exit 137 / oom-killer): resubmit with --mem (or
-#     --mem-per-cpu) doubled. Fails loudly if neither directive is present.
+#   - System OOM (exit 137, state=OUT_OF_MEMORY, or oom-killer in stderr):
+#     resubmit with --mem (or --mem-per-cpu) doubled. Fails loudly if
+#     neither directive is present.
 #   - Timeout (exit 124 / "DUE TO TIME LIMIT"): resubmit at the SAME wall
 #     (inherits #SBATCH --time from the job script — 8h cap per repo policy,
 #     see feedback_max_8h_walls). Relies on per-checkpoint resume in the
@@ -84,10 +85,13 @@ get_exit_code() {
 }
 
 get_state() {
-    # Worst-case state across all array tasks: TIMEOUT > FAILED > CANCELLED > COMPLETED.
-    # head -1 on the first task is wrong: a successful first task masks downstream failures.
+    # Worst-case state across all array tasks:
+    # TIMEOUT > OUT_OF_MEMORY > FAILED > CANCELLED > COMPLETED.
+    # OUT_OF_MEMORY must be matched here because cgroup-v2 OOM-kills report
+    # exit "0:125" (parsed to 0 by get_exit_code), so the state string is
+    # the only signal the System-OOM branch in main() can rely on.
     sacct -j "$1" --format=JobID,State --noheader -P 2>/dev/null \
-        | awk -F'|' '$1 !~ /\.(batch|extern)$/ {gsub(/^ +| +$/,"",$2); if ($2=="TIMEOUT") to=1; else if ($2=="FAILED") fa=1; else if ($2=="CANCELLED") ca=1; else if ($2=="COMPLETED") co=1} END {if (to) print "TIMEOUT"; else if (fa) print "FAILED"; else if (ca) print "CANCELLED"; else if (co) print "COMPLETED"; else print "UNKNOWN"}'
+        | awk -F'|' '$1 !~ /\.(batch|extern)$/ {gsub(/^ +| +$/,"",$2); if ($2=="TIMEOUT") to=1; else if ($2=="OUT_OF_MEMORY") oo=1; else if ($2=="FAILED") fa=1; else if ($2=="CANCELLED") ca=1; else if ($2=="COMPLETED") co=1} END {if (to) print "TIMEOUT"; else if (oo) print "OUT_OF_MEMORY"; else if (fa) print "FAILED"; else if (ca) print "CANCELLED"; else if (co) print "COMPLETED"; else print "UNKNOWN"}'
 }
 
 double_slurm_time() {
@@ -240,7 +244,10 @@ main() {
     fi
 
     # System OOM
-    if [ "$exit_code" = "137" ] || echo "$stderr_text" | grep -qE "out-of-memory|oom-killer|MemoryError"; then
+    # state=OUT_OF_MEMORY catches cgroup-v2 OOM-kills, which report
+    # exit "0:125" (not 137) and whose stderr is empty after SIGKILL.
+    if [ "$exit_code" = "137" ] || [ "$state" = "OUT_OF_MEMORY" ] \
+        || echo "$stderr_text" | grep -qE "out-of-memory|oom-killer|MemoryError"; then
         log_error "system_oom" "exit_code=$exit_code state=$state"
         # Look for --mem= first; fall back to --mem-per-cpu=. SLURM accepts
         # either, and the sentinel must double whichever the script declares.
