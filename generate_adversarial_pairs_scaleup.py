@@ -91,6 +91,17 @@ def main():
     # results/phase1/{s1,s2,s3}/.complete pattern).
     done_path = out_dir / ".done"
 
+    # If .done is already present this (arch, attack) is FINAL — either n_done
+    # reached target_n, or it is a slow attack (DeepFool on ImageNet tops out
+    # at n_done≈224/928 < 5000) whose partial pairs.pth was marked final. Skip
+    # before the expensive pairs.pth load. Without this early-out, a sentinel
+    # that resubmits this job on TIMEOUT loops FOREVER on attacks that can
+    # never reach target_n (observed 2026-06-04: adv_scaleup 15151839 deepfool
+    # tasks re-timing-out indefinitely though A2 was already complete).
+    if done_path.exists():
+        print(f"Already done (.done present): skipping {args.arch}/{args.attack}", flush=True)
+        return
+
     # Resume?
     state = resume_state(str(out_path))
     if state is not None:
