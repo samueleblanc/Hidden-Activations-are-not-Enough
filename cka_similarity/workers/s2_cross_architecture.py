@@ -82,12 +82,40 @@ def extract_km_per_sample(model, x_batch, batch_size: int):
     """
     from knowledgematrix.matrix_computer import KnowledgeMatrixComputer
     device = next(model.parameters()).device
-    mc = KnowledgeMatrixComputer(model, batch_size=batch_size, device=device)
+
+    def _forward_with_oom_backoff(x_i, bs):
+        """Compute one KM, halving the KMC batch_size on CUDA OOM.
+
+        On the packed ``gpubase_bygpu`` partition an S3 task can be co-located
+        on a physical GPU already holding another large KM process (observed
+        2026-06-06: a peer held 72.8 GiB, leaving 0.7 GiB free → instant OOM).
+        ``batch_size`` only tiles the 150529 input positions through the
+        forward pass, so shrinking it lowers the transient activation peak
+        until it fits the residual free memory **without changing M(x) at
+        all** (the completeness residual stays ≤1e-6). Floor at 1. Returns the
+        matrix and the batch_size that succeeded so the caller can keep using
+        the reduced size for the remaining samples.
+        """
+        while True:
+            try:
+                mc = KnowledgeMatrixComputer(model, batch_size=bs, device=device)
+                return mc.forward(x_i), bs
+            except RuntimeError as e:
+                if "out of memory" not in str(e).lower():
+                    raise
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                if bs <= 1:
+                    raise
+                bs = max(1, bs // 2)
+                print(f"WARNING: CUDA OOM in KM extract; retrying at batch_size={bs}",
+                      flush=True)
 
     out = []
+    cur_bs = batch_size
     for i in range(x_batch.shape[0]):
         x_i = x_batch[i].to(device)            # (3, 224, 224) — note: no unsqueeze
-        M_i = mc.forward(x_i)                  # KM expects 3D input per CLAUDE.md
+        M_i, cur_bs = _forward_with_oom_backoff(x_i, cur_bs)   # keep reduced bs
         out.append(M_i.detach().cpu().unsqueeze(0))
     return torch.cat(out, dim=0)
 

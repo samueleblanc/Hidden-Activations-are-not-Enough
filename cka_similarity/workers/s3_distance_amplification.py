@@ -54,7 +54,8 @@ def _write_complete_sentinel_if_done(out_dir, archs, attacks, num_chunks):
     (out_path / ".complete").touch()
 
 
-def run_chunk(chunk_id, num_chunks, total_pairs_per_attack, archs, attacks, out_dir, pairs_root):
+def run_chunk(chunk_id, num_chunks, total_pairs_per_attack, archs, attacks, out_dir,
+              pairs_root, km_batch_divisor=1):
     os.makedirs(out_dir, exist_ok=True)
     device = get_device()
 
@@ -69,7 +70,12 @@ def run_chunk(chunk_id, num_chunks, total_pairs_per_attack, archs, attacks, out_
         # the whole chunk task. The orchestrator's afterany dep means S3 may
         # legitimately fire on partial calibration.
         try:
-            bs = load_active_km_batch_size(calibration_path_for(arch))
+            # Calibration sizes KM extraction to ~85% of a *dedicated* GPU
+            # (resnet152 -> bs=1088 -> ~73 GiB). On the packed gpubase_bygpu
+            # partition tasks can share a physical GPU, so we divide the
+            # calibrated batch down to leave headroom for a co-resident peer.
+            # km_batch_divisor only changes memory tiling, never M(x).
+            bs = max(1, load_active_km_batch_size(calibration_path_for(arch)) // km_batch_divisor)
         except FileNotFoundError as e:
             print(
                 f"WARNING: calibration missing for {arch} ({e}); skipping all "
@@ -214,10 +220,17 @@ def main():
     parser.add_argument("--attacks", nargs="+", default=["fgsm", "pgd", "cw", "deepfool", "apgd", "square"])
     parser.add_argument("--out_dir", default="results/phase1/s3")
     parser.add_argument("--pairs_root", default="experiments")
+    parser.add_argument(
+        "--km_batch_divisor", type=int, default=1,
+        help="Divide the calibrated KM batch_size by this factor to leave GPU "
+             "headroom for co-located tasks on the packed gpubase_bygpu "
+             "partition (memory-only; M(x) is unchanged). 1 = use calibration.",
+    )
     args = parser.parse_args()
 
     run_chunk(args.chunk_id, args.num_chunks, args.total_pairs, args.archs,
-              args.attacks, args.out_dir, args.pairs_root)
+              args.attacks, args.out_dir, args.pairs_root,
+              km_batch_divisor=args.km_batch_divisor)
 
 
 if __name__ == "__main__":

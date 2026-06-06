@@ -21,6 +21,13 @@ source env/bin/activate
 # stable at N=1000. NOTE: changing N changes chunk slicing — old N=5000
 # results/phase1/s3 chunks MUST be cleared before resubmitting (incompatible
 # append-resume would keep stale rows).
+# km_batch_divisor=2 (2026-06-06): nodes on gpubase_bygpu pack up to 8
+# single-GPU KM tasks onto an 8-GPU node, and calibration sizes each
+# resnet152 KM to ~73 GiB (~85% of an H100). When two tasks land on the same
+# physical GPU the second OOMs instantly (observed: a peer held 72.8 GiB,
+# 0.7 GiB free). Dividing the calibrated batch by 2 (~37 GiB) lets two
+# co-located tasks fit; extract_km_per_sample additionally backs off on OOM.
+# This is memory-only — M(x) and the completeness residual are unchanged.
 python -m cka_similarity.workers.s3_distance_amplification \
     --chunk_id $SLURM_ARRAY_TASK_ID \
     --num_chunks 64 \
@@ -28,4 +35,5 @@ python -m cka_similarity.workers.s3_distance_amplification \
     --archs resnet152 densenet121 googlenet \
     --attacks fgsm pgd cw deepfool apgd square \
     --out_dir results/phase1/s3 \
-    --pairs_root experiments
+    --pairs_root experiments \
+    --km_batch_divisor 2
