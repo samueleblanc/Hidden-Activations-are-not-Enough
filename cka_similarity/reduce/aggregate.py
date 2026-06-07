@@ -69,15 +69,15 @@ def aggregate_s2(s2_dir: str, archs: List[str], num_chunks: int) -> Dict:
         for f in km_files:
             all_distances.extend(json.loads(Path(f).read_text()))
 
-        # KM Frobenius — RMS variant. Prefer on-disk files if they exist;
-        # otherwise derive from raw on the fly.
-        km_rms_files = sorted(Path(s2_dir).glob(f"{pname}_KM_rms_chunk*.json"))
-        if km_rms_files:
-            all_distances_rms = []
-            for f in km_rms_files:
-                all_distances_rms.extend(json.loads(Path(f).read_text()))
-        else:
-            all_distances_rms = [d * s_KM for d in all_distances]
+        # KM Frobenius — RMS variant. Always derived from the raw list: rms is
+        # the deterministic rescale ``raw * s_KM`` (the s2 worker writes exactly
+        # ``[v * s_KM for v in km_distances]``). We deliberately do NOT read the
+        # on-disk ``*_KM_rms`` files: a partially-regenerated rms set (observed
+        # 2026-06-06: RN_DN had 39/64 rms files after a cross-version rerun while
+        # raw had 64/64) would otherwise be aggregated over fewer chunks than the
+        # raw list, silently desyncing km_mean_rms from km_mean. Deriving from
+        # raw keeps the two in lock-step by construction.
+        all_distances_rms = [d * s_KM for d in all_distances]
 
         # D1 panel
         d1_files = sorted(Path(s2_dir).glob(f"{pname}_D1_chunk*.pt"))

@@ -139,6 +139,24 @@ def run_chunk(chunk_id, num_chunks, total_pairs_per_attack, archs, attacks, out_
                     })
                 continue
 
+            # Resume fast-path: if this (arch, attack) chunk already has a full
+            # distance list AND its panel file, skip the expensive KM extraction
+            # entirely. Without this a rerun recomputes M_clean/M_adv for
+            # already-complete archs before the per-pair dedup loop no-ops —
+            # e.g. the 44 chunks whose original task OOM'd only on densenet/
+            # googlenet still have a complete resnet152; recomputing it wastes
+            # hours of GPU and needlessly re-exposes the task to co-location OOM.
+            dist_path = Path(out_dir) / f"{arch}_{attack}_chunk{chunk_id}.json"
+            panel_path = Path(out_dir) / f"{arch}_{attack}_panel_chunk{chunk_id}.pt"
+            existing_pre = atomic_json_load(str(dist_path), default=[])
+            if len(existing_pre) >= attack_n_pairs and panel_path.exists():
+                print(
+                    f"SKIP ({arch}, {attack}) chunk {chunk_id}: already complete "
+                    f"({len(existing_pre)} pairs + panel on disk)",
+                    flush=True,
+                )
+                continue
+
             x_clean = pairs["x_clean"][start:attack_end].to(device)
             x_adv   = pairs["x_adv"][start:attack_end].to(device)
 
