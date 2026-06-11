@@ -12,6 +12,23 @@ import torch
 from .base import MeasureBase, MeasureResult
 
 
+def _pairwise_sq_dists(X: torch.Tensor, Y: torch.Tensor):
+    """All-pairs squared L2 distances between rows of X (p1, n) and Y (p2, n).
+
+    Uses the Gram identity ||x − y||² = ||x||² + ||y||² − 2 x·y. The naive
+    broadcast ``X[:, None, :] - Y[None, :, :]`` materializes a p1×p2×n tensor —
+    ~419 GB at p=2048, n=25000 — which OOM-killed the Phase-1 reduce job at its
+    512G cgroup (job 13963270, 2026-05-24). The identity only ever holds the
+    (p1, p2) cost matrix; fp64 keeps the cancellation benign and the clamp
+    absorbs fp round-off.
+    """
+    X = X.to(torch.float64)
+    Y = Y.to(torch.float64)
+    sq_X = (X * X).sum(dim=1)
+    sq_Y = (Y * Y).sum(dim=1)
+    return (sq_X[:, None] + sq_Y[None, :] - 2.0 * (X @ Y.T)).clamp_min_(0.0).numpy()
+
+
 class SoftMatching(MeasureBase):
     name = "soft_matching"
     cross_dim_native = True
@@ -33,12 +50,10 @@ class SoftMatching(MeasureBase):
         B = B - B.mean(0, keepdim=True)
 
         # Neuron tuning vectors are columns; transpose so samples become features
-        A_neurons = A.T.numpy()   # (p1, n)
-        B_neurons = B.T.numpy()
-        p1, p2 = A_neurons.shape[0], B_neurons.shape[0]
+        p1, p2 = A.shape[1], B.shape[1]
 
         # Pairwise squared distances between neuron tuning vectors
-        cost = np.linalg.norm(A_neurons[:, None, :] - B_neurons[None, :, :], axis=2) ** 2
+        cost = _pairwise_sq_dists(A.T, B.T)
 
         a_unif = np.ones(p1) / p1
         b_unif = np.ones(p2) / p2

@@ -17,6 +17,23 @@ def _measure_finalize(measure_name, chunk_accs: List):
     raise ValueError(f"Unknown measure: {measure_name}")
 
 
+def _finalize_panel(panel_files: List) -> Dict:
+    """Load each chunk file once, then finalize every measure in its panel.
+
+    The previous per-measure ``torch.load`` re-read every file once per
+    measure (×9 I/O — ~4.3 TB of redundant deserialization across the 150
+    S1 combos), risking the reduce walltime. Holding one combo's 64 chunk
+    files (~3 GB of feature blocks) is well within the job's memory.
+    """
+    loaded = [torch.load(f)["accumulators"] for f in panel_files]
+    results = {}
+    for mname in loaded[0].keys():
+        chunk_accs = [d[mname] for d in loaded]
+        r = _measure_finalize(mname, chunk_accs)
+        results[mname] = {"value": r.value, "extras": r.extras}
+    return results
+
+
 def aggregate_s1(s1_dir: str, archs: List[str], num_teleports: int, num_chunks: int) -> Dict:
     """For each (arch, teleport_id), glob chunk files and finalize each measure.
 
@@ -31,14 +48,7 @@ def aggregate_s1(s1_dir: str, archs: List[str], num_teleports: int, num_chunks: 
                 if not chunk_files:
                     continue
 
-            # Per-measure aggregation
-            measure_results = {}
-            measure_names = list(torch.load(chunk_files[0])["accumulators"].keys())
-            for mname in measure_names:
-                chunk_accs = [torch.load(f)["accumulators"][mname] for f in chunk_files]
-                result = _measure_finalize(mname, chunk_accs)
-                measure_results[mname] = {"value": result.value, "extras": result.extras}
-            out[(arch, tid)] = measure_results
+            out[(arch, tid)] = _finalize_panel(chunk_files)
     return out
 
 
@@ -81,23 +91,11 @@ def aggregate_s2(s2_dir: str, archs: List[str], num_chunks: int) -> Dict:
 
         # D1 panel
         d1_files = sorted(Path(s2_dir).glob(f"{pname}_D1_chunk*.pt"))
-        d1_results = {}
-        if d1_files:
-            d1_measure_names = list(torch.load(d1_files[0])["accumulators"].keys())
-            for mname in d1_measure_names:
-                chunk_accs = [torch.load(f)["accumulators"][mname] for f in d1_files]
-                r = _measure_finalize(mname, chunk_accs)
-                d1_results[mname] = {"value": r.value, "extras": r.extras}
+        d1_results = _finalize_panel(d1_files) if d1_files else {}
 
         # D2 panel
         d2_files = sorted(Path(s2_dir).glob(f"{pname}_D2_chunk*.pt"))
-        d2_results = {}
-        if d2_files:
-            d2_measure_names = list(torch.load(d2_files[0])["accumulators"].keys())
-            for mname in d2_measure_names:
-                chunk_accs = [torch.load(f)["accumulators"][mname] for f in d2_files]
-                r = _measure_finalize(mname, chunk_accs)
-                d2_results[mname] = {"value": r.value, "extras": r.extras}
+        d2_results = _finalize_panel(d2_files) if d2_files else {}
 
         out[pname] = {
             "km_distances": all_distances,

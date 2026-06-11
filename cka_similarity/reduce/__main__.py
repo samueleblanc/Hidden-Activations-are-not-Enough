@@ -6,10 +6,29 @@ from pathlib import Path
 
 import torch
 
-from utils.atomic_io import atomic_json_dump
+from utils.atomic_io import atomic_json_dump, atomic_torch_save
 from cka_similarity.reduce.aggregate import aggregate_s1, aggregate_s2, aggregate_s3
 from cka_similarity.reduce.sanity import write_sanity_report
 from cka_similarity.reduce.tables import emit_s1_table, emit_s2_table, emit_s3_table
+
+
+def _stage_checkpoint(path: Path, compute):
+    """Resume-or-compute one aggregation stage.
+
+    Each aggregate_s* pass is hours of CPU over thousands of chunk files, but
+    the driver historically wrote outputs only after ALL stages finished — a
+    crash in stage 3 (or the 15h wall) redid stages 1-2 from scratch (job
+    13963270 lost 90 min this way). Stage results are plain dicts of floats,
+    so we snapshot each one to a hidden .pt next to the final JSONs. Delete
+    the .s*_stage.pt files to force a recompute after regenerating worker
+    chunks.
+    """
+    if path.exists():
+        print(f"  resuming from stage checkpoint {path.name}", flush=True)
+        return torch.load(path)
+    result = compute()
+    atomic_torch_save(str(path), result)
+    return result
 
 
 def _try_compute_controls(archs, data_dir, cui_n_inputs):
@@ -64,16 +83,20 @@ def main():
                         help="Skip Cui/Murphy controls (e.g. for offline reduce-only runs)")
     args = parser.parse_args()
 
-    Path(args.out_dir).mkdir(parents=True, exist_ok=True)
+    out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     print("=== Aggregating S1 ===", flush=True)
-    s1 = aggregate_s1(args.s1_dir, args.archs, args.num_teleports, args.num_chunks)
+    s1 = _stage_checkpoint(out_dir / ".s1_stage.pt", lambda: aggregate_s1(
+        args.s1_dir, args.archs, args.num_teleports, args.num_chunks))
 
     print("=== Aggregating S2 ===", flush=True)
-    s2 = aggregate_s2(args.s2_dir, args.archs, args.num_chunks)
+    s2 = _stage_checkpoint(out_dir / ".s2_stage.pt", lambda: aggregate_s2(
+        args.s2_dir, args.archs, args.num_chunks))
 
     print("=== Aggregating S3 ===", flush=True)
-    s3 = aggregate_s3(args.s3_dir, args.archs, args.attacks, args.num_chunks)
+    s3 = _stage_checkpoint(out_dir / ".s3_stage.pt", lambda: aggregate_s3(
+        args.s3_dir, args.archs, args.attacks, args.num_chunks))
 
     if args.skip_controls:
         print("=== Skipping Cui + Murphy controls (--skip_controls) ===", flush=True)
