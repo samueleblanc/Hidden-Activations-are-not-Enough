@@ -47,10 +47,20 @@ echo "D2: KM drift under teleportation for $ARCH (task $SLURM_ARRAY_TASK_ID)"
 # so the tensor is reproducible iff the val tree matches Nibi's bit-for-bit).
 # Generated once here if missing; per-PID tmp + atomic rename makes the
 # concurrent generation by both array tasks safe.
-IMAGENET_ROOT="${IMAGENET_ROOT:-/datashare/imagenet/ILSVRC2012}"
 DATA_PTH="results/teleportation/imagenet_test_samples_N1000_seed42.pth"
 mkdir -p results/teleportation results/teleportation_km_drift
 if [ ! -f "$DATA_PTH" ]; then
+    # IMAGENET_TAR (quota-constrained clusters): stage ILSVRC2012/{val,devkit}
+    # to node-local disk just for this one-time tensor generation. Unset =>
+    # read IMAGENET_ROOT in place (Nibi /datashare default).
+    if [ -n "${IMAGENET_TAR:-}" ]; then
+        echo "Staging ImageNet from $IMAGENET_TAR"
+        mkdir -p "$SLURM_TMPDIR/data"
+        tar -xf "$IMAGENET_TAR" -C "$SLURM_TMPDIR/data"
+        IMAGENET_ROOT="$SLURM_TMPDIR/data/ILSVRC2012"
+    else
+        IMAGENET_ROOT="${IMAGENET_ROOT:-/datashare/imagenet/ILSVRC2012}"
+    fi
     echo "Generating Step-B sample tensor at $DATA_PTH ..."
     python - "$IMAGENET_ROOT" "$DATA_PTH" <<'PYEOF'
 import os, sys, torch
