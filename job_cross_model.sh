@@ -112,6 +112,6 @@ python cross_model_experiment.py \
     --ckpt-j $CKPT_J \
     --num-samples 1000 \
     --matrix-batch-size 1024 \
-    --imagenet-root /datashare/imagenet/ILSVRC2012
+    --imagenet-root "${IMAGENET_ROOT:-/datashare/imagenet/ILSVRC2012}"
 
 echo "Task $SLURM_ARRAY_TASK_ID ($ARCH / $CKPT_I vs $CKPT_J) completed"

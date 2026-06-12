@@ -34,6 +34,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 import time
 from pathlib import Path
@@ -792,7 +793,8 @@ def parse_args():
                    help="KnowledgeMatrixComputer batch size.")
     p.add_argument("--output-dir", default="results/cross_model")
     p.add_argument("--imagenet-root",
-                   default="/datashare/imagenet/ILSVRC2012")
+                   default=os.environ.get("IMAGENET_ROOT",
+                                          "/datashare/imagenet/ILSVRC2012"))
     p.add_argument("--device",
                    default="cuda" if torch.cuda.is_available() else "cpu")
     p.add_argument("--smoke", action="store_true",

@@ -54,6 +54,6 @@ python teleportation_experiment.py \
     --pretrained \
     --num_teleportations 100 \
     --num_samples 1000 \
-    --data_dir /datashare/imagenet/ILSVRC2012
+    --data_dir "${IMAGENET_ROOT:-/datashare/imagenet/ILSVRC2012}"
 
 echo "Task $SLURM_ARRAY_TASK_ID ($ARCH) completed"

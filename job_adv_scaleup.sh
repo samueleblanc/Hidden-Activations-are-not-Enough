@@ -29,9 +29,11 @@ echo "Step A2: scale up $ATTACK on $ARCH"
 module load StdEnv/2023 python/3.11.5 scipy-stack/2025a
 source env/bin/activate
 
-# Copy ImageNet val to local scratch for fast access
+# Copy ImageNet val to local scratch for fast access. IMAGENET_ROOT
+# overrides the Nibi default for other clusters (e.g. Rorqual).
+IMAGENET_ROOT="${IMAGENET_ROOT:-/datashare/imagenet/ILSVRC2012}"
 mkdir -p $SLURM_TMPDIR/data/ILSVRC2012
-cp -r /datashare/imagenet/ILSVRC2012/val $SLURM_TMPDIR/data/ILSVRC2012/
+cp -r "$IMAGENET_ROOT/val" $SLURM_TMPDIR/data/ILSVRC2012/
 
 python generate_adversarial_pairs_scaleup.py \
     --arch "$ARCH" --attack "$ATTACK" --target_n 5000 \

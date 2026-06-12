@@ -214,7 +214,8 @@ def main():
     parser.add_argument("--num_teleports", type=int, default=50)
     parser.add_argument("--archs", nargs="+", default=["resnet152", "densenet121", "googlenet"])
     parser.add_argument("--out_dir", default="results/phase1/s1")
-    parser.add_argument("--data_dir", default="/datashare/imagenet/ILSVRC2012")
+    parser.add_argument("--data_dir",
+                        default=os.environ.get("IMAGENET_ROOT", "/datashare/imagenet/ILSVRC2012"))
     args = parser.parse_args()
 
     run_chunk(

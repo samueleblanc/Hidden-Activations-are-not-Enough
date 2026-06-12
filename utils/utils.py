@@ -124,7 +124,7 @@ class ImageNetVal(Dataset):
 
 
 def get_imagenet_val_dataset(
-    data_path: str = '/datashare/imagenet/ILSVRC2012',
+    data_path: str = os.environ.get('IMAGENET_ROOT', '/datashare/imagenet/ILSVRC2012'),
     transform: Optional[transforms.Compose] = None,
     batch_size: int = 32
 ) -> Tuple[DataLoader, ImageNetVal]:
@@ -709,7 +709,7 @@ def get_dataset(
             )
 
     elif data_set == 'imagenet':
-        imagenet_root = '/datashare/imagenet/ILSVRC2012'
+        imagenet_root = os.environ.get('IMAGENET_ROOT', '/datashare/imagenet/ILSVRC2012')
         _, val_set = get_imagenet_val_dataset(imagenet_root, batch_size=batch_size)
         # Split the 50k validation set into 25k train / 25k test with a fixed seed
         generator = torch.Generator().manual_seed(42)

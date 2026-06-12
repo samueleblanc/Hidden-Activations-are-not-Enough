@@ -15,8 +15,9 @@ mkdir -p $SLURM_SUBMIT_DIR/slurm_out $SLURM_SUBMIT_DIR/slurm_err
 module load StdEnv/2023 python/3.11.5 scipy-stack/2025a
 source env/bin/activate
 
+IMAGENET_ROOT="${IMAGENET_ROOT:-/datashare/imagenet/ILSVRC2012}"
 mkdir -p $SLURM_TMPDIR/data/ILSVRC2012
-cp -r /datashare/imagenet/ILSVRC2012/val $SLURM_TMPDIR/data/ILSVRC2012/
+cp -r "$IMAGENET_ROOT/val" $SLURM_TMPDIR/data/ILSVRC2012/
 
 python -m cka_similarity.workers.s2_cross_architecture \
     --chunk_id $SLURM_ARRAY_TASK_ID \

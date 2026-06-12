@@ -18,9 +18,12 @@ module load StdEnv/2023 python/3.11.5 scipy-stack/2025a
 source env/bin/activate
 bash patches/apply_neuralteleportation_patches.sh ./env || exit 1
 
-# Copy ImageNet val to local scratch
+# Copy ImageNet val to local scratch. IMAGENET_ROOT overrides the Nibi
+# default for other clusters (e.g. Rorqual); sbatch propagates the
+# submitting shell's environment to the job.
+IMAGENET_ROOT="${IMAGENET_ROOT:-/datashare/imagenet/ILSVRC2012}"
 mkdir -p $SLURM_TMPDIR/data/ILSVRC2012
-cp -r /datashare/imagenet/ILSVRC2012/val $SLURM_TMPDIR/data/ILSVRC2012/
+cp -r "$IMAGENET_ROOT/val" $SLURM_TMPDIR/data/ILSVRC2012/
 
 python -m cka_similarity.workers.s1_within_arch_invariance \
     --chunk_id $SLURM_ARRAY_TASK_ID \

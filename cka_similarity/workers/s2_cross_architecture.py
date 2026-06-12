@@ -342,7 +342,8 @@ def main():
     parser.add_argument("--num_samples", type=int, default=25000)
     parser.add_argument("--archs", nargs="+", default=["resnet152", "densenet121", "googlenet"])
     parser.add_argument("--out_dir", default="results/phase1/s2")
-    parser.add_argument("--data_dir", default="/datashare/imagenet/ILSVRC2012")
+    parser.add_argument("--data_dir",
+                        default=os.environ.get("IMAGENET_ROOT", "/datashare/imagenet/ILSVRC2012"))
     args = parser.parse_args()
 
     run_chunk(args.chunk_id, args.num_chunks, args.num_samples, args.archs,

@@ -63,7 +63,8 @@ def main():
     parser.add_argument("--attack", required=True, choices=["fgsm", "pgd", "cw", "deepfool", "apgd", "square"])
     parser.add_argument("--target_n", type=int, default=5000)
     parser.add_argument("--temp_dir", default=None)
-    parser.add_argument("--data_dir", default="/datashare/imagenet/ILSVRC2012")
+    parser.add_argument("--data_dir",
+                        default=os.environ.get("IMAGENET_ROOT", "/datashare/imagenet/ILSVRC2012"))
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--checkpoint_every", type=int, default=100)
     args = parser.parse_args()
