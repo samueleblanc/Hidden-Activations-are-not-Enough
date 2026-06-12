@@ -84,3 +84,9 @@ timm==1.0.20
 POT==0.9.4
 dcor==0.6
 git+https://github.com/ahwillia/netrep.git@main
+# neuralteleportation is REQUIRED but deliberately NOT listed here: its
+# ancient dependency pins would fight the +computecanada wheels (torch).
+# Install it manually AFTER this file, then apply the PyTorch-2.x patches
+# (discovered the hard way on the Rorqual fresh build, 2026-06-12):
+#   pip install --no-deps git+https://github.com/vitalab/neuralteleportation.git
+#   bash patches/apply_neuralteleportation_patches.sh ./env
