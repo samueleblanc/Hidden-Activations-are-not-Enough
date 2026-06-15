@@ -49,7 +49,7 @@ if REPO not in sys.path:
 from cross_model_experiment import _stratified_remap, verify_km_completeness  # noqa: E402
 from utils.km_models import build_model                                        # noqa: E402
 from knowledgematrix.matrix_computer import KnowledgeMatrixComputer            # noqa: E402
-from teleportation_experiment import ARCHITECTURES, teleport_model             # noqa: E402
+from teleportation_experiment import load_pretrained_cob, teleport_model       # noqa: E402
 
 D_PLUS_1 = 3 * 224 * 224 + 1
 
@@ -121,9 +121,18 @@ def main():
     gate_x = data[: args.num_gate_samples]
     km_x = data[: args.num_km_samples]
 
-    # Base COB model (pretrained, eval) — factory per Step B.
-    factory = ARCHITECTURES[args.arch]["factory"]
-    base = factory(pretrained=True).eval()
+    # Base COB model (pretrained, eval) via the shared offline-safe loader (the
+    # SAME path Step B uses). Kept on CPU: the gate forward below runs on CPU
+    # `gate_x`, teleport_model deepcopies this CPU model, and load_cob_into_km
+    # reads the (device-agnostic) state_dict into a fresh KM model on args.device
+    # — so the COB model's own device is irrelevant to the KM compute.
+    #
+    # NOT factory(pretrained=True): the COB factories download via their legacy
+    # model_urls (resnet152 -> orphan V1 resnet152-b121ed2d.pth), which differs
+    # from the torchvision DEFAULT (V2 resnet152-f82ba261.pth) that Phase-0d
+    # pre-caches -> would miss the cache and crash on a no-internet compute node.
+    # Using the DEFAULT here also aligns D2's measured checkpoint with Steps B/C.
+    base = load_pretrained_cob(args.arch, device="cpu")
 
     # Base KM model + matrices (recomputed every slot; see module docstring).
     km_base_model = load_cob_into_km(args.arch, base, args.device)

@@ -116,6 +116,121 @@ def create_model(arch_name, num_classes):
 
 
 # ---------------------------------------------------------------------------
+# Offline-safe pretrained COB loader (single source of truth)
+# ---------------------------------------------------------------------------
+
+# torchvision factory + Weights-enum attribute name per supported arch. The
+# Weights enum's ``DEFAULT.url`` basename is the file torch.hub caches, and is
+# exactly what `run_pipeline.sh` Phase-0d pre-fetches with `weights='DEFAULT'`.
+_TORCHVISION_WEIGHTS_ENUM = {
+    'resnet18': 'ResNet18_Weights', 'resnet34': 'ResNet34_Weights',
+    'resnet50': 'ResNet50_Weights', 'resnet101': 'ResNet101_Weights',
+    'resnet152': 'ResNet152_Weights',
+    'vgg11': 'VGG11_Weights', 'vgg13': 'VGG13_Weights',
+    'vgg16': 'VGG16_Weights', 'vgg19': 'VGG19_Weights',
+    'vgg11_bn': 'VGG11_BN_Weights', 'vgg13_bn': 'VGG13_BN_Weights',
+    'vgg16_bn': 'VGG16_BN_Weights', 'vgg19_bn': 'VGG19_BN_Weights',
+    'densenet121': 'DenseNet121_Weights', 'densenet161': 'DenseNet161_Weights',
+    'densenet169': 'DenseNet169_Weights', 'densenet201': 'DenseNet201_Weights',
+    'googlenet': 'GoogLeNet_Weights',
+}
+
+
+def expected_default_weight_basename(arch):
+    """Return the hub-cache filename of torchvision's DEFAULT weights for ``arch``.
+
+    Derived live from ``torchvision.models.<Weights>.DEFAULT.url`` so it always
+    matches whatever ``weights='DEFAULT'`` resolves to on the installed
+    torchvision (V1 on the cluster's 0.17.2, V2 for ResNet-152 on newer local
+    builds). This is the exact basename torch.hub keys its checkpoint cache on.
+    """
+    import os
+    import torchvision.models as tv_models
+    enum_name = _TORCHVISION_WEIGHTS_ENUM[arch]
+    weights_enum = getattr(tv_models, enum_name)
+    return os.path.basename(weights_enum.DEFAULT.url)
+
+
+def assert_default_weights_cached(arch):
+    """Fail loudly (on the login node) if DEFAULT weights are not hub-cached.
+
+    Compute nodes have no internet, so a missing checkpoint would otherwise
+    only surface mid-job as a silent torch.hub download attempt that hangs or
+    crashes. Raising here — derived from the *same* DEFAULT URL the loader will
+    request — means a future torchvision URL drift breaks before allocation.
+    """
+    import os
+    import torch
+    basename = expected_default_weight_basename(arch)
+    ckpt_dir = os.path.join(torch.hub.get_dir(), 'checkpoints')
+    path = os.path.join(ckpt_dir, basename)
+    if not os.path.isfile(path):
+        raise FileNotFoundError(
+            f"torchvision DEFAULT weights for {arch!r} not cached: expected "
+            f"{path!r} (basename derived from "
+            f"{_TORCHVISION_WEIGHTS_ENUM[arch]}.DEFAULT.url). Compute nodes have "
+            f"no internet — pre-cache on a login node (run_pipeline.sh Phase-0d, "
+            f"or `python -c \"import torchvision.models as m; "
+            f"m.{arch}(weights='DEFAULT')\"`)."
+        )
+    return path
+
+
+def load_pretrained_cob(arch, device, num_classes=1000):
+    """Build a COB model and load torchvision DEFAULT (ImageNet) weights — offline-safe.
+
+    Single source of truth for the pretrained-COB load shared by Step B
+    (`teleportation_experiment.py`) and D2 (`teleportation_km_drift.py`).
+
+    Why not ``factory(pretrained=True)``: the `neuralteleportation` COB factories
+    download via their own legacy ``model_urls`` (e.g. resnet152 →
+    ``resnet152-b121ed2d.pth``, the orphan IMAGENET1K_V1). That basename differs
+    from the torchvision DEFAULT (V2 ``resnet152-f82ba261.pth``) that Phase-0d
+    pre-caches, so the COB path would miss the cache and try to download on a
+    no-internet compute node → crash. Building with ``pretrained=False`` and
+    loading ``torchvision.<arch>(weights='DEFAULT').state_dict()`` instead reuses
+    the pre-cached DEFAULT file. (Bonus: this aligns D2's measured checkpoint with
+    Steps B/C — all three now use the torchvision DEFAULT, V2 f82ba261 for
+    ResNet-152, rather than the orphan V1 the old COB path pulled.)
+
+    Args:
+        arch: Architecture key into ARCHITECTURES.
+        device: torch device / device string to place the model on.
+        num_classes: ImageNet class count (1000); kept explicit for parity with
+            create_model's signature.
+
+    Returns:
+        nn.Module: COB model with DEFAULT weights loaded, in eval mode, on device.
+    """
+    import torchvision.models as tv_models
+
+    # Fail on the login node if the DEFAULT checkpoint is not hub-cached
+    # (offline compute nodes cannot download it).
+    assert_default_weights_cached(arch)
+
+    model = create_model(arch, num_classes)
+    tv_factory = getattr(tv_models, arch)
+    if ARCHITECTURES[arch]['family'] == 'googlenet':
+        # torchvision insists aux_logits=True with pretrained weights; set
+        # transform_input=False to match this repo's dataset normalization, then
+        # strip the aux classifiers and filter their keys before loading into the
+        # GoogLeNetCOB (which never has aux classifiers).
+        tv_model = tv_factory(weights='DEFAULT', transform_input=False)
+        tv_model.aux_logits = False
+        tv_model.aux1 = None
+        tv_model.aux2 = None
+        sd = {k: v for k, v in tv_model.state_dict().items()
+              if not k.startswith('aux1.') and not k.startswith('aux2.')}
+        model.load_state_dict(sd, strict=True)
+    else:
+        # ResNet/VGG/DenseNet COB state-dicts share torchvision's key layout
+        # exactly (verified: identical key order), so a plain strict load works.
+        tv_model = tv_factory(weights='DEFAULT')
+        model.load_state_dict(tv_model.state_dict())
+    return model.to(device).eval()
+
+
+# ---------------------------------------------------------------------------
 # Penultimate-layer feature extraction
 # ---------------------------------------------------------------------------
 
@@ -419,49 +534,21 @@ def run_experiment(args):
     print(f"  Device: {device}", flush=True)
 
     # Load model
-    model = create_model(arch_name, num_classes)
     if args.pretrained:
-        import torchvision.models as tv_models
-        tv_factory = {
-            'resnet18': tv_models.resnet18, 'resnet34': tv_models.resnet34,
-            'resnet50': tv_models.resnet50, 'resnet101': tv_models.resnet101,
-            'resnet152': tv_models.resnet152,
-            'vgg11': tv_models.vgg11, 'vgg13': tv_models.vgg13,
-            'vgg16': tv_models.vgg16, 'vgg19': tv_models.vgg19,
-            'vgg11_bn': tv_models.vgg11_bn, 'vgg13_bn': tv_models.vgg13_bn,
-            'vgg16_bn': tv_models.vgg16_bn, 'vgg19_bn': tv_models.vgg19_bn,
-            'densenet121': tv_models.densenet121,
-            'densenet161': tv_models.densenet161,
-            'densenet169': tv_models.densenet169,
-            'densenet201': tv_models.densenet201,
-            'googlenet': tv_models.googlenet,
-        }
-        if arch_name == 'googlenet':
-            # torchvision insists aux_logits=True with pretrained weights;
-            # we set transform_input=False to match the dataset normalization
-            # used elsewhere in this repo. Then strip the aux classifiers
-            # and filter their state-dict keys before loading into the
-            # GoogLeNetCOB (which never has aux classifiers).
-            tv_model = tv_factory[arch_name](weights='DEFAULT',
-                                             transform_input=False)
-            tv_model.aux_logits = False
-            tv_model.aux1 = None
-            tv_model.aux2 = None
-            sd = {k: v for k, v in tv_model.state_dict().items()
-                  if not k.startswith('aux1.') and not k.startswith('aux2.')}
-            model.load_state_dict(sd, strict=True)
-        else:
-            tv_model = tv_factory[arch_name](weights='DEFAULT')
-            model.load_state_dict(tv_model.state_dict())
+        # Offline-safe shared loader (single source of truth, also used by
+        # teleportation_km_drift.py): builds the COB model and loads the
+        # torchvision DEFAULT ImageNet state-dict from the pre-cached hub file.
+        model = load_pretrained_cob(arch_name, device, num_classes=num_classes)
         print(f"  Using pretrained torchvision weights for {arch_name}",
               flush=True)
     else:
+        model = create_model(arch_name, num_classes)
         state_dict = torch.load(args.weights_path, map_location='cpu',
                                 weights_only=True)
         model.load_state_dict(state_dict)
         print(f"  Weights loaded from: {args.weights_path}", flush=True)
-    model = model.to(device)
-    model.eval()
+        model = model.to(device)
+        model.eval()
 
     # Load data
     print("Loading datasets...", flush=True)
