@@ -122,6 +122,7 @@ def main():
     sanity = write_sanity_report(
         str(Path(args.out_dir) / "sanity_report.json"),
         s1, s2, s3, cui, murphy,
+        skip_controls=args.skip_controls,
     )
     print(f"  all_pass: {sanity['all_pass']}", flush=True)
 

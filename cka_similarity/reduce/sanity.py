@@ -79,13 +79,67 @@ def check_murphy_near_zero(murphy_results: Dict, threshold: float = 0.05) -> Dic
     return {"passed": len(failed) == 0, "failures": failed, "threshold": threshold}
 
 
+def check_controls_ran(cui_results: Dict, murphy_results: Dict,
+                       skip_controls: bool = False) -> Dict:
+    """Guard against controls SILENTLY failing.
+
+    The reviewer-requested Cui (input-confound) and Murphy (debiased-CKA
+    null) controls feed check_cui_below_threshold / check_murphy_near_zero,
+    both of which iterate over the results dict — so when those dicts are
+    EMPTY (controls crashed in _try_compute_controls: missing GPU/val/weights
+    at scale), the threshold checks trivially return passed=True and the gate
+    can report all_pass=True with the controls absent. That would ship the
+    similarity panel WITHOUT the nulls reviewers asked for.
+
+    This check distinguishes two cases the threshold checks cannot:
+      - skip_controls=True  → operator deliberately opted out; absence is
+        legitimate, so we pass and record skipped=True.
+      - skip_controls=False → controls were supposed to run; if cui and/or
+        murphy are empty/absent, they failed silently → FAIL with a
+        controls_error diagnostic so an operator sees they didn't run (vs a
+        true content failure in the threshold checks).
+    """
+    cui_present = bool(cui_results)
+    murphy_present = bool(murphy_results)
+    controls_present = cui_present and murphy_present
+
+    if skip_controls:
+        return {
+            "passed": True,
+            "skipped": True,
+            "controls_present": controls_present,
+            "cui_present": cui_present,
+            "murphy_present": murphy_present,
+        }
+
+    result = {
+        "passed": controls_present,
+        "skipped": False,
+        "controls_present": controls_present,
+        "cui_present": cui_present,
+        "murphy_present": murphy_present,
+    }
+    if not controls_present:
+        missing = [name for name, present in
+                   (("cui", cui_present), ("murphy", murphy_present))
+                   if not present]
+        result["controls_error"] = (
+            "controls did not run (not --skip_controls): "
+            f"empty/absent {', '.join(missing)} results — the threshold "
+            "checks pass vacuously, so the Cui/Murphy nulls are NOT in the "
+            "panel; re-run controls or pass --skip_controls to opt out"
+        )
+    return result
+
+
 def write_sanity_report(out_path: str, s1_results, s2_results, s3_results,
-                       cui_results, murphy_results) -> Dict:
+                       cui_results, murphy_results, skip_controls: bool = False) -> Dict:
     from utils.atomic_io import atomic_json_dump
 
     checks = {
         "km_correctness": check_km_correctness(s3_results),
         "no_nan": check_no_nan_in_results(s1_results, s2_results, s3_results),
+        "controls_ran": check_controls_ran(cui_results, murphy_results, skip_controls),
         "cui_random_below_threshold": check_cui_below_threshold(cui_results),
         "murphy_shuffled_near_zero": check_murphy_near_zero(murphy_results),
     }
