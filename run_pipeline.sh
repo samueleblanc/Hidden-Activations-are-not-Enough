@@ -48,7 +48,7 @@ done
 
 if [ "$DRY_RUN" != true ] && command -v squeue >/dev/null 2>&1; then
     RUNNING_JOBS=$(squeue -u "$USER" -h -o "%j" 2>/dev/null || true)
-    KNOWN_JOB_NAMES="job_calibrate.sh|job_phase1_s1.sh|job_phase1_s2.sh|job_phase1_s3.sh|job_phase1_reduce.sh|job_adv_scaleup.sh|job_teleportation.sh|job_theorem45.sh|job_theorem45_agg.sh|job_verify_cross_model.sh|job_cross_model.sh|job_tar_artifacts.sh"
+    KNOWN_JOB_NAMES="job_calibrate.sh|job_phase1_s1.sh|job_phase1_s2.sh|job_phase1_s3.sh|job_phase1_reduce.sh|job_phase1_reduce_array.sh|job_phase1_gather.sh|job_adv_scaleup.sh|job_teleportation.sh|job_theorem45.sh|job_theorem45_agg.sh|job_verify_cross_model.sh|job_cross_model.sh|job_tar_artifacts.sh"
     if echo "$RUNNING_JOBS" | grep -qE "^($KNOWN_JOB_NAMES)$"; then
         echo "ERROR: existing pipeline jobs running. Cancel them first or wait:" >&2
         echo "$RUNNING_JOBS" | grep -E "^($KNOWN_JOB_NAMES)$" >&2
@@ -681,7 +681,17 @@ if [ ! -f "results/phase1/s3/.complete" ]; then
     fi
 fi
 
-# Phase-1 Step C — Reduce (depends on B1+B2+B3)
+# Phase-1 Step C — Reduce (depends on B1+B2+B3). SLURM-array per-combo refactor:
+#   (1) job_phase1_reduce_array.sh — CPU array, one combo (the expensive OT
+#       finalize) per task, cached to a shared combo_dir. Replaces the
+#       monolithic job_phase1_reduce.sh that timed out at the wall.
+#   (2) job_phase1_gather.sh — assembles the cache → results JSONs + controls
+#       + sanity gate + paper tables (the GPU job; controls need a GPU). Robust
+#       to a few failed array tasks via the gather's in-process recompute, so
+#       it depends afterany on the array.
+# job_phase1_reduce.sh is retained as a serial fallback (hand-submit) but is
+# no longer wired here. The array bound N is derived from the SAME enumerator
+# the gather reads (cka_similarity.reduce.combo --count), so it can never drift.
 P1C_DEPS=""
 [ -n "$B1_JOB_ID" ] && P1C_DEPS="${P1C_DEPS}${B1_JOB_ID}:"
 [ -n "$B2_JOB_ID" ] && P1C_DEPS="${P1C_DEPS}${B2_JOB_ID}:"
@@ -689,20 +699,38 @@ P1C_DEPS=""
 P1C_DEPS="${P1C_DEPS%:}"
 P1C_DEP_FLAG=""
 [ -n "$P1C_DEPS" ] && P1C_DEP_FLAG="--dependency=afterany:$P1C_DEPS"
+
+# Per-task concurrency for the reduce array (override via REDUCE_ARRAY_CONC).
+REDUCE_ARRAY_CONC="${REDUCE_ARRAY_CONC:-32}"
+
+# P1C_JOB_ID names the FINAL reduce job (the gather) — Step D + the sentinel
+# hook key off it, unchanged. P1C_ARRAY_JOB_ID is the array the gather waits on.
 P1C_JOB_ID=""
+P1C_ARRAY_JOB_ID=""
 P1C_QUEUED=false
 if [ ! -f "results/phase1/aggregated/sanity_report.json" ]; then
     P1C_QUEUED=true
+    # N = combo count straight from the enumerator (source of truth). Falls back
+    # to the production 171 if the import fails (e.g. no env on a dry-run shell).
+    N_COMBOS=$(python -m cka_similarity.reduce.combo --count 2>/dev/null || echo 171)
+    REDUCE_ARRAY_SPEC="0-$(( N_COMBOS - 1 ))%${REDUCE_ARRAY_CONC}"
     if [ "$DRY_RUN" != true ]; then
-        P1C_JOB_ID=$(sbatch --parsable --account="$ACCOUNT_GPU" $P1C_DEP_FLAG job_phase1_reduce.sh)
-        echo "Phase-1 Step C (reduce): $P1C_JOB_ID"
+        # (1) CPU array — one combo per task.
+        P1C_ARRAY_JOB_ID=$(sbatch --parsable --account="$ACCOUNT_CPU" \
+            --array="$REDUCE_ARRAY_SPEC" $P1C_DEP_FLAG job_phase1_reduce_array.sh)
+        echo "Phase-1 Step C (reduce array): $P1C_ARRAY_JOB_ID --array=$REDUCE_ARRAY_SPEC ($N_COMBOS combos)"
+        # (2) GPU gather — afterany on the array (recomputes any missing combo).
+        P1C_JOB_ID=$(sbatch --parsable --account="$ACCOUNT_GPU" \
+            --dependency=afterany:"$P1C_ARRAY_JOB_ID" job_phase1_gather.sh)
+        echo "Phase-1 Step C (gather): $P1C_JOB_ID (after array $P1C_ARRAY_JOB_ID)"
     else
-        echo "[DRY RUN] sbatch job_phase1_reduce.sh"
+        echo "[DRY RUN] sbatch --array=$REDUCE_ARRAY_SPEC job_phase1_reduce_array.sh ($N_COMBOS combos)"
+        echo "[DRY RUN] sbatch --dependency=afterany:\$ARRAY job_phase1_gather.sh"
     fi
 fi
 
-# Step D — Tar (depends on Phase-1 Step C). Triggered iff Phase-1 C
-# was queued (in real mode we have a job id; in dry-run we use the flag).
+# Step D — Tar (depends on Phase-1 Step C gather). Triggered iff Phase-1 C
+# was queued (in real mode we have a gather job id; in dry-run we use the flag).
 D_JOB_ID=""
 if [ -n "$P1C_JOB_ID" ] && [ "$DRY_RUN" != true ]; then
     D_JOB_ID=$(sbatch --parsable --account="$ACCOUNT_CPU" --dependency=afterany:"$P1C_JOB_ID" job_tar_artifacts.sh)
@@ -725,7 +753,8 @@ if [ "${USE_SENTINEL:-true}" = "true" ] && [ "$DRY_RUN" != true ]; then
         "$B2_JOB_ID:job_phase1_s2.sh" \
         "$B3_JOB_ID:job_phase1_s3.sh" \
         "$A2_JOB_ID:job_adv_scaleup.sh" \
-        "$P1C_JOB_ID:job_phase1_reduce.sh" \
+        "${P1C_ARRAY_JOB_ID:-}:job_phase1_reduce_array.sh" \
+        "$P1C_JOB_ID:job_phase1_gather.sh" \
         "$D_JOB_ID:job_tar_artifacts.sh"; do
         IFS=':' read -r SENT_JID SENT_SCRIPT <<< "$SENT_PAIR"
         [ -z "$SENT_JID" ] && continue

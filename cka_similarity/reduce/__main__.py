@@ -7,7 +7,10 @@ from pathlib import Path
 import torch
 
 from utils.atomic_io import atomic_json_dump, atomic_torch_save
-from cka_similarity.reduce.aggregate import aggregate_s1, aggregate_s2, aggregate_s3
+from cka_similarity.reduce.aggregate import (
+    aggregate_s1, aggregate_s2, aggregate_s3,
+    combo_cache_path, enumerate_combos,
+)
 from cka_similarity.reduce.sanity import write_sanity_report
 from cka_similarity.reduce.tables import emit_s1_table, emit_s2_table, emit_s3_table
 
@@ -29,6 +32,26 @@ def _stage_checkpoint(path: Path, compute):
     result = compute()
     atomic_torch_save(str(path), result)
     return result
+
+
+def _report_combo_cache(combo_dir, archs, num_teleports, attacks):
+    """Log which combos the gather will read from cache vs recompute.
+
+    The gather is robust to a few failed array tasks: a per-combo finalize
+    that finds no cache file recomputes that combo in-process (same code, same
+    result) instead of crashing. We surface any such fallback up front so an
+    operator can see that e.g. 2/171 combos are being recomputed (a hint that
+    2 array tasks failed) rather than silently eating the cost.
+    """
+    combos = enumerate_combos(archs, num_teleports, attacks)
+    present, missing = [], []
+    for stage, key, _params in combos:
+        (present if combo_cache_path(combo_dir, key).exists() else missing).append(key)
+    print(f"  combo cache {combo_dir}: {len(present)}/{len(combos)} present", flush=True)
+    if missing:
+        print(f"  WARNING: {len(missing)} combo(s) MISSING from cache — the gather "
+              f"will recompute them in-process (identical result, but slower; "
+              f"likely failed array tasks): {', '.join(missing)}", flush=True)
 
 
 def _try_compute_controls(archs, data_dir, cui_n_inputs):
@@ -82,22 +105,35 @@ def main():
     parser.add_argument("--cui_n_inputs", type=int, default=2048)
     parser.add_argument("--skip_controls", action="store_true",
                         help="Skip Cui/Murphy controls (e.g. for offline reduce-only runs)")
+    parser.add_argument("--combo_dir", default=None,
+                        help="Per-combo cache dir (the SLURM-array path's output). "
+                             "When set, aggregate_s* read finalized combos from "
+                             "<combo_dir>/{key}.pt instead of recomputing; any combo "
+                             "missing from the cache is recomputed in-process (same "
+                             "result) with a warning. When unset, the reduce runs "
+                             "fully serial (every combo computed here), as before.")
     args = parser.parse_args()
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    if args.combo_dir is not None:
+        print(f"=== Gather mode: combo cache = {args.combo_dir} ===", flush=True)
+        _report_combo_cache(args.combo_dir, args.archs, args.num_teleports, args.attacks)
+
     print("=== Aggregating S1 ===", flush=True)
     s1 = _stage_checkpoint(out_dir / ".s1_stage.pt", lambda: aggregate_s1(
-        args.s1_dir, args.archs, args.num_teleports, args.num_chunks))
+        args.s1_dir, args.archs, args.num_teleports, args.num_chunks,
+        combo_dir=args.combo_dir))
 
     print("=== Aggregating S2 ===", flush=True)
     s2 = _stage_checkpoint(out_dir / ".s2_stage.pt", lambda: aggregate_s2(
-        args.s2_dir, args.archs, args.num_chunks))
+        args.s2_dir, args.archs, args.num_chunks, combo_dir=args.combo_dir))
 
     print("=== Aggregating S3 ===", flush=True)
     s3 = _stage_checkpoint(out_dir / ".s3_stage.pt", lambda: aggregate_s3(
-        args.s3_dir, args.archs, args.attacks, args.num_chunks))
+        args.s3_dir, args.archs, args.attacks, args.num_chunks,
+        combo_dir=args.combo_dir))
 
     if args.skip_controls:
         print("=== Skipping Cui + Murphy controls (--skip_controls) ===", flush=True)
