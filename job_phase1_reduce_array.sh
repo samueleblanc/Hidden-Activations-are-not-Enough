@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --account=def-amorales
-#SBATCH --time=02:00:00
-#SBATCH --mem=32G
-#SBATCH --cpus-per-task=4
+#SBATCH --time=03:00:00
+#SBATCH --mem=64G
+#SBATCH --cpus-per-task=16
 #SBATCH --array=0-170
 #SBATCH --output=slurm_out/C_reduce_array_%A_%a.out
 #SBATCH --error=slurm_err/C_reduce_array_%A_%a.err
@@ -20,9 +20,13 @@ set -euo pipefail
 # (job_phase1_gather.sh) then assembles the cached combos with no recompute.
 #
 # CPU-only: no measure here needs a GPU (controls — the only GPU consumer —
-# run in the gather). Each combo loads ~64 chunk files (~3 GB) and builds at
-# most a (p × p) fp64 OT cost matrix; 32G is ample. Each combo is minutes, so
-# 2h is a generous cap.
+# run in the gather). Each combo loads ~64 chunk files (~3 GB) and builds the
+# fp64 OT cost matrices (entropic Gromov-Wasserstein on a 5000-point subsample
+# + Sinkhorn soft-matching on a p × p cost); 64G is ample. Those OT measures
+# dominate the runtime: one S1 combo takes ~1h12 on 16 cores WITH the BLAS
+# thread caps set below, so 3h is a safe cap. (An uncapped 4-core run thrashed
+# — 5h50m of CPU at the 2h wall, never finished — which is why the caps and the
+# core bump matter; see the thread-cap note below.)
 #
 # IDEMPOTENT: a combo already present in combo_dir is skipped (no recompute),
 # so a partial array can be resubmitted to fill only the missing combos.
@@ -36,6 +40,15 @@ set -euo pipefail
 mkdir -p "$SLURM_SUBMIT_DIR/slurm_out" "$SLURM_SUBMIT_DIR/slurm_err"
 module load StdEnv/2023 python/3.11.5 scipy-stack/2025a
 source env/bin/activate
+
+# BLAS thread caps — pin OpenBLAS/MKL/OMP to the SLURM allocation. The OT
+# measures call heavily into BLAS; uncapped, each defaults to the NODE's
+# physical core count and oversubscribes the cgroup (a 4-core run thrashed:
+# 5h50m CPU at the 2h wall, unfinished). Capping to $SLURM_CPUS_PER_TASK lets
+# the 16 cores cooperate instead of fighting (combo finishes in ~1h12).
+export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-16}"
+export OPENBLAS_NUM_THREADS="${SLURM_CPUS_PER_TASK:-16}"
+export MKL_NUM_THREADS="${SLURM_CPUS_PER_TASK:-16}"
 
 # Combo config (must match the gather's). Override via env if the run differs.
 ARCHS="${ARCHS:-resnet152 densenet121 googlenet}"
