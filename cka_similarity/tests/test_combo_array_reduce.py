@@ -274,3 +274,58 @@ def test_gather_recomputes_missing_combo(tmp_path):
     _assert_equal(serial, gathered)
     # The fallback combo got written to the cache as a side effect (now resumable).
     assert combo_cache_path(combo_dir, s1_combo_key("resnet152", 1)).exists()
+
+
+# ===========================================================================
+# Regression: S2 D2 (cross-arch Procrustes) guard
+# ===========================================================================
+def _d1_native_acc(seed, n=8, p_a=12, p_b=12):
+    """One D1 chunk's accumulators — the cross_dim_native measures the S2 worker
+    writes to D1. Consistent dims across chunks (the normal case)."""
+    g = torch.Generator().manual_seed(seed)
+    A = torch.randn(n, p_a, generator=g, dtype=torch.float64)
+    B = torch.randn(n, p_b, generator=g, dtype=torch.float64)
+    return {cls.name: cls().accumulate(A, B) for cls in PANEL if cls.cross_dim_native}
+
+
+def _procrustes_only_acc(seed, n, p):
+    """One D2 chunk's accumulators — ONLY procrustes, as the S2 worker writes it
+    (the lone cross_dim_native=False measure). Feature dim p varies per chunk to
+    mimic pca_project clamping target_dim to each chunk's sample count."""
+    from cka_similarity.measures.procrustes import ProcrustesShapeDistance
+    g = torch.Generator().manual_seed(seed)
+    A = torch.randn(n, p, generator=g, dtype=torch.float64)
+    B = torch.randn(n, p, generator=g, dtype=torch.float64)
+    return {"procrustes": ProcrustesShapeDistance().accumulate(A, B)}
+
+
+def test_s2_d2_guard_omits_uncombinable_procrustes(tmp_path):
+    """Cross-arch D2 (Procrustes) is computed on per-chunk PCA projections whose
+    target_dim is clamped to each chunk's sample count, so the chunks carry
+    MISMATCHED feature dims (the real failure: 390 vs 430). The S2 finalize must
+    OMIT the uncombinable measure and still return KM Frobenius + the D1 panel —
+    not crash the whole combo (the bug that failed array tasks 150-152)."""
+    s2_dir = tmp_path / "s2"
+    s2_dir.mkdir(parents=True)
+    a, b = "resnet152", "densenet121"
+    pname = s2_pair_name(a, b)
+    num_chunks = 3
+    dims = [10, 11, 12]  # mismatched per-chunk feature dims
+    for c in range(num_chunks):
+        (s2_dir / f"{pname}_KM_chunk{c}.json").write_text(json.dumps([0.1 * (c + 1)] * 5))
+        torch.save({"chunk_id": c, "accumulators": _d1_native_acc(1000 + c)},
+                   s2_dir / f"{pname}_D1_chunk{c}.pt")
+        torch.save({"chunk_id": c, "accumulators": _procrustes_only_acc(2000 + c, n=8, p=dims[c])},
+                   s2_dir / f"{pname}_D2_chunk{c}.pt")
+
+    # Must NOT raise (the bug raised RuntimeError on the A_sum dim mismatch).
+    out = aggregate_s2(str(s2_dir), [a, b], num_chunks)
+    d = out[pname]
+
+    # The uncombinable cross-arch Procrustes is omitted; the combo still completes.
+    assert "procrustes" not in d["D2"], "uncombinable cross-arch Procrustes must be omitted"
+    # KM Frobenius survived (5 dists * 3 chunks).
+    assert d["km_n"] == 15
+    # The D1 native panel survived intact (the 8 cross_dim_native measures).
+    assert set(d["D1"].keys()) == {cls.name for cls in PANEL if cls.cross_dim_native}
+    assert len(d["D1"]) == 8

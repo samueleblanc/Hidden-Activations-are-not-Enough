@@ -43,19 +43,36 @@ def _measure_finalize(measure_name, chunk_accs: List):
     raise ValueError(f"Unknown measure: {measure_name}")
 
 
-def _finalize_panel(panel_files: List) -> Dict:
+def _finalize_panel(panel_files: List, guard: bool = False) -> Dict:
     """Load each chunk file once, then finalize every measure in its panel.
 
     The previous per-measure ``torch.load`` re-read every file once per
     measure (×9 I/O — ~4.3 TB of redundant deserialization across the 150
     S1 combos), risking the reduce walltime. Holding one combo's 64 chunk
     files (~3 GB of feature blocks) is well within the job's memory.
+
+    When ``guard`` is True, a measure whose ``finalize`` raises is logged and
+    OMITTED rather than aborting the whole combo. This is used ONLY for the S2
+    D2 panel: its sole measure is cross-arch Procrustes, which is computed on
+    per-chunk PCA projections whose target_dim is silently clamped to each
+    chunk's sample count (s2_cross_architecture.pca_project) — so the chunks
+    carry mismatched feature dims (and incompatible per-chunk bases) that
+    cannot be combined across chunks. S1/S3 keep the default strict behavior so
+    a genuine measure failure there still surfaces loudly.
     """
     loaded = [torch.load(f)["accumulators"] for f in panel_files]
     results = {}
     for mname in loaded[0].keys():
         chunk_accs = [d[mname] for d in loaded]
-        r = _measure_finalize(mname, chunk_accs)
+        if guard:
+            try:
+                r = _measure_finalize(mname, chunk_accs)
+            except Exception as e:
+                print(f"WARN: omitting panel measure '{mname}' — finalize failed "
+                      f"({type(e).__name__}: {e})", flush=True)
+                continue
+        else:
+            r = _measure_finalize(mname, chunk_accs)
         results[mname] = {"value": r.value, "extras": r.extras}
     return results
 
@@ -177,9 +194,16 @@ def _compute_s2_combo(s2_dir: str, a: str, b: str, num_chunks: int) -> Dict:
     d1_files = sorted(Path(s2_dir).glob(f"{pname}_D1_chunk*.pt"))
     d1_results = _finalize_panel(d1_files) if d1_files else {}
 
-    # D2 panel
+    # D2 panel — cross-arch Procrustes only (the lone cross_dim_native=False
+    # measure). It is computed on per-chunk PCA projections whose target_dim is
+    # clamped to each chunk's sample count (~390-430 < 1024), so the chunks
+    # carry mismatched feature dims / incompatible bases and cannot be combined
+    # across chunks. Guard the finalize so the offending measure is OMITTED
+    # (rendered '--' in the S2 table) rather than aborting the whole S2 combo.
+    # KM Frobenius + the D1 panel (the 8 cross-dim-native measures) carry the
+    # cross-arch comparison; cross-arch Procrustes via per-chunk PCA is unsound.
     d2_files = sorted(Path(s2_dir).glob(f"{pname}_D2_chunk*.pt"))
-    d2_results = _finalize_panel(d2_files) if d2_files else {}
+    d2_results = _finalize_panel(d2_files, guard=True) if d2_files else {}
 
     return {
         "km_distances": all_distances,
