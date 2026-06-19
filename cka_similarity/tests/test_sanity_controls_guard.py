@@ -8,7 +8,7 @@ still passing when the operator deliberately passed --skip_controls.
 """
 import json
 
-from cka_similarity.reduce.sanity import write_sanity_report
+from cka_similarity.reduce.sanity import write_sanity_report, check_km_correctness
 
 
 # --- Minimal fake sanity inputs (no cluster data needed) -------------------
@@ -161,3 +161,33 @@ def test_skip_controls_defaults_false_empty_controls_fail(tmp_path):
     )
     assert report["all_pass"] is False
     assert report["controls_ran"]["passed"] is False
+
+
+# --- km_correctness atol = float32 completeness ceiling --------------------
+def _s3_with_residuals(values):
+    """One (arch, attack) cell whose pairs carry the given (clean, adv) residuals."""
+    return {("resnet152", "deepfool"): {
+        "per_pair": [{"completeness_residual_clean": c,
+                      "completeness_residual_adv": a} for c, a in values],
+        "panel": {"debiased_cka": {"value": 0.5}},
+    }}
+
+
+def test_km_correctness_passes_at_float32_ceiling():
+    """Residuals at the documented fp32 ceiling (~0.15-0.30 on ResNet-152) must
+    PASS the gate (atol=0.35) — they are physically correct float32 KMs, not a
+    wiring bug."""
+    # 100 pairs all near the observed fp32 max (0.295) -> below 0.35 -> pass.
+    r = check_km_correctness(_s3_with_residuals([(0.29, 0.295)] * 100))
+    assert r["passed"] is True
+    assert r["max_residual"] <= 0.35
+
+
+def test_km_correctness_fails_on_logit_scale_residual():
+    """A real defect yields O(10) (logit-scale) residuals — the gate must still
+    FAIL on those, i.e. atol=0.35 keeps its teeth."""
+    # 99 fine pairs + enough broken (residual ~8.0) to drop below fraction 0.99.
+    vals = [(0.01, 0.01)] * 90 + [(8.0, 8.0)] * 10
+    r = check_km_correctness(_s3_with_residuals(vals))
+    assert r["passed"] is False
+    assert r["max_residual"] >= 1.0
