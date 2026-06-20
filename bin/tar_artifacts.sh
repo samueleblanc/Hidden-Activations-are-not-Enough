@@ -21,27 +21,40 @@ if [ "$ALL_PASS" = "True" ]; then
     OUT_PATH="$OUT_DIR/phase1-results-${GIT_SHA}-${TIMESTAMP}.tar.gz"
     echo "Sanity all-pass — building $OUT_PATH"
 
-    # Wire computed numbers into paper TODOs (added in Phase 7)
-    if [ -f wire_paper_results.py ]; then
+    # Wire computed numbers into paper TODOs (added in Phase 7). Only when the
+    # paper sections tree is present — it is absent on a results-only cluster
+    # checkout (the paper sources live in the writing copy, not on the cluster).
+    if [ -f wire_paper_results.py ] && [ -d docs/Final-twist/paper/sections ]; then
         python wire_paper_results.py \
             --results_dir results/phase1/aggregated \
             --paper_dir docs/Final-twist/paper/sections || \
             echo "WARN: wire_paper_results.py failed; tarball will use unsubstituted TODOs"
     fi
 
-    # Compile paper PDF (best effort)
-    if [ -d "docs/Final-twist/paper" ]; then
+    # Compile paper PDF (best effort; only if the paper sources are present).
+    if [ -f docs/Final-twist/paper/main.tex ]; then
         ( cd docs/Final-twist/paper && latexmk -pdf -interaction=nonstopmode main.tex ) || \
             echo "WARN: latexmk failed; tarball will not include main.pdf"
     fi
 
-    tar czf "$OUT_PATH" \
-        results/phase1/aggregated/ \
-        docs/Final-twist/paper/sections/ \
-        docs/Final-twist/paper/tables/ \
-        $( [ -f docs/Final-twist/paper/main.pdf ] && echo "docs/Final-twist/paper/main.pdf" ) \
-        experiments/calibration/ \
-        pipeline_state.json
+    # Bundle only the inputs that exist. results/phase1/aggregated/ is the one
+    # REQUIRED artifact (the gate output); the paper tree, calibration, and the
+    # pipeline_state.json log are optional and may be absent on a cluster
+    # checkout — tar runs under `set -e`, so a missing literal input would abort
+    # the whole step (the bug that failed job 14474456: sections/ +
+    # pipeline_state.json absent on Rorqual).
+    if [ ! -d results/phase1/aggregated ]; then
+        echo "ERROR: results/phase1/aggregated/ missing — nothing to bundle" >&2
+        exit 1
+    fi
+    INPUTS=("results/phase1/aggregated/")
+    [ -d docs/Final-twist/paper/sections ]   && INPUTS+=("docs/Final-twist/paper/sections/")
+    [ -d docs/Final-twist/paper/tables ]     && INPUTS+=("docs/Final-twist/paper/tables/")
+    [ -f docs/Final-twist/paper/main.pdf ]   && INPUTS+=("docs/Final-twist/paper/main.pdf")
+    [ -d experiments/calibration ]           && INPUTS+=("experiments/calibration/")
+    [ -f pipeline_state.json ]               && INPUTS+=("pipeline_state.json")
+    echo "Bundling: ${INPUTS[*]}"
+    tar czf "$OUT_PATH" "${INPUTS[@]}"
 
     echo "SUCCESS: $OUT_PATH"
     ls -lh "$OUT_PATH"
