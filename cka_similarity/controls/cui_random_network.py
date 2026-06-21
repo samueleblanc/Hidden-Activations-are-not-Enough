@@ -24,14 +24,15 @@ def compute_cui_control(arch: str, inputs: torch.Tensor, device) -> Dict[str, fl
     }[arch]
 
     trained = load_pretrained(arch).to(device)
-    untrained = arch_loader(weights=None).to(device).eval()
-    # Re-randomize all params with a fixed seed for reproducibility
+    # Seed BEFORE construction so torchvision's own default init is reproducible,
+    # then take the network AS-INITIALISED. Do NOT re-randomise parameters by hand:
+    # the previous loop zeroed every 1-D parameter -- including BatchNorm scale
+    # (gamma) and shift (beta) -- which forces every BN output to 0, collapsing the
+    # penultimate features to a constant (zero variance) and making CKA/Bures/RSA
+    # NaN (0/0). The Cui control needs a NON-degenerate random network; torchvision's
+    # default init (kaiming convs, BN gamma=1/beta=0) provides exactly that.
     torch.manual_seed(42)
-    for p in untrained.parameters():
-        if p.dim() > 1:
-            torch.nn.init.kaiming_normal_(p)
-        else:
-            torch.nn.init.zeros_(p)
+    untrained = arch_loader(weights=None).to(device).eval()
 
     h_t = forward_penultimate(trained, inputs).cpu()
     h_r = forward_penultimate(untrained, inputs).cpu()

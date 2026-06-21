@@ -8,7 +8,9 @@ still passing when the operator deliberately passed --skip_controls.
 """
 import json
 
-from cka_similarity.reduce.sanity import write_sanity_report, check_km_correctness
+from cka_similarity.reduce.sanity import (
+    write_sanity_report, check_km_correctness, check_murphy_near_zero,
+)
 
 
 # --- Minimal fake sanity inputs (no cluster data needed) -------------------
@@ -191,3 +193,24 @@ def test_km_correctness_fails_on_logit_scale_residual():
     r = check_km_correctness(_s3_with_residuals(vals))
     assert r["passed"] is False
     assert r["max_residual"] >= 1.0
+
+
+# --- Murphy shuffled-pair: only the zero-null estimators are checked ---------
+def test_murphy_ignores_distance_measures():
+    """Distance/dissimilarity measures have non-zero shuffled-pair nulls (angular
+    CKA -> pi/2, Procrustes/soft-matching large, Bures floor, output-JSD nonzero)
+    and must NOT trip the Murphy control; only debiased_cka/dcor/rsa are checked."""
+    murphy = {"resnet152": {
+        "debiased_cka": 2.4e-5, "dcor": 0.0, "rsa": -0.006,        # zero-null: pass
+        "angular_cka": 1.5708, "procrustes": 484.0, "bures": 0.28,
+        "output_jsd": 0.43, "soft_matching": 17.3, "gw": 0.0,      # distances: ignored
+    }}
+    r = check_murphy_near_zero(murphy)
+    assert r["passed"] is True
+    assert r["measures_checked"] == ["dcor", "debiased_cka", "rsa"]
+
+
+def test_murphy_fails_on_high_debiased_cka():
+    """A genuinely high debiased CKA under shuffling (estimator bug) must FAIL."""
+    r = check_murphy_near_zero({"resnet152": {"debiased_cka": 0.9, "dcor": 0.0, "rsa": 0.0}})
+    assert r["passed"] is False

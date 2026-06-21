@@ -82,14 +82,32 @@ def check_cui_below_threshold(cui_results: Dict, threshold: float = 0.5) -> Dict
     return {"passed": len(failed) == 0, "failures": failed, "threshold": threshold}
 
 
+#: Measures whose shuffled-pair (independent-data) null is genuinely ~0 — the only
+#: ones the Murphy control can require to vanish. Debiased CKA (Murphy 2024's target),
+#: distance correlation, and RSA-Spearman all go to 0 for unrelated representations.
+#: The panel's DISTANCE / dissimilarity measures have non-zero nulls BY CONSTRUCTION:
+#: angular CKA -> pi/2, Procrustes / soft-matching -> large, Bures -> positive floor,
+#: output-JSD -> nonzero, GW -> positive. Requiring those to be ~0 is mis-specified.
+MURPHY_ZERO_NULL_MEASURES = {"debiased_cka", "dcor", "rsa"}
+
+
 def check_murphy_near_zero(murphy_results: Dict, threshold: float = 0.05) -> Dict:
-    """Shuffled-pair CKA must be near zero (debiased estimator sanity)."""
+    """Shuffled-pair null: the debiased-similarity estimators must be near zero.
+
+    Murphy 2024's shuffled-pair control validates that the UNBIASED similarity
+    estimators report ~0 for unrelated representations. We therefore enforce the
+    near-zero criterion only on the measures whose independent-data null is truly 0
+    (``MURPHY_ZERO_NULL_MEASURES``); the panel's distance / dissimilarity measures
+    have non-zero nulls by construction and are not part of this control (the
+    original check excluded only soft_matching and wrongly flagged the rest).
+    """
     failed = []
     for key, mvals in murphy_results.items():
         for mname, val in mvals.items():
-            if abs(val) > threshold and not (mname == "soft_matching"):  # exclude OT-based metric
+            if mname in MURPHY_ZERO_NULL_MEASURES and abs(val) > threshold:
                 failed.append({"key": key, "measure": mname, "value": val})
-    return {"passed": len(failed) == 0, "failures": failed, "threshold": threshold}
+    return {"passed": len(failed) == 0, "failures": failed, "threshold": threshold,
+            "measures_checked": sorted(MURPHY_ZERO_NULL_MEASURES)}
 
 
 def check_controls_ran(cui_results: Dict, murphy_results: Dict,
