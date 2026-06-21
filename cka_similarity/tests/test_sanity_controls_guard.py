@@ -10,6 +10,7 @@ import json
 
 from cka_similarity.reduce.sanity import (
     write_sanity_report, check_km_correctness, check_murphy_near_zero,
+    check_cui_below_threshold,
 )
 
 
@@ -214,3 +215,13 @@ def test_murphy_fails_on_high_debiased_cka():
     """A genuinely high debiased CKA under shuffling (estimator bug) must FAIL."""
     r = check_murphy_near_zero({"resnet152": {"debiased_cka": 0.9, "dcor": 0.0, "rsa": 0.0}})
     assert r["passed"] is False
+
+
+# --- Cui control: non-finite values fail (no vacuous NaN pass) ---------------
+def test_cui_nan_fails():
+    """A non-finite Cui CKA (e.g. a deep untrained net exploding in eval-mode BN)
+    must FAIL, not pass vacuously via NaN >= threshold == False."""
+    assert check_cui_below_threshold({"resnet152": {"debiased_cka": float("nan")}})["passed"] is False
+    assert check_cui_below_threshold({"resnet152": {"debiased_cka": float("inf")}})["passed"] is False
+    # A finite value below threshold still passes (the normal case).
+    assert check_cui_below_threshold({"resnet152": {"debiased_cka": 0.11}})["passed"] is True

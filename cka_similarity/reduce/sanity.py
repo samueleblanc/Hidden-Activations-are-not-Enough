@@ -73,11 +73,19 @@ def check_no_nan_in_results(s1_results, s2_results, s3_results) -> Dict:
 
 
 def check_cui_below_threshold(cui_results: Dict, threshold: float = 0.5) -> Dict:
-    """Random-network CKA must be < threshold to claim the input-confound is not dominant."""
+    """Random-network CKA must be FINITE and < threshold to claim the input-confound
+    is not dominant.
+
+    A non-finite value (NaN/inf) is a FAILURE, not a vacuous pass: a broken control
+    (e.g. a deep untrained net exploding in eval-mode BN, overflowing the CKA to NaN)
+    would otherwise slip through, since ``NaN >= threshold`` is False. This is the
+    same silent-NaN pattern the controls-ran guard exists to prevent.
+    """
+    import math
     failed = []
     for arch, mvals in cui_results.items():
         cka_val = mvals.get("debiased_cka", float("nan"))
-        if cka_val >= threshold:
+        if (not math.isfinite(cka_val)) or cka_val >= threshold:
             failed.append({"arch": arch, "cka": cka_val})
     return {"passed": len(failed) == 0, "failures": failed, "threshold": threshold}
 
