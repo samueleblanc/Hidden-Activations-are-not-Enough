@@ -76,6 +76,14 @@ fi
 
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
+# Per-arch KM batch cap. teleportation_km_drift.py defaults --km_batch=1800, but
+# that EXCEEDS resnet152's calibrated 85%-tier batch (1088, peak 70.8/79 GB) and
+# OOMs in KnowledgeMatrixComputer.forward (job 14500625_0, 2026-06-20). densenet121's
+# calibrated batch is 4288, so 1800 fits there with margin. Source of truth:
+# experiments/calibration/<arch>_imagenet/calibration.json (active_tier km_batch_size).
+if [ "$ARCH" = "resnet152" ]; then KM_BATCH=1088; else KM_BATCH=1800; fi
+echo "KM batch for $ARCH: $KM_BATCH"
+
 python teleportation_km_drift.py \
     --arch "$ARCH" \
     --num_teleportations 5 \
@@ -84,6 +92,7 @@ python teleportation_km_drift.py \
     --data "$DATA_PTH" \
     --out results/teleportation_km_drift \
     --device cuda \
-    --seed 0
+    --seed 0 \
+    --km_batch "$KM_BATCH"
 
 echo "Task $SLURM_ARRAY_TASK_ID ($ARCH) completed"
