@@ -108,6 +108,11 @@ def main():
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--km_batch", type=int, default=1800)
+    ap.add_argument("--cob_range", type=float, default=1.0,
+                    help="Teleportation COB magnitude. <1 keeps the per-path COB "
+                         "product within fp32 range on very deep nets (resnet152's "
+                         "152-layer KM overflows to NaN/inf at 1.0). Report the value "
+                         "used per arch -- drifts are only comparable at equal cob_range.")
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
 
@@ -146,7 +151,8 @@ def main():
     print(f"[base] completeness resid={resid:.3e}; {len(M_base)} KMs in {time.time()-t0:.0f}s", flush=True)
 
     results = {"arch": args.arch, "T": args.num_teleportations, "N_km": args.num_km_samples,
-               "N_gate": args.num_gate_samples, "seed": args.seed, "d_plus_1": D_PLUS_1,
+               "N_gate": args.num_gate_samples, "seed": args.seed, "cob_range": args.cob_range,
+               "d_plus_1": D_PLUS_1,
                "base_completeness_resid": base_resid, "per_teleport": []}
 
     # Resume: adopt a matching partial (same config), skip its completed teleports.
@@ -160,7 +166,7 @@ def main():
             print(f"[resume] unreadable partial ({e}) — starting fresh", flush=True)
         if prev is not None:
             same_cfg = all(prev.get(k) == results[k]
-                           for k in ("arch", "T", "N_km", "N_gate", "seed"))
+                           for k in ("arch", "T", "N_km", "N_gate", "seed", "cob_range"))
             if same_cfg:
                 results["per_teleport"] = prev.get("per_teleport", [])
                 start_t = len(results["per_teleport"])
@@ -170,7 +176,8 @@ def main():
                 print("[resume] partial config mismatch — starting fresh", flush=True)
 
     for t in range(start_t, args.num_teleportations):
-        tele = teleport_model(base, input_shape=(1, 3, 224, 224), seed=args.seed * 1000 + t)
+        tele = teleport_model(base, input_shape=(1, 3, 224, 224), seed=args.seed * 1000 + t,
+                              cob_range=args.cob_range)
         tele.eval()
         with torch.no_grad():
             gate_t = torch.stack([tele(x.unsqueeze(0)).reshape(-1) for x in gate_x])

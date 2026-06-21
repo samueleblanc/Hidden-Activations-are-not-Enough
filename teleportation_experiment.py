@@ -295,7 +295,7 @@ class PenultimateExtractor:
 # Teleportation wrapper
 # ---------------------------------------------------------------------------
 
-def teleport_model(model, input_shape, seed):
+def teleport_model(model, input_shape, seed, cob_range=1.0):
     """Create a random teleportation of the model.
 
     Returns a new model with different weights but identical function.
@@ -305,6 +305,13 @@ def teleport_model(model, input_shape, seed):
         model: nn.Module (COB model) to teleport.
         input_shape: tuple, e.g. (1, 3, 224, 224) for JIT tracing.
         seed: random seed for reproducibility.
+        cob_range: change-of-basis magnitude. Default 1.0 (unchanged for Step-B
+            and the shallower D2 archs). A smaller value keeps the per-path COB
+            product within fp32 range when the knowledge matrix is computed on a
+            very deep teleported net (resnet152's 152-layer product overflows to
+            NaN/inf at cob_range=1; see teleportation_km_drift.py and
+            docs/Final-twist/km-notes.md). The teleportation stays
+            function-preserving at any range.
 
     Returns:
         nn.Module: teleported model (deep copy with modified weights).
@@ -313,7 +320,7 @@ def teleport_model(model, input_shape, seed):
     torch.manual_seed(seed)
     np.random.seed(seed)  # COB generation uses np.random
     tp = NeuralTeleportationModel(model_copy, input_shape=input_shape)
-    tp.random_teleport(cob_range=1)
+    tp.random_teleport(cob_range=cob_range)
     return model_copy
 
 

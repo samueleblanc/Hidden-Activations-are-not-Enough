@@ -84,6 +84,14 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 if [ "$ARCH" = "resnet152" ]; then KM_BATCH=1088; else KM_BATCH=1800; fi
 echo "KM batch for $ARCH: $KM_BATCH"
 
+# Per-arch teleportation COB magnitude. resnet152's 152-layer per-path COB product
+# overflows fp32 in the KM at cob_range=1 (every teleported KM -> NaN/1e30 while the
+# function stays preserved, max_logit_diff ~5e-5; 2026-06-21). 0.1 keeps it in range
+# and still gives a measurable, invisible-dominated drift. densenet121 (clean at 1.0)
+# is unchanged. NOTE: drifts are only comparable across archs at equal cob_range.
+if [ "$ARCH" = "resnet152" ]; then COB_RANGE=0.1; else COB_RANGE=1.0; fi
+echo "COB range for $ARCH: $COB_RANGE"
+
 python teleportation_km_drift.py \
     --arch "$ARCH" \
     --num_teleportations 5 \
@@ -93,6 +101,7 @@ python teleportation_km_drift.py \
     --out results/teleportation_km_drift \
     --device cuda \
     --seed 0 \
-    --km_batch "$KM_BATCH"
+    --km_batch "$KM_BATCH" \
+    --cob_range "$COB_RANGE"
 
 echo "Task $SLURM_ARRAY_TASK_ID ($ARCH) completed"
