@@ -8,16 +8,15 @@
 > the Neural-Networks-Matrices repo:
 > `docs/superpowers/specs/2026-09-04-haane-series-boundary-and-imagenet-arm-design.md`.
 
-**Paper:** `docs/Final-twist/paper/main.tex` (+ `sections/*.tex`, `tables/`, `figures/`; compiled `main.pdf`). Branch `refactor`; last commits 2026-06-23; **not submitted**.
+**Paper:** `docs/Final-twist/paper/main.tex` (+ `sections/*.tex`, `tables/`, `figures/`; compiled `main.pdf`). Branch `refactor`, pushed; last commit `8b2f731` (2026-09-05); **not submitted**.
 **Title (kept, decided 2026-09-04):** *Hidden Activations Are Not Enough I: Knowledge Matrices as Higher Representations.*
 **Series (decided 2026-09-04):** HAaNE 0 = arXiv:2409.13163 (to be renamed); HAaNE I = this paper, a **continuation** of 0, its own paper — not a rewrite for resubmission; HAaNE II = the companion paper in Neural-Networks-Matrices. **Boundary rule:** I = the object at one trained network (x moves, θ fixed); II = the population statistic across training runs. I never uses "universality", "seed floor" or training controls; II never uses "higher representation".
 **Target venue:** TMLR, submitted **before** II so II cites an arXiv id.
 
 **Last updated:** 2026-09-05 — Plan C is **complete**: series edits C1–C4 (+ fix round 1), the ordering-table
-regeneration C-s3 (+ fix rounds 1 and 2), the vocabulary appendix C5 and this board C6. Everything is in the
-**working tree and uncommitted** — `docs/` is gitignored in this repo's HEAD `.gitignore`, so tracking the
-paper is a deliberate `git add -f`. The one-commit recipe (including the two new staging lines for
-`sections/vocab/` and `scripts/regen_ordering_tables.py`) is
+regeneration C-s3 (+ fix rounds 1 and 2), the vocabulary appendix C5 and this board C6. All of it is **committed and pushed** (`8b2f731`, 2026-09-05):
+that commit starts tracking the paper tree, which this repo's `.gitignore` had excluded, and stages the
+carve-out so the repository explains its own state. The recipe it followed is
 `…/Neural-Networks-Matrices/.claude/worktrees/learning-mechanics/.superpowers/sdd/2026-09-04-plan-C-haane-i-series-edits/commit-recipe.md`.
 
 **Build (2026-09-05, `latexmk -pdf -interaction=nonstopmode main.tex`):** rc 0 · **0 errors** · 0 undefined
@@ -52,17 +51,16 @@ companion); `sec:A[1-6]` = 18; `tab:a-experiments` referenced twice; `\WARNING` 
 
 **LEFT (ordered):**
 
-1. **Commit.** Nothing from Plan C is committed. Follow `commit-recipe.md` (one commit, `git add -f`); it now also stages `sections/vocab/` and `scripts/regen_ordering_tables.py`. Open sub-decision recorded there: whether the modified `.gitignore` carve-out goes in the same commit.
-2. **Close the three open review flags** — each is a decision or a run, not writing:
+1. **Close the three open review flags** — each is a decision or a run, not writing:
    - **(2) cross-dimensional similarity panel** (Section 7): CKA / Bures / distance correlation are computed on unequal dimensions with no PCA; the methodology, especially Bures, must be confirmed.
    - **(3) missing controls** (Section 7): the Cui/Murphy controls were not run for the cross-architecture study.
    - **(5) unverified figure** (Figure `fig:lp-pathology`, Section 8): the LP-counterfactual figure predates this revision; its caption numbers must be checked against the run and the figure regenerated if needed.
    - **(4) is partly closed:** the appendix ordering panel now has CIs. Still open — the coherence medians of `tab:coherence` (the theorem45 reduce stored aggregates only, so CIs need the pairs re-run, not a file resampled) and the mechanism partial correlations, whose per-pair data **are** on disk (`experiments/vgg_imagenet/theorem45/debug_gamma_zero_*.json` and siblings).
-3. **Optional local pulls** — neither is on disk as of 2026-09-05: `results/cross_model/` is empty (Step E per-pair JSONs) and `results/teleportation/` holds only the `*_N500_pre-rerun.json` trio (the N=1000 rerun). Neither blocks the build: "Step E" appears **nowhere** in the paper source, so it is already effectively dropped, and the teleportation trio numbers in the text are the ones the paper currently cites. Adopting the N=1000 rerun would be a data change to Study 1b — Marco's call.
-4. **Cover letter** → a **continuation** letter (0 is a separate paper), not a rebuttal ledger; TMLR prior-rejection disclosure = Marco's call.
-5. **Page budget.** 48 pp, of which 30 are main matter and 18 are appendices + references. The June target was ≤ 12 pp main; TMLR has no hard limit, but if the appendices are to be trimmed, Appendix D (6 pp) is the newest and the most compressible — the entry set is a per-paper selection, not a fixed list.
-6. **Pre-submission cleanup** (checklist below). Item 1 there is **not** cosmetic: two shared-vocabulary entries contradict the corrected body text and have to be fixed in the shared source. The rest is the review apparatus coming out.
-7. **Final build, then submit.**
+2. **Optional local pulls** — neither is on disk as of 2026-09-05: `results/cross_model/` is empty (Step E per-pair JSONs) and `results/teleportation/` holds only the `*_N500_pre-rerun.json` trio (the N=1000 rerun). Neither blocks the build: "Step E" appears **nowhere** in the paper source, so it is already effectively dropped, and the teleportation trio numbers in the text are the ones the paper currently cites. Adopting the N=1000 rerun would be a data change to Study 1b — Marco's call.
+3. **Cover letter** → a **continuation** letter (0 is a separate paper), not a rebuttal ledger; TMLR prior-rejection disclosure = Marco's call.
+4. **Page budget.** 48 pp, of which 30 are main matter and 18 are appendices + references. The June target was ≤ 12 pp main; TMLR has no hard limit, but if the appendices are to be trimmed, Appendix D (6 pp) is the newest and the most compressible — the entry set is a per-paper selection, not a fixed list.
+5. **Pre-submission cleanup** (checklist below). Item 1 there is **not** cosmetic: two shared-vocabulary entries contradict the corrected body text and have to be fixed in the shared source. The rest is the review apparatus coming out.
+6. **Final build, then submit.**
 
 **BLOCKED ON:** nothing. All cluster work is complete (06-23); every remaining item is a local decision, a local run, or the commit.
 
