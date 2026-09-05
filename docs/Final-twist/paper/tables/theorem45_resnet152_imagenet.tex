@@ -1,0 +1,21 @@
+% Requires: \usepackage{booktabs, amssymb}
+\begin{table}[t]
+\centering
+\caption{Theorem~4.5 validation for Resnet152: knowledge matrix distances lower-bound logit distances ($\|M(x) - M(x')\| \geq \gamma \cdot \|f(x) - f(x')\|$). $d_M/d_h > 1$ shows KMs amplify more than penultimate features.}
+\label{tab:theorem45_resnet152_imagenet}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lccccc}
+\toprule
+Attack & $\hat{\gamma}$ & $d_M/d_f$ & $d_h/d_f$ & $d_M/d_h$ & $\gamma$ 95\% CI \\
+\midrule
+FGSM & 2.295 & 5.75 & 0.77 & \textbf{7.41} & [2.295, 2.828] \\
+PGD & 1.229 & 3.17 & 0.75 & \textbf{4.21} & [1.229, 1.342] \\
+CW & 1.624 & 6.47 & 0.77 & \textbf{8.45} & [1.624, 1.994] \\
+DeepFool & 1.834 & 7.81 & 0.74 & \textbf{10.59} & [1.834, 2.029] \\
+APGD & 1.294 & 2.97 & 0.69 & \textbf{4.31} & [1.294, 1.375] \\
+Square & 1.477 & 8.27 & 0.76 & \textbf{10.90} & [1.477, 2.574] \\
+\midrule
+Overall & 1.229 & 5.74 & 0.75 & \textbf{7.69} & --- \\
+\bottomrule
+\end{tabular}}
+\end{table}

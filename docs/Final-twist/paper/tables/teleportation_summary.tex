@@ -1,0 +1,15 @@
+% Requires: \usepackage{booktabs, amssymb}
+\begin{table}[t]
+\centering
+\caption{Pillar 1 (Neural teleportation). Change-of-basis (COB) transformations via \texttt{neuralteleportation} produce functionally equivalent networks with different weights. Penultimate activations shift substantially (normalized $\|h - h^\prime\|/\sqrt{d}$, mean over 100 teleportations of 500 samples/split).}
+\label{tab:teleport_summary}
+\begin{tabular}{lcccc}
+\toprule
+Architecture & train & test & random & Pred.\ match (all teleports) \\
+\midrule
+ResNet152 & 0.130 & 0.151 & 0.242 & yes \\
+DenseNet121 & 0.507 & 0.523 & 0.341 & yes \\
+GoogLeNet & 0.283 & 0.294 & 0.250 & yes \\
+\bottomrule
+\end{tabular}
+\end{table}

@@ -1,0 +1,150 @@
+\section{Study 1: invariance under the theorems' hypotheses, and beyond}
+\label{sec:study1}
+
+\paragraph{Why it matters.}
+Theorem~\ref{thm:maxinv} states that the knowledge matrix is determined by
+the realised function germ, hence invariant under the entire
+function-stabiliser; penultimate activations are not (they are
+gauge-covariant, Theorem~\ref{thm:complete}). This study examines that
+contrast empirically under two forms of network isomorphism, with sharply
+different evidentiary status. Random neuron permutation on ResNet-152
+(Section~\ref{sec:study1a}) is a quiver isomorphism, so knowledge-matrix
+invariance under it is automatic and the experiment is a numerical
+\emph{correctness check}. Neural teleportation on all three architectures
+(Section~\ref{sec:study1b}) is the broader, multi-architecture arm, but on
+these BatchNorm networks it is function-\emph{approximate}: the invariance
+theorem's hypothesis is violated $100/100$, so we report the
+knowledge-matrix drift through the three-tier structure of
+Proposition~\ref{prop:visdrift} --- measuring the visible component (an
+identity equal to the logit gate) and explicitly \emph{not} asserting a
+zero. In neither arm do we claim that teleportation ``verifies''
+invariance: the permutation arm checks an identity that holds by
+construction, and the teleportation arm cannot satisfy the theorem's
+hypothesis at all. The penultimate features move under both isomorphisms;
+the question of whether the standard similarity machinery quotients that
+motion out is the subject of Section~\ref{sec:study1c}.
+
+\input{sections/study1ab_snippet}
+
+\input{tables/table_signal_relative}
+
+\subsection{Study 1C: similarity-measure invariance under teleportation (A3)}
+\label{sec:study1c}
+\label{sec:A3}
+
+\paragraph{Why it matters.}
+Section~\ref{sec:study1b} reports substantial penultimate-feature drift
+under teleportation. A natural reviewer objection is that this drift may be
+a coordinate-frame artifact that the standard representational-similarity
+machinery (CKA, Procrustes, etc.) would quotient out. If true, the
+``hidden activations are not enough'' claim would collapse to ``hidden
+activations require the right metric.'' This experiment addresses the
+objection directly by running the representation-similarity literature's
+full canonical-measure panel on the same teleportation pairs, and asking
+which measures recover the (approximate) invariance and which do not.
+
+\paragraph{Setup.}
+For each of the $T = 50$ random teleportations per architecture (seed
+indices $0,\ldots,49$) we compute a panel of 9 representational-similarity
+measures between the penultimate features $h_W(x)$ and $h_{\tilde W}(x)$ on
+$N = 25{,}000$ ImageNet-validation samples (the first $25{,}000$ by sorted
+filename, the same set Study~3 uses; Study~2's adversarial pairs are drawn
+differently --- see Section~\ref{sec:setup}). The measures span
+the dominant invariance classes catalogued by~\citet{klabunde2025resi}:
+orthogonal-plus-isotropic-scaling (debiased linear CKA, angular CKA,
+distance correlation), orthogonal-only (Procrustes shape distance, Bures
+similarity), permutation-only (soft-matching), monotone-of-distance
+(RSA-Spearman), isometry (Gromov-Wasserstein on a 5{,}000-sample
+subsample for tractability), and a function-level baseline (square-root
+output JSD). For CKA we use the unbiased HSIC$_1$ estimator
+of~\citet{song2012feature} as plugged into the minibatch CKA framework
+of~\citet{nguyen2021minibatch}; this is the methodologically correct
+choice in the $n < p$ regime ($N = 25{,}000 < D \in \{1024, 2048\}$ for
+some architectures), where the biased estimator carries the upward bias
+documented by~\citet{murphy2024debiased}. We accompany every measure with
+the random-network control of~\citet{cui2022deconfounded} (each measure
+between trained $h_W$ and an identically-initialised but untrained $h_R$
+on the same inputs) and the shuffled-pair control
+of~\citet{murphy2024debiased} (sample alignment permuted between $X$ and
+$Y$); all reported point estimates carry 95\% bootstrap confidence
+intervals over $10{,}000$ resamples and permutation-null $p$-values over
+$1{,}000$ shuffles.
+
+\paragraph{Procedure.}
+\begin{enumerate}
+\item For each teleportation $\tau$ collect the matched penultimate pairs
+$(h_W(x), h_{\tilde W}(x))$ over the $N=25{,}000$ samples.
+\item Compute each of the 9 measures on the pair, with the estimator
+settings above.
+\item Compute the same measures for the Cui random-network and Murphy
+shuffled-pair controls.
+\item Aggregate to a mean and 95\% bootstrap CI over the $T=50$
+teleportations per architecture.
+\end{enumerate}
+
+\paragraph{What we measure and the claim it licenses.}
+Each measure recovers the invariance only insofar as the teleportation
+change-of-basis lies in its invariance class. Since teleportation is more
+general than orthogonal-plus-isotropic scaling (it includes per-channel
+rescaling and BN-running-statistics inconsistencies that no standard
+measure quotients out), the prediction following from
+Theorem~\ref{thm:maxinv} is sharp: \emph{no} penultimate measure quotients
+out the full teleportation drift. The knowledge matrix is \emph{not}
+entered as a similarity column whose value is fixed at $1$ by a theorem:
+teleportation is function-approximate, so its drift is gate-bounded, not
+asserted zero (Proposition~\ref{prop:visdrift}); its visible component
+equals the logit gate by the row-sum identity, while its invisible
+component carries no gate bound and is not estimated here. We therefore
+contrast its gate-pinned visible drift against the penultimate-feature
+drift the panel adjudicates.
+
+\paragraph{Result.}
+\input{tables/s1_table}
+
+The empirical pattern (Table~\ref{tab:s1_table}) matches the
+invariance-class prediction. The orthogonal-class and permutation-class
+measures register the teleportation drift directly: Procrustes shape
+distance is large ($632$--$1471$ across the three architectures) and
+soft-matching distance substantial ($22$--$61$). The bounded
+isotropic-scaling-invariant similarities quotient much of the drift and
+report high agreement (debiased CKA $0.90$--$0.94$, Bures $0.92$--$0.96$,
+distance correlation $0.91$--$0.97$, RSA-Spearman $0.84$--$0.96$), while
+the square-root output JSD is $\approx 0$ on all three architectures,
+confirming the teleportation is function-preserving. Crucially, no
+penultimate measure reports the exact invariance ($1$ for similarities,
+$0$ for distances) that the knowledge matrix attains under an
+\emph{exact} isomorphism --- every one registers some residual drift,
+since teleportation is more general than any single measure's invariance
+class. The knowledge matrix's residual drift, by contrast, is not a
+property of any fixed invariance class but the gate-pinned quantity of
+Proposition~\ref{prop:visdrift}: under an exact isomorphism it would be
+zero, and under the approximate teleportation here its visible component
+equals the function-approximation gate by the row-sum identity, rather
+than being set by an ad-hoc quotient.
+
+Both reviewer-requested controls confirm the panel is not an
+input-statistics or estimator artifact. The Cui random-network control ---
+debiased linear CKA between the trained features and an independently
+random-initialised network of the same architecture --- reports $0.010$
+(ResNet-152), $0.058$ (DenseNet-121), and $0.052$ (GoogLeNet), far below
+both the $0.5$ confound threshold and the $0.90$--$0.94$
+trained-vs-teleported agreement, so the high panel similarities reflect
+learned structure rather than the shared input population. The Murphy
+shuffled-pair control --- the same estimators on sample-misaligned pairs
+--- returns debiased CKA $2.4\times10^{-5}$, $2.6\times10^{-4}$, and
+$5.4\times10^{-4}$ (distance correlation $\le 0.024$, RSA-Spearman within
+$0.006$ of $0$) across the three architectures, confirming the unbiased
+HSIC$_1$ estimator is correctly implemented and carries no upward bias.
+
+\paragraph{Reading.}
+The panel shows that every penultimate similarity measure in common use
+registers some teleportation drift --- none quotients out the full
+change-of-basis --- whereas the knowledge matrix's visible drift is pinned
+to the function-approximation gate by an identity. This is a statement
+about \emph{which invariance class each representation belongs to}, not a
+performance ranking; and it is a statement about the visible channel only,
+the invisible knowledge-matrix component being explicitly left
+unestimated (Theorem~\ref{thm:nogo}). What it does not show is that the
+knowledge matrix is invariant under teleportation: the transform is
+approximate, and the panel adjudicates the penultimate drift, not a
+theorem-asserted matrix zero.

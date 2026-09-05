@@ -1,0 +1,75 @@
+\section{Geometric structure of class regions in matrix space}
+\label{app:geometric}
+
+This appendix preserves a third theoretical result from the
+construction of \citet{armenta2021representation} that is not
+load-bearing for either Study~1 (Theorem~\ref{thm:maxinv}) or
+Study~2 (Theorem~\ref{thm:pyth}). We state it here together with
+its geometric implications and two candidate experimental directions
+that would promote it to a third theoretical leg of the
+canonical-representation argument in a future revision.
+
+\paragraph{Class regions in matrix space.}
+For a network $(W, f)$ on a $C$-class classification task, define the
+\emph{class region} for class $j$ as
+\[
+\mathcal{M}_j \;=\; \Bigl\{ M \in \mathrm{Mat}_\R(C, d+1)
+   \;:\; (M \cdot \mathbf{1}_{d+1})_j > (M \cdot \mathbf{1}_{d+1})_i
+   \text{ for all } i \neq j \Bigr\}.
+\]
+By the completeness invariant, $\Mfx \in \mathcal{M}_j$ if and only
+if the network classifies $x$ as class $j$. The set $\mathcal{M}_0
+= \mathrm{Mat}_\R(C, d+1) \setminus \bigcup_{j=1}^{C} \mathcal{M}_j$
+of indeterminate matrices is of measure zero
+(Theorem~4.3 of \citealt{armenta2021representation}), so we may
+restrict attention to the $\mathcal{M}_j$ partition.
+
+\begin{theorem}[Convexity of class regions, Theorem~4.4 of
+\citealt{armenta2021representation}]
+\label{thm:convexity}
+For each $j > 0$, the class region $\mathcal{M}_j$ is convex in
+$\mathrm{Mat}_\R(C, d+1)$.
+\end{theorem}
+
+\begin{proof}
+For matrices $A, B \in \mathcal{M}_j$ and any $\lambda \in [0, 1]$,
+the row-sum identity gives $((1-\lambda) A + \lambda B) \cdot
+\mathbf{1}_{d+1} = (1-\lambda)(A \mathbf{1}_{d+1}) +
+\lambda(B \mathbf{1}_{d+1})$. The argmax of a non-negative convex
+combination of two vectors that share a common argmax is that same
+argmax, so $((1-\lambda) A + \lambda B) \in \mathcal{M}_j$.
+\end{proof}
+
+\paragraph{Geometric implications.}
+Theorem~\ref{thm:convexity} says the matrix-space partition into
+class regions is well-behaved enough for classical convex-set tools
+(centroid, support, projection) to apply directly to knowledge
+matrices, with no further structural assumptions. We do not exercise
+this property in the studies of this paper.
+
+\paragraph{Toward a third theoretical leg.}
+Theorem~\ref{thm:convexity} could be promoted to a third main theorem
+in a future revision of this paper, supporting a third experimental
+leg of the canonical-representation argument. We outline two natural
+candidate directions and leave both as future work:
+
+\begin{enumerate}
+\item \emph{$k$-nearest-neighbour classification in matrix space.}
+The convex class region admits a clean canonical centroid, against
+which $k$-NN-on-knowledge-matrices is well-defined without any
+representation alignment step. The corresponding $k$-NN-on-penultimate
+baseline requires CKA-style alignment to compare across networks
+(\citealt{kornblith2019similarity}), which the matrix-space version
+sidesteps by Theorem~\ref{thm:maxinv}.
+
+\item \emph{Convex-hull federated aggregation.}
+For clients training networks within a function-equivalence class,
+averaging the per-client knowledge matrices produces a result that
+lies inside the corresponding class region $\mathcal{M}_j$ by
+convexity (Theorem~\ref{thm:convexity}). Penultimate-feature
+averaging cannot give the analogous guarantee, because penultimate
+features are not invariants of the function
+(Theorem~\ref{thm:maxinv}). A federated-learning experiment in
+this direction would couple Theorem~\ref{thm:maxinv} (Study~1)
+with Theorem~\ref{thm:convexity} into a single demonstration.
+\end{enumerate}

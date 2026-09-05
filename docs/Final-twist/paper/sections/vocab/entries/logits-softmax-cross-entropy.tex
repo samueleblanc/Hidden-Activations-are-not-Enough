@@ -1,0 +1,6 @@
+% entries/logits-softmax-cross-entropy.tex
+\vocabentry{Logits, softmax and cross-entropy}
+{The output $f_\theta(\vx)\in\R^C$ is the vector of logits. The softmax $p_c=e^{f_c}/\sum_k e^{f_k}$ turns it into a probability vector on the $C$ classes, and the predicted class is $\arg\max_c f_c$. The cross-entropy loss of a labelled example $(\vx,y)$ is $-\log p_y(\vx)$; the training loss is its average over the training examples.}
+{Softmax is constant on the cosets of the line $\R\vone_C$: $p(f+\kappa\vone_C)=p(f)$, so the loss sees only the class of $f$ in $\R^C/\R\vone_C$, and the argmax sees only a fan of cones. Because $\KM\vone_{d+1}=f$ is linear in $\KM$, the shift $f\mapsto f+\kappa\vone_C$ lifts to $\KM\mapsto\KM+\vone_C v^\top$ with $v^\top\vone_{d+1}=\kappa$, an element of $\vone_C\otimes\R^{d+1}$: this is the loss-gauge that class-centring quotients out. Softmax is also equivariant under permutations of the classes, which the class-shuffle null exploits.}
+{\texttt{torch.nn.CrossEntropyLoss} in \texttt{src/training/trainer.py}; accuracies are stored per epoch in \texttt{run\_NNNN\_history.json} and in the \texttt{acc\_train} / \texttt{acc\_test} cubes that feed the trainability mask.}
+{\texttt{tests/test\_softmax\_translation\_gauge.py}: a per-input shift of all logits moves the raw KM and leaves the class-centred KM unchanged.}

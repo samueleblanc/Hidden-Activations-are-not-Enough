@@ -1,0 +1,25 @@
+% Max coherence per cell: A_max = 1/gamma_empirical^2 (exact transform of the stored min ratio).
+% kappa_min = sqrt(d+1) * gamma_empirical is the minimum floor-saturation over pairs.
+\begin{table}[t]
+\centering\small
+\begin{tabular}{lcccccc}
+\toprule
+attack & ResNet-152 & DenseNet-121 & GoogLeNet & ResNet-18 & AlexNet & VGG \\
+\midrule
+FGSM & 0.19 & 0.34 & 0.2 & 0.389 & 1.7 & 1.09 \\
+PGD & 0.662 & 0.68 & 0.88 & 0.789 & 3.78 & 3.06 \\
+CW & 0.379 & 0.319 & 0.151 & 0.307 & 0.957 & 0.729 \\
+DeepFool & 0.297 & 0.237 & 0.132 & 0.197 & 1.66 & --- \\
+APGD & 0.597 & 0.774 & 1.19 & 0.791 & 4.52 & --- \\
+Square & 0.458 & 0.238 & 0.0858 & 0.187 & 0.737 & --- \\
+\bottomrule
+\end{tabular}
+\caption{Maximum per-pair coherence $A_{\max}=1/\widehat\gamma^2$ per cell ('---': cells in which some pair
+has $d_M=0$ exactly --- clean and adversarial input in the same linear region --- so $\widehat\gamma=\min_i
+d_M^{(i)}/d_f^{(i)}=0$ and $A_{\max}$ is unbounded; the entry is a display artifact of that division, not a
+cell removed by any filter, and those cells keep $198$ of $200$ pairs like the rest of the VGG column). The associated
+floor-saturation $\kappa_{\min}=\sqrt{d{+}1}\,\widehat\gamma$ ranges across cells from a low of $182.6$
+to roughly $1325$ (\emph{not} the $400$--$600$ band quoted in an earlier draft). Cell sizes as in
+Table~\ref{tab:coherence} ($200$ nominal pairs, $110$--$200$ valid; the CW, DeepFool, APGD and Square cells are low-$n$).}
+\label{tab:coherence-max}
+\end{table}

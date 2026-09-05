@@ -1,0 +1,53 @@
+% Figure 1 — the germ identity, drawn to be broadly readable (not heavily formal).
+% Requires: tikz (\usetikzlibrary{arrows.meta,decorations.pathreplacing,calc,positioning}).
+% Placement [!ht], not [t]: main.tex inputs this file directly after the introduction's
+% breakable claims box, and a [t] float takes the top of the page that box is still running
+% down -- landing between its two halves. [!ht] sets the figure after the box instead.
+\begin{figure}[!ht]
+\centering
+\begin{tikzpicture}[x=1cm,y=1cm,font=\small,>={Stealth[length=2mm]}]
+  % input
+  \node[draw,rounded corners,minimum width=1.6cm,minimum height=1.2cm,fill=gray!8] (x) at (0,0) {$x$};
+  \node[below=1mm of x,font=\scriptsize,text width=2.2cm,align=center] {input\\($d$ coordinates)};
+  % network
+  \node[draw,rounded corners,minimum width=2.2cm,minimum height=1.2cm,fill=blue!6] (net) at (3.1,0) {$f_\theta$};
+  \node[below=1mm of net,font=\scriptsize,text width=2.6cm,align=center] {ReLU network\\(piecewise linear)};
+  \draw[->] (x) -- (net);
+  % matrix
+  \begin{scope}[shift={(6.4,-1.05)}]
+    \draw (0,0) rectangle (4.2,2.1);
+    \draw (3.5,0) -- (3.5,2.1);
+    \foreach \yy in {0.42,0.84,1.26,1.68} \draw[gray!50] (0,\yy) -- (4.2,\yy);
+    \node[font=\scriptsize,align=center] at (1.75,2.45) {$d$ columns: $\partial f_c/\partial x_i \cdot x_i$\\[-1pt](gradient$\times$input, per class)};
+    \node[font=\scriptsize,align=center,text width=1.6cm] at (3.85,2.55) {bias\\column};
+    \node at (1.75,1.05) {$J(x)\,\mathrm{diag}(x)$};
+    \node[font=\scriptsize] at (3.85,1.05) {$c(x)$};
+    \draw[decorate,decoration={brace,mirror,amplitude=4pt}] (0,-0.12) -- (4.2,-0.12)
+      node[midway,below=4pt,font=\scriptsize] {$\mathrm{M}(x)\in\mathbb{R}^{C\times(d+1)}$};
+  \end{scope}
+  \draw[->] (net) -- node[above,font=\scriptsize]{one matrix} (6.3,0);
+  % row sums -> logits
+  \begin{scope}[shift={(11.6,-1.05)}]
+    \draw (0,0) rectangle (0.7,2.1);
+    \foreach \yy in {0.42,0.84,1.26,1.68} \draw[gray!50] (0,\yy) -- (0.7,\yy);
+    \node[font=\scriptsize,align=center] at (0.35,2.45) {logits\\$f(x)$};
+  \end{scope}
+  \draw[->] (10.75,0) -- node[above,font=\scriptsize]{row sums}
+            node[below,font=\scriptsize]{(exact)} (11.55,0);
+\end{tikzpicture}
+\caption{\textbf{The knowledge matrix encodes the germ of the network function.} At almost every
+input, the network computes an affine map $x' \mapsto J x' + c$ on the surrounding linear
+region --- its germ (Definition~\ref{def:germ}). The knowledge matrix arranges this germ as
+one fixed-shape matrix
+$\mathrm{M}(x)=[\,J(x)\,\mathrm{diag}(x) \mid c(x)\,]$: its first $d$ columns are per-class
+gradient$\times$input contributions, its last column collects every bias term, and each row
+sums \emph{exactly} to the corresponding logit. Because column $i$ is scaled by $x_i$, the
+germ is \emph{recoverable} from the matrix at coordinates where $x_i\neq0$
+(Remark~\ref{rem:zero-pixels}); at $x_i=0$ that column vanishes. Everything in this paper
+follows from this picture: invariance (the germ does not change under reparameterisations that
+preserve the function), completeness (the germ is recoverable from the matrix where the input
+is nonzero), and the distance geometry
+(the row-sum constraint splits any matrix change into a function-visible part and a
+function-invisible remainder).}
+\label{fig:germ}
+\end{figure}

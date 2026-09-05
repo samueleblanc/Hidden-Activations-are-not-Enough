@@ -1,0 +1,15 @@
+% Requires: \usepackage{booktabs, amssymb}
+\begin{table}[t]
+\centering
+\caption{Theorem~4.5 summary across experiments. $\hat{\gamma}$ is the global distance lower-bound constant; $d_M/d_h$ shows the advantage of knowledge matrices over penultimate features.}
+\label{tab:theorem45_summary}
+\begin{tabular}{llcccc}
+\toprule
+Arch & Dataset & $\hat{\gamma}$ & $d_M/d_f$ & $d_h/d_f$ & $d_M/d_h$ \\
+\midrule
+Resnet152 & IMAGENET & 1.229 & 5.74 & 0.75 & \textbf{7.69} \\
+Densenet121 & IMAGENET & 1.137 & 5.10 & 0.34 & \textbf{15.14} \\
+Googlenet & IMAGENET & 0.916 & 5.17 & 0.33 & \textbf{15.88} \\
+\bottomrule
+\end{tabular}
+\end{table}

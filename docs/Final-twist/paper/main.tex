@@ -1,0 +1,64 @@
+% ============================================================================
+%  Hidden Activations are not Enough I — master file.
+%  This is a skeleton: packages/macros live in preamble.tex, and every section
+%  and appendix is its own file under sections/ (tables under tables/).
+% ============================================================================
+\documentclass[11pt,a4paper]{article}
+
+\input{preamble}
+
+% --- Title ---
+\title{Hidden Activations are not Enough~I:\\ Knowledge Matrices as Higher Representations}
+\author{Samuel Leblanc \and Aiky Rasolomanana \and Marco Armenta}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\input{sections/abstract}
+
+% REVIEW-ONLY master warning index — delete this \input (and the file) before submission.
+\input{sections/review_flags}
+
+% ===== Main matter (one file per section) =====
+\input{sections/introduction}        % §1  Introduction
+\input{sections/fig1_germ_identity}  %     Figure 1
+\input{sections/section_germ}        % §2  The knowledge matrix is the germ
+\input{sections/section_geometry}    % §3  Distance geometry in matrix space
+\input{sections/empirical_setup}     % §4  Experimental setup
+\input{sections/study1_invariance}   % §5  Study 1 — invariance
+\input{sections/study2_coherence}    % §6  Study 2 — coherence
+\input{sections/study4_cross_arch}   % §7  Study 3 — cross-architecture
+\input{sections/study3_visualization}% §8  Honest negatives
+\input{sections/limitations}         % §9  Limitations
+\input{sections/conclusion}          % §10 Conclusion
+
+% ===== Appendices (one file per appendix) =====
+\appendix
+\input{sections/appendix_proofs}      % Appendix A  Proofs
+\input{sections/appendix_engineering} % Appendix B  Computing the KM in software
+%   (anchors thm:weff and the main-text forward pointers \ref{app:engineering})
+
+% Appendix tables referenced from the studies.
+\input{tables/table_coherence_max}
+\input{tables/table_mechanism_pilot}
+\input{tables/s3_table}
+
+\input{sections/appendix_A_geometric} % Appendix C  Geometric supplement
+
+% Appendix D  Vocabulary for readers coming from algebra.
+%   Shared source: docs/vocab/ in the Neural-Networks-Matrices repository (HAaNE II),
+%   mirrored verbatim into sections/vocab/ -- re-sync with a plain cp; never edit the copy.
+%   \vocabdir must be set HERE, before the \input: LaTeX resolves \input against the
+%   pdflatex working directory (this one), not against the including file, and the
+%   selection file's own \providecommand default (../vocab) is written for a sibling mirror.
+%   appendix_vocab_I.tex inputs sections/vocab/vocab-macros itself and re-binds \KM, \vx,
+%   \vone to this paper's notation inside a group -- do NOT \input vocab-macros from
+%   preamble.tex: the re-binding has to stay scoped to the appendix.
+\providecommand{\vocabdir}{sections/vocab}
+\input{sections/vocab/appendix_vocab_I}
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}

@@ -1,0 +1,125 @@
+\section{Empirical setup}
+\label{sec:setup}
+
+This section fixes the shared apparatus --- networks, data, the knowledge-matrix
+construction, the distance metric, and the adversarial-attack suite --- used by
+all four studies. The per-study specifics (sample sizes, transform counts, attack
+budgets, similarity-measure settings) are stated step by step in each study
+section.
+
+\paragraph{Setting.}
+We work with pretrained feedforward networks $f \colon \R^d \to \R^C$.
+Inputs are ImageNet-normalised RGB tensors of shape $(3, 224, 224)$,
+so $d = 3 \cdot 224 \cdot 224 = 150{,}528$, and $C = 1000$ for the
+standard ImageNet head. Penultimate-layer activations are denoted
+$h(x) \in \R^D$, where $D = 2048$ for ResNet-152 and $D = 1024$ for
+DenseNet-121 and GoogLeNet.
+
+\paragraph{Architectures (the trio).}
+The studies of this paper are scoped to three pretrained
+\texttt{torchvision} networks --- ResNet-152, DenseNet-121, and GoogLeNet
+(with \texttt{aux\_logits=False}), loaded from the standard pretrained
+weights. We call these three the \emph{trio}; they are deliberately chosen
+to span the residual / dense / inception family triad common in
+vision-interpretability work, with different penultimate dimensionalities
+and different concatenation topologies, both of which interact with the
+constructions below. The attack-family ordering cross-check
+(Section~\ref{sec:study2}, Table~\ref{tab:ordering}) additionally enrols
+three further networks --- ResNet-18, AlexNet, and VGG --- as extra
+\emph{ordering-only} raters; these enter no coherence-magnitude statistic
+and no cross-architecture distance, and serve only to test whether the
+attack-family ranking is stable beyond the trio.
+
+\paragraph{The knowledge matrix.}
+For a network $f$ with parameters $W$ the knowledge matrix
+$\Mfx \in \R^{C \times (d+1)}$ is the per-sample matrix of
+Equation~\ref{eq:km-def}, built from the local affine map (Jacobian and
+bias) that $f$ realises on the activation region of $x$; its row sums
+reproduce the logits, $\M(W{,}f)(x)\,\mathbf 1_{d+1} = f(x)$. The
+construction is uniform across architectures: for any feedforward network
+on $224\times224$ ImageNet inputs with a 1000-class head, $\Mfx$ has the
+fixed shape $1000 \times 150{,}529$, which is what makes the
+cross-architecture comparison of Study~3 alignment-free.
+
+\paragraph{Distance metrics.}
+For knowledge matrices we use the Frobenius distance
+$\| \Mfx - \Mfxp \|_F$; for cross-architecture comparisons we report it
+RMS-per-coordinate (dividing the raw Frobenius norm by $\sqrt{C(d{+}1)}$),
+the canonical fair-comparison metric that strips the dimensionality
+inflation. For penultimate features we report two metrics, used for
+different purposes. Within a single architecture we use the absolute
+$\ell_2$ distance $\| h(x) - h(x') \|_2$. For cross-architecture
+comparisons (where penultimate dimensionalities differ), we use the
+RMS-per-dimension $\| h(x) - h(x') \|_2 / \sqrt{D}$, with the caveat
+that this is \emph{not} normalised by $\| h(x) \|_2$, so cross-arch
+rankings remain confounded by feature scale. We discuss the
+implications in Section~\ref{sec:limitations} (L7). For logits we use
+$\ell_2$.
+
+\paragraph{Adversarial-attack suite (Studies~2 and~1A).}
+Adversarial pairs are generated with the \texttt{torchattacks} library
+(\citealt{kim2020torchattacks}) using six attacks that span the standard
+families: FGSM~\citep{goodfellow2015explaining} (one-shot sign),
+PGD~\citep{madry2018towards} and APGD~\citep{croce2020reliable} (iterative
+$\ell_\infty$), CW~\citep{carlini2017towards} ($\ell_2$
+margin-optimising), DeepFool~\citep{moosavi2016deepfool} (minimal-norm
+boundary), and Square~\citep{andriushchenko2020square} (gradient-free,
+score-based). We keep \emph{all} clean/adversarial pairs (including
+attack-failure pairs). The per-cell medians of Study~2
+(Section~\ref{sec:study2}) are taken over the pairs passing a division
+guard, $d_f > 10^{-6}\max_i d_{f,i}$, a per-cell relative threshold that
+removes only pairs whose logits did not move; the stricter attack-success
+filter ($d_f \ge 1$, $d_M > 0$) is applied in the two analyses that keep
+per-pair records --- the mechanism pilot
+(Table~\ref{tab:mechanism-pilot}) and the appendix ordering panel
+(Table~\ref{tab:s3_ordering_panel}).
+The hyperparameters that depart from the \texttt{torchattacks}~3.5.1
+defaults are DeepFool \texttt{steps}$=200$ (DenseNet-121, GoogLeNet,
+ResNet-18) and \texttt{steps}$=100$ (ResNet-152, fewer steps suffice on its
+deeper loss curvature); APGD \texttt{steps}$=50$ with the DLR loss; and
+Square \texttt{n\_queries}$=20{,}000$. FGSM, PGD, and CW use the library
+defaults everywhere. These overrides are registered per experiment and
+cover only ResNet-152, DenseNet-121, GoogLeNet and ResNet-18: \textbf{AlexNet
+and VGG ran the \texttt{torchattacks}~3.5.1 defaults throughout} --- DeepFool
+\texttt{steps}$=50$, APGD \texttt{steps}$=10$ with the CE loss, Square
+\texttt{n\_queries}$=5{,}000$ --- so those two ordering-only raters
+face weaker attack budgets than the other four. The Phase-1 pair set behind
+Table~\ref{tab:s3_ordering_panel} uses its own budgets, which depart from the
+defaults on five of the six attacks: PGD \texttt{steps}$=7$, CW
+\texttt{steps}$=100$, DeepFool \texttt{steps}$=100$, APGD \texttt{steps}$=50$
+with the DLR loss, and Square \texttt{n\_queries}$=20{,}000$; only FGSM runs
+at the library default. The budgets are
+recorded in the generation scripts of our reproducibility package; the
+per-attack result JSONs store aggregates only and do not carry them.
+
+\paragraph{Library versions.}
+The knowledge matrix construction is implemented in the
+\texttt{knowledgematrix} library; we use the multi-architecture fork at
+\texttt{MarcoArmenta/knowledgematrix-cluster@fe64a13}, which stacks
+the \texttt{extract\_weff} + \texttt{densenet121} + \texttt{googlenet}
++ \texttt{resnet152} pull requests onto a long-lived branch.
+The \texttt{neuralteleportation} library
+(\citealt{armenta2024neural}) requires patches for PyTorch~2.x
+compatibility; the patch set is included in our reproducibility
+package. The row-sum identity
+(Equation~\ref{eq:km-def}) holds in exact arithmetic; in float32
+(eval mode) the residual stays within absolute tolerance
+$\le 10^{-2}$ relative to logit norm on every sample in our
+experiments (and reduces to $\sim10^{-10}$ at float64). Networks must
+be in eval mode throughout: active dropout desynchronises the
+construction passes and the row-sum identity then appears to fail at
+$\sim10^{-2}$.
+
+\paragraph{Hardware and reproducibility.}
+All experiments run on Compute Canada Alliance H100 GPUs (Rorqual,
+Nibi). Per-study sample sets are fixed and reproducible, but they are not all
+the same set. Studies~1 and~3 use the first $N$ ImageNet-validation images by
+sorted filename ($N=25{,}000$), and so does the full-scale Phase-1 pair set
+behind Table~\ref{tab:s3_ordering_panel}. The $200$-pair \textsc{theorem45}
+set behind Tables~\ref{tab:coherence}--\ref{tab:ordering} does not: it is
+\texttt{random.Random(42).sample} of $200$ indices from a $25{,}000$-image
+half of the validation set (split with a fixed generator seed). The two
+ordering panels are therefore computed on different images, and are read as
+independent cross-checks rather than as two views of one sample. The
+random-teleportation seeds are recorded in the
+per-run JSON files included with the reproducibility package.

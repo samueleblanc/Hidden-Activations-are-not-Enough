@@ -1,0 +1,152 @@
+\section{Limitations}
+\label{sec:limitations}
+
+We list, in decreasing order of importance for a reader of this paper,
+the concrete limitations that the experiments here \emph{do not} resolve.
+
+\paragraph{(L1) Neural teleportation is function-approximate, not function-exact.}
+Study~1B (Section~\ref{sec:study1b}) reports that the equivalence
+sanity check returns \texttt{argmax preserved $+$ logit drift > 1e-3}
+on every one of the 100 teleports across all three architectures. The
+maximum logit drift reaches $\sim 10^{-1}$ on ResNet-152 and stays
+under $4 \times 10^{-2}$ on DenseNet-121 and GoogLeNet, so the
+invariance theorem's hypothesis (an \emph{exact} per-neuron rescaling)
+does not hold and no knowledge-matrix table entry may be asserted from
+it. The most likely source is that BatchNorm running statistics
+($\mu_{\text{run}}, \sigma^2_{\text{run}}$) are not migrated under the
+change-of-basis transformation in \texttt{neuralteleportation}'s
+\texttt{random\_teleport}. All three architectures use BatchNorm; the
+deeper the network, the larger the cumulative drift. Because the
+hypothesis fails, we do \emph{not} assert the knowledge-matrix drift to
+be zero: we report it through the three-tier structure of
+Proposition~\ref{prop:visdrift}, so that the visible component is the
+\emph{measured} logit gate (the equality $\|(\M_\tau-\M)\mathbf{1}\| =
+\|f_\tau - f\|$, verified per pair) and the invisible component, which
+carries no gate bound (Theorem~\ref{thm:nogo}), is not estimated. A
+BN-aware extension of \texttt{random\_teleport} that also permutes /
+rescales the running statistics under the same change-of-basis matrices
+would tighten the gate from $\sim 10^{-2}$ toward $< 10^{-5}$ and make
+the comparison sharper; the qualitative conclusion is robust as stated.
+We list this as the highest-priority piece of follow-up engineering.
+
+\paragraph{(L2) The cross-architecture study omits the Cui/Murphy controls.}
+The cross-architecture comparison of Study~3 (Section~\ref{sec:study4})
+is reported \emph{without} the random-network control of
+\citet{cui2022deconfounded} or the shuffled-pair control of
+\citet{murphy2024debiased} that accompany the same nine measures in the
+single-architecture panel of Section~\ref{sec:study1c}: those controls
+were not run in the cross-architecture reduce and are pending. The
+cross-architecture numbers should therefore be read as establishing
+\emph{availability} --- that the fixed-shape knowledge matrix supports an
+alignment-free distance where penultimate measures require dimension
+matching --- and not as a control-calibrated quality ranking. Running
+the two controls on the cross-architecture pairs is mechanical follow-up
+that we defer.
+
+\paragraph{(L3) Single-region LP-counterfactual fails on ImageNet.}
+Study~3 (Section~\ref{sec:study3}) reports
+\emph{region\_ok = 0/54} on the box-constrained LP. The negative result
+is itself reportable, but it does close off a narrative path the paper
+might otherwise take (``KMs admit a clean adversarial-style
+counterfactual''). Two natural extensions: (i) add per-non-linearity
+constraints that keep $\delta$ inside the source's linear region (a
+much larger LP, likely infeasible for many class pairs on ImageNet but
+worth testing on simpler benchmarks); (ii) accept the multi-region
+nature and switch to a homotopy / continuation method that traces the
+boundary between consecutive linear regions. We do not pursue these
+here.
+
+\paragraph{(L4) Study~1A covers ResNet-152 only.}
+Permutation invariance is \emph{automatic} for the knowledge matrix ---
+a neuron permutation is a quiver isomorphism, and invariance under it
+follows by construction (Proposition~\ref{prop:perm}), not from a
+separately-earned property. Study~1A is therefore a numerical
+\emph{correctness check} of that prediction, not independent evidence,
+and the architecture coverage is correspondingly a software limit rather
+than a scientific one. The simple post-pool channel permutation in
+Study~1A does not compose through DenseNet's dense connectivity (where
+channels are produced by implicit concatenation of fixed-slice
+contributions from each \texttt{denselayer}) or GoogLeNet's
+Inception-block concat structure (where the four parallel branches
+contribute distinct channel counts). Study~1B's neural teleportation
+(\citealt{armenta2024neural}) operates on a more general
+change-of-basis structure that handles both topologies natively, so
+DenseNet-121 and GoogLeNet are tested under Study~1B rather than
+Study~1A. A concat-aware permutation that extends the 1A correctness
+check to all three architectures is straightforward in principle and is
+left as future work.
+
+\paragraph{(L5) Procrustes, Bures, and soft-matching benchmarks deferred to the applications companion.}
+Section~\ref{sec:study1c} reports a 9-measure panel
+(debiased linear CKA, angular CKA, Procrustes shape distance, Bures
+similarity, soft-matching, RSA-Spearman, output JSD, Gromov-Wasserstein,
+distance correlation) on the same teleportation pairs as
+Section~\ref{sec:study1b}, with random-network~\citep{cui2022deconfounded}
+and shuffled-pair~\citep{murphy2024debiased} controls, and
+Section~\ref{sec:study4} extends the panel to the cross-architecture
+setting.
+The Procrustes / Bures / soft-matching family of proper metrics on the
+orthogonal-quotient shape space~\citep{williams2021generalized,
+harvey2023bures, khosla2024soft} and Gromov-Wasserstein
+cross-modality comparisons~\citep{memoli2011gromov} merit deeper
+benchmarking --- multi-architecture sweeps including transformer
+families, the full ReSi protocol~\citep{klabunde2025resi}, and direct
+comparison to model stitching~\citep{bansal2021revisiting} --- which we
+defer to the separate, unnumbered applications companion.
+
+\paragraph{(L6) CNN-only.}
+We cover the residual / dense / inception family triad
+(ResNet-152, DenseNet-121, GoogLeNet). The underlying
+quiver-representation framework
+\citep{armenta2021representation,armenta2022double} applies to
+attention-based architectures as well, but the
+\texttt{knowledgematrix} library implementation we rely on does not
+yet support attention layers. Extension to transformers is library
+engineering rather than theory and is left as future work.
+
+\paragraph{(L7) Cross-architecture penultimate metric is confounded.}
+In Study~1B we report penultimate-feature drift in
+RMS-per-dimension form, $\| h(x) - h(x') \|_2 / \sqrt{D}$, to
+allow side-by-side display across architectures with different
+penultimate dimensionalities ($D = 2048$ for ResNet-152, $D = 1024$
+for DenseNet-121 and GoogLeNet). This metric is not normalised by
+$\| h(x) \|_2$, so absolute cross-architecture rankings reflect
+each network's penultimate-feature scale as much as its actual
+instability under teleportation. Within-architecture comparisons
+(train vs.\ test vs.\ random-input drift) remain valid; cross-arch
+rankings should be read with the metric caveat. We discuss this in
+a footnote in Study~1B.
+
+\paragraph{(L8) The coherence $A$ is a pixel-basis descriptor with underpowered cells.}
+The coherence $A = (d_f/d_M)^2$ of Theorem~\ref{thm:pyth} is a geometric
+descriptor read against the single-pixel reference line $A=1$, not a
+validated statistic tied to any decision-relevant outcome. Two caveats
+that belong in the prose rather than only in the table captions. First,
+$A$ is \emph{not} invariant under rotation of the input space: it is
+tied to the pixel basis, because $d_M$ is the displacement of $\M(x)$
+measured coordinate-wise, so the same pair of inputs viewed in a rotated
+input frame would give a different $A$. The reference lines ($A=1$,
+$A\le d$) are basis-independent statements about the geometry, but the
+per-attack \emph{magnitudes} carry the pixel basis with them. Second,
+the per-pair medians are read off uneven and sometimes small samples:
+each cell holds $200$ nominal pairs of which $110$--$200$ are valid (FGSM and
+PGD keep all $200$; the CW, DeepFool, APGD and Square cells keep $110$--$161$
+on every network but VGG, so those entries are low-$n$), and the per-pair median is
+exact only for odd valid-pair counts --- only $9$ of $36$ cells have odd
+counts, so the even-count cells (the DenseNet-121 column in particular)
+are interpolation-approximate. Third, the magnitudes are sensitive to the
+filtering convention: on the three cells that retain per-pair records
+(VGG/APGD, VGG/DeepFool, VGG/Square) replacing the division guard by the
+stricter attack-success filter moves the median $d_M/d_f$ by $-12\%$ to
+$-39\%$, and VGG/APGD crosses the $A=1$ line. The Kendall-$W$ attack-family
+ordering is a separate, standalone finding and does not inherit the
+sample-size or basis caveats; it is not wholly free of the filter caveat
+either, since that same recut reorders VGG's top two (CW ahead of
+DeepFool), though the family-level grouping --- the level at which we state
+the finding --- survives it on every rater we can test. The per-cell
+coherence magnitudes inherit all three.
+
+\paragraph{(L9) Fixed pretrained networks only.}
+All comparisons here are between fixed pretrained networks; population
+statistics across training runs, seed-to-seed baselines and trajectories
+are out of scope and are treated in HAaNE~II.

@@ -1,0 +1,29 @@
+% Mechanism pilot (Prop. 7.9): coherence A = (d_f/d_M)^2 vs endpoint mask-Hamming H
+% (ReLU flips + maxpool argmax mismatches), VGG/ImageNet, per adversarial pair.
+% Attack-success filter applied (d_f >= 1, d_M > 0): 29.5% (APGD, Square: 59/200) to 33.0%
+% (DeepFool: 66/200) of stored pairs are attack-failure pairs that otherwise dominate and flip
+% the sign. The failure SETS are not identical across attacks (verified 2026-09-05): APGD's and
+% Square's coincide exactly, and DeepFool's is a strict superset of them (7 extra pairs).
+\begin{table}[t]
+\centering\small
+\begin{tabular}{lcccccc}
+\toprule
+ & & & & \multicolumn{3}{c}{median $A$ by $H$-tertile} \\
+attack & $n$ & $\rho_S(H,A)$ & $\rho_S(H,A \mid d_f)$ & low & mid & high \\
+\midrule
+APGD & 141 & -0.45 & \textbf{-0.34} & 1.46 & 1.03 & 0.835 \\
+DeepFool & 134 & +0.44 & \textbf{-0.30} & 0.0227 & 0.0886 & 0.104 \\
+Square & 141 & +0.13 & \textbf{-0.34} & 0.0943 & 0.116 & 0.118 \\
+\bottomrule
+\end{tabular}
+\caption{First direct test of the smooth+crossing mechanism (per-pair VGG debug data).
+Raw rank correlations between crossing count $H$ and coherence $A$ are size-confounded
+(larger perturbations cross more walls \emph{and} displace logits more); controlling for
+perturbation size via $d_f$, the partial rank correlation is negative for all three attacks
+--- crossings reduce coherence, as the anatomy theorem predicts (crossing dyads carry
+knowledge-matrix mass with zero logit displacement). $H$ lower-bounds the segment crossing
+count. Pilot caveats: single architecture; $d_f$ is a proxy for $\|\delta\|$ (the exact
+control lives in \texttt{pairs.pth}); the full-trio, $\|\delta\|$-controlled replication is
+experiment D4, whose analysis plan this pilot fixes.}
+\label{tab:mechanism-pilot}
+\end{table}

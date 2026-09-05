@@ -1,0 +1,21 @@
+% Requires: \usepackage{booktabs, amssymb}
+\begin{table}[t]
+\centering
+\caption{Theorem~4.5 validation for Googlenet: knowledge matrix distances lower-bound logit distances ($\|M(x) - M(x')\| \geq \gamma \cdot \|f(x) - f(x')\|$). $d_M/d_h > 1$ shows KMs amplify more than penultimate features.}
+\label{tab:theorem45_googlenet_imagenet}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lccccc}
+\toprule
+Attack & $\hat{\gamma}$ & $d_M/d_f$ & $d_h/d_f$ & $d_M/d_h$ & $\gamma$ 95\% CI \\
+\midrule
+FGSM & 2.235 & 4.47 & 0.32 & \textbf{14.16} & [2.235, 2.686] \\
+PGD & 1.066 & 2.22 & 0.33 & \textbf{6.76} & [1.066, 1.199] \\
+CW & 2.577 & 5.20 & 0.32 & \textbf{16.02} & [2.577, 3.035] \\
+DeepFool & 2.751 & 9.64 & 0.33 & \textbf{29.04} & [2.751, 3.539] \\
+APGD & 0.916 & 2.10 & 0.32 & \textbf{6.60} & [0.916, 1.142] \\
+Square & 3.414 & 7.40 & 0.34 & \textbf{22.04} & [3.414, 3.695] \\
+\midrule
+Overall & 0.916 & 5.17 & 0.33 & \textbf{15.88} & --- \\
+\bottomrule
+\end{tabular}}
+\end{table}

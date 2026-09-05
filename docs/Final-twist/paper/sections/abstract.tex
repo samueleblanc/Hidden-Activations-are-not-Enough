@@ -1,0 +1,41 @@
+\begin{abstract}
+The penultimate activations of a trained network are widely used as a
+per-sample representation, yet they are not invariants of its function:
+the same function admits infinitely many parameterisations with
+differing activations, so penultimate features are gauge-covariant
+rather than function-determined (Theorem~\ref{thm:complete}).
+We study \emph{knowledge matrices} (KMs), the $C\times(d{+}1)$
+per-sample object from a feedforward network's quiver representation
+\citep{armenta2021representation}, as a \emph{higher} representation of
+piecewise-linear networks --- ``higher'' meaning situated above the
+gauge orbit of activations, i.e.\ determined by the realised function
+germ. The knowledge matrix has fixed shape $C\times(d{+}1)$ for any
+feedforward network, an exact row-sum $\Mfx\,\mathbf 1 = f(x)$, and is
+invariant under the entire stabiliser of the realised function germ
+(Theorem~\ref{thm:maxinv}), with neuron permutation as one special case
+(Proposition~\ref{prop:perm}). For PL networks the KM equals per-class
+gradient$\times$input plus an exact aggregate bias attribution
+(Theorem~\ref{thm:weff}); we own this as a positive characterisation ---
+an equivalence shared with gradient-based attributions that grounds the
+object in established attribution theory --- and use it to compute the
+KM by $C$ vector--Jacobian products ($50$--$150\times$ cheaper than
+probing at ImageNet scale; $296\times$ measured on CPU). We demonstrate
+two positives. First, permutations leave the KM at $0.1$--$0.2\%$ of its
+adversarial signal, while penultimate drift is of its own signal's order
+(below $1\times$ in $16$ of $24$ cells). Second, because the shape is
+fixed, the KM Frobenius distance compares ResNet-152, DenseNet-121, and
+GoogLeNet directly with no alignment step --- the KM is both alignment-free
+and logit-commensurable, where the CKA/Procrustes/Bures family requires
+dimension matching and the cross-dimensional measures are incommensurable
+with logit distance. Its row-sum identity also gives an
+orthogonal displacement decomposition with a unit-free coherence
+$A=(d_f/d_M)^2$ (Theorem~\ref{thm:pyth}), read against reference lines
+$A{=}1$ (single-pixel) and $A\le d$: adversarial pairs move the germ
+with median $A\le0.23$, and their attack-family ordering is stable
+across architectures (Kendall $W=0.921$). We are deliberate about what
+this does not establish: ``higher'' carries \emph{no} connotation of
+superiority --- our own detector bake-off finds penultimate features
+winning $5$ of $6$ configurations, and a matrix-direction counterfactual
+fails $0/54$ --- both reported as honest negatives on standard
+pretrained ResNet-152, DenseNet-121, and GoogLeNet.
+\end{abstract}

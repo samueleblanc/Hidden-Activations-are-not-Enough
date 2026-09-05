@@ -1,0 +1,40 @@
+% Auto-generated from local theorem45 result JSONs (provenance: study2_tables_data.json).
+% Coherence A = (d_f/d_M)^2 = (d+1) rho_vis, per adversarial pair; median over the guarded pairs (see below).
+% Reference lines (Thm: one-pixel law / within-region cap): A = 1 is the coherence of a single-pixel
+% within-region perturbation; A <= d is the within-region maximum. Median computed from the stored
+% per-pair ratio median (exact for odd valid-pair counts; interpolation gap below quoting precision otherwise).
+% Every cell: theorem45 reduce, N = 200 nominal pairs, median over the pairs passing the division guard
+% d_f > max(1e-12, 1e-6 * max_i d_f_i) (validate_theorem45.py:643-645); the stricter attack-success filter
+% (d_f >= 1, d_M > 0) is NOT applied to these medians. Cell sizes verified 2026-09-04, guard re-verified
+% 2026-09-05 by scripts/regen_ordering_tables.py. The SHIPPED reduce files hold per-cell aggregates only
+% (nothing strips per-pair data; those files predate the current worker and also lack the four
+% amplification_{M,h}_{std,iqr} keys it writes), so these medians cannot be given bootstrap CIs from disk; on the
+% three VGG cells that do retain per-pair records the stricter filter moves the median d_M/d_f by
+% -12% / -39% / -12% (APGD / DeepFool / Square) -- disclosed in Section 5, not applied here.
+\begin{table}[t]
+\centering\small
+\begin{tabular}{lcccccc}
+\toprule
+attack & ResNet-152 & DenseNet-121 & GoogLeNet & ResNet-18 & AlexNet & VGG \\
+\midrule
+FGSM & 0.0303 & 0.0606 & 0.05 & 0.0932 & 0.453 & 0.191 \\
+PGD & 0.0998 & 0.216 & 0.203 & 0.338 & 1.72 & 1.25 \\
+CW & 0.0239 & 0.0272 & 0.037 & 0.0547 & 0.168 & 0.0619 \\
+DeepFool & 0.0164 & 0.01 & 0.0108 & 0.015 & 0.099 & 0.0255 \\
+APGD & 0.113 & 0.192 & 0.228 & 0.229 & 1.28 & 0.837 \\
+Square & 0.0146 & 0.0273 & 0.0183 & 0.0373 & 0.228 & 0.0834 \\
+\bottomrule
+\end{tabular}
+\caption{Median coherence $A=(d_f/d_M)^2$ of adversarial knowledge-matrix motion ($d{+}1=150{,}529$;
+$\rho_{\mathrm{vis}}=A/(d{+}1)$). $A=1$ is the single-pixel coherence line; $A\le d$ the within-region cap.
+On the deep ImageNet trio every attack family sits at $A\le0.23$ --- germ motion less coherent than a
+single within-region pixel --- with the iterative-PGD family consistently the most coherent; only on
+the shallowest network (AlexNet) does the PGD family cross the one-pixel line.
+\emph{Caveat (median interpolation):} the per-pair median is exact only for odd valid-pair counts; only
+$9/36$ cells are odd-count/exact, so even-count cells (the DenseNet-121 column in particular) are
+interpolation-approximate. \emph{Caveat (cell sizes):} each cell holds $200$ nominal pairs, of which $110$--$200$
+are valid; FGSM and PGD keep all $200$, while the CW, DeepFool, APGD and Square cells keep $149$--$161$
+(ResNet-152), $150$--$152$ (DenseNet-121), $120$--$123$ (GoogLeNet), $140$--$141$ (ResNet-18), $110$ (AlexNet)
+and $198$--$200$ (VGG), so read those cells as low-$n$.}
+\label{tab:coherence}
+\end{table}

@@ -1,0 +1,248 @@
+% ============================================================================
+% Drop-in replacement for the paper's mathematical core (new Sections 2-3).
+% Requires theorem environments: theorem, proposition, lemma, corollary,
+% conjecture, remark (numbered within section), and \R, \M macros:
+%   \newcommand{\R}{\mathbb{R}}  \newcommand{\M}{\mathrm{M}}
+% All proofs are in appendix_proofs.tex (\appendixproofs labels).
+% Every numbered statement below was verified numerically (float64, machine
+% precision) by two independent adversarial verification agents; see the
+% reproducibility note in the appendix.
+% ============================================================================
+
+\section{The knowledge matrix is the germ of the network function}
+\label{sec:germ}
+
+Throughout, $f(\theta,\cdot):\R^d\to\R^C$ is a feedforward network with
+piecewise-linear (PL) components at inference time --- ReLU-family activations,
+affine layers (convolutions, batch normalisation in evaluation mode), and
+max/average pooling; this covers every architecture in our experiments. Write
+$D^{(\ell)}(x)$ for the $0/1$ activation masks at input $x$,
+$J(\theta,x)=W^{(L)}D^{(L-1)}(x)\cdots D^{(1)}(x)W^{(1)}$ for the masked-product
+Jacobian, and $c(\theta,x)$ for the accumulated bias; on the activation region
+of $x$ the network is the affine map $x'\mapsto Jx'+c$. The knowledge matrix is
+\begin{equation}
+\M(\theta,x)\;=\;\bigl[\,J(\theta,x)\,\mathrm{diag}(x)\;\big|\;c(\theta,x)\,\bigr]
+\;\in\;\R^{C\times(d+1)},
+\qquad
+\M(\theta,x)\,\mathbf 1_{d+1}\;=\;f(\theta,x)
+\quad\text{(exact, at every $x$)} .
+\label{eq:km-def}
+\end{equation}
+
+We first fix the object that the knowledge matrix records. Call
+$X_{\mathrm{reg}}\subseteq\R^d$ the \emph{regular set} of inputs whose
+activation pattern is locally constant; it is open, dense, and of full
+Lebesgue measure (Lemma~\ref{lem:null}), and on it the network coincides with a
+single affine map on a neighbourhood of each point.
+
+\begin{definition}[Germ of a PL network]\label{def:germ}
+Let $f(\theta,\cdot):\R^d\to\R^C$ be piecewise linear and let $x\in
+X_{\mathrm{reg}}$. Two functions agreeing on \emph{some} neighbourhood of $x$
+define the same \emph{germ} at $x$; the germ of $f$ at $x$ is the equivalence
+class of $f$ under this relation. Because $f$ is affine on a neighbourhood of
+$x$, this class is represented by the local affine pair
+$\bigl(J(\theta,x),\,c(\theta,x)\bigr)$ with $f(x')=J(\theta,x)\,x'+c(\theta,x)$
+for all $x'$ near $x$; equivalently, by the first-order Taylor data
+$\bigl(Df(x),\,f(x)\bigr)$ since $J(\theta,x)=Df(x)$ and $c(\theta,x)=f(x)-Df(x)\,x$.
+The germ depends on $\theta$ only through the function $f(\theta,\cdot)$ realises
+locally, not through how $\theta$ encodes it. Throughout, ``germ'' means this
+local affine pair.
+\end{definition}
+
+\begin{theorem}[Germ identity]\label{thm:germ}
+Let $X_{\mathrm{reg}}\subseteq\R^d$ be the (open, dense, full-measure) set of
+inputs whose activation pattern is locally constant. For every $x\in
+X_{\mathrm{reg}}$, $f(\theta,\cdot)$ is affine on a neighbourhood of $x$ and
+\[
+J(\theta,x)=Df(x),\qquad c(\theta,x)=f(x)-Df(x)\,x,\qquad
+\M(\theta,x)=\bigl[\,Df(x)\,\mathrm{diag}(x)\;\big|\;f(x)-Df(x)\,x\,\bigr].
+\]
+In particular $\M(\theta,x)$ depends on $\theta$ only through the germ of the
+realised function at $x$. At boundary points the identity
+$\M\mathbf 1=f(x)$ still holds exactly, and the mask convention
+$\mathbb 1[z>0]$ selects the one-sided germ from the inactive side.
+\end{theorem}
+
+\begin{remark}[Where the columns vanish]\label{rem:zero-pixels}
+Column $i$ of $\M(x)$ is $J_{:,i}\,x_i$: on $\{x_i=0\}$ it vanishes
+identically, so the $i$-th germ column is not recoverable from $\M(x)$ there.
+This set is Lebesgue-null but has \emph{positive probability} under raw image
+data; the condition must be checked on the preprocessed input the network
+sees. The variant $W_{\mathrm{eff}}(x)=[\,J\mid c\,]$ recovers the germ with no
+condition on $x$. Invariance (Theorem~\ref{thm:maxinv}) needs no such
+hypothesis; germ \emph{recovery} (Theorem~\ref{thm:complete}(i)) does.
+\end{remark}
+
+\subsection{Invariance: the largest possible group}
+\label{sec:invariance}
+
+The knowledge matrix is built functorially from the quiver representation of
+the network \citep{armenta2021representation,armenta2022double}, and this fixes
+the invariance picture before any analysis. Two sources of invariance must be
+kept apart, because they need entirely different machinery.
+
+\emph{Quiver isomorphisms} act on a network without changing the underlying
+quiver representation up to isomorphism: relabelling (permuting) the neurons in
+a hidden layer and rescaling them by nonzero per-neuron factors. Each induces
+an isomorphism of quiver representations, and the knowledge matrix --- being a
+functorial construction on that representation --- is invariant by
+construction. This is one telescoping lemma, stated next; positive rescalings
+(the ReLU case of Thms.~4.1--4.2 of the original version, after
+\citealp{armenta2021representation}) and neuron permutations are \emph{both}
+elements of this group and are covered by it identically. We do \emph{not}
+attribute permutation invariance to Thms.~4.1--4.2: those theorems are about
+rescalings, and permutation invariance is a separate special case of the same
+quiver-isomorphism principle, not a corollary of them.
+
+\emph{Function-preserving changes that are not quiver isomorphisms} --- dead-unit
+insertion, neuron splitting, and above all moving to a \emph{different
+architecture} that realises the same function near $x$ --- lie in the full
+stabiliser of the germ but outside the quiver-isomorphism group. Invariance
+under these is exactly what is \emph{not} automatic, and it is the genuinely
+novel content of the germ identity (Theorem~\ref{thm:maxinv}): the matrix
+depends on $\theta$ only through the germ of Definition~\ref{def:germ}, so any
+two encodings of the same local function --- however different their graphs ---
+produce the same matrix.
+
+\begin{lemma}[Quiver-isomorphism invariance]\label{lem:quiver-inv}
+Let $\theta'$ be obtained from $\theta$ by a quiver isomorphism: a hidden-layer
+neuron permutation, a nonzero per-neuron rescaling, or any composite thereof,
+with the per-neuron activations carried with their units. Then
+$\M(\theta',x)=\M(\theta,x)$ for every $x\in\R^d$ at which both networks have a
+well-defined secant decomposition, by the conjugation/telescoping of the slope
+products and bias accumulators (proof of Proposition~\ref{prop:perm}; positive
+rescalings telescope by the same argument).
+\end{lemma}
+
+\begin{theorem}[Maximal invariance: across architectures]\label{thm:maxinv}
+Let $N_1,N_2$ be any two PL networks --- any architectures, widths, depths,
+parameters --- realising the same function on a neighbourhood of
+$x\in X_{\mathrm{reg}}(N_1)\cap X_{\mathrm{reg}}(N_2)$. Then
+$\M_1(x)=\M_2(x)$. Consequently $\M(\cdot)(x)$ is invariant under the
+\emph{entire stabiliser} of the realised germ (Definition~\ref{def:germ}) ---
+the largest group under which any function-level observable can possibly be
+invariant. The cross-architecture case is the proper payload of this theorem:
+it is \emph{not} a quiver isomorphism (Lemma~\ref{lem:quiver-inv}) and could
+not follow from it.
+\end{theorem}
+
+\begin{proposition}[Permutation invariance, every input]\label{prop:perm}
+Neuron permutation is a quiver isomorphism, so $\M$-invariance under it is
+immediate from Lemma~\ref{lem:quiver-inv}; the only non-automatic content is its
+\emph{scope}. The telescoping needs elementwise (neuron-wise equivariant)
+activations, so that the permutation matrix $P$ commutes with the nonlinearity
+$\varphi$; non-equivariant vector activations are excluded. Within that scope,
+for hidden-layer permutations (weights conjugated, neuron-wise activations
+carried with the units), $\M(\theta^\pi,x)=\M(\theta,x)$ for \emph{every}
+$x\in\R^d$, including region boundaries, under the secant convention. The scope
+is sharp: for activations with $\varphi(0)\neq0$ the row-sum identity itself can
+fail on the measure-zero set $\{z=0\}$ (where $P$ no longer commutes with the
+constant offset $\varphi(0)$).
+\end{proposition}
+
+So permutations and positive rescalings telescope identically; neither is the
+``gap'' --- both are quiver isomorphisms. \emph{Function-preserving surgery}
+(dead-unit insertion, neuron splitting, architecture change) is the part that
+genuinely needs the germ identity, and is covered at generic $x$ by
+Theorem~\ref{thm:maxinv}. Genericity is not removable: the
+identity map and $g(x)=\mathrm{ReLU}(x-1)-\mathrm{ReLU}(1-x)+1\equiv x$ have
+$\M_{\mathrm{id}}(1)=[\,1\mid 0\,]\neq[\,0\mid 1\,]=\M_g(1)$ at the kink (equal
+row sums). Conversely, the stabiliser is strictly larger than the isomorphism
+group (Proposition~\ref{prop:contraction}), so $\M$ cannot determine a network
+up to isomorphism --- a feature for robustness claims, a boundary for inverse
+problems.
+
+\subsection{Completeness: the title claim, as a theorem}
+\label{sec:completeness}
+
+\begin{theorem}[Hidden activations are not enough]\label{thm:complete}
+\emph{(i)} For $x\in X_{\mathrm{reg}}$ with all $x_i\neq0$, $\M(x)$ determines
+the germ $(J,c)$ of $f$ at $x$. \emph{(ii)} The field $x\mapsto\M(x)$
+determines $f$ exactly on any set ($f=\M\mathbf 1$ pointwise), and globally
+when the set has full measure; on a mere open set it does \emph{not} determine
+$f$ beyond the closures of the regions it meets (sharp: $\mathrm{ReLU}(x{-}1)$
+and $\mathrm{ReLU}(x)$ have identical fields on $(-1,0)$).
+\emph{(iii)} Hidden activations are gauge-covariant: under a positive
+per-neuron rescaling, $a_v\mapsto\tau_v a_v$ while the function is unchanged
+--- any activation statistic that is not gauge-invariant is not a function of
+$(f,x)$. \emph{(iv)} Hidden activations are germ-incomplete: for any $x$ with
+strict masks, $Df(x)\neq0$, and at least one hidden layer, there are
+arbitrarily small parameter changes that leave \emph{every} hidden pre- and
+post-activation at $x$ and the output $f(x)$ unchanged while changing the germ
+--- hence changing $f$ on every neighbourhood of $x$, and changing $\M(x)$.
+\end{theorem}
+
+Parts (iii) and (iv) together are the precise form of the title: activations
+are neither invariant (two networks, same function, different activations
+everywhere) nor complete (two networks, identical activations at $x$,
+different functions near $x$). The pair $(D(x),\M(x))$ is both --- a complete,
+gauge-invariant record of the computation's germ, with the completeness
+hypothesis ($x_i\neq0$) stated by Remark~\ref{rem:zero-pixels}.
+
+\subsection{Relation to attribution methods}
+\label{sec:attribution}
+
+\begin{theorem}[Knowledge matrix $=$ gradient$\times$input $\oplus$ bias attribution]\label{thm:weff}
+For PL networks at $x\in X_{\mathrm{reg}}$ (no pooling ties), the first $d$
+columns of $\M(x)$ are exactly per-class gradient$\times$input,
+$\M_{:,i}(x)=(\partial f/\partial x_i)\,x_i$, and the last column is the raw,
+signed, class-resolved aggregate of the network's bias attributions,
+$c=\sum_\ell(\partial f/\partial b^{(\ell)})\,b^{(\ell)}$. Hence $\M(x)$ equals
+per-class gradient$\times$input augmented by an exact aggregate bias column. The
+same matrix is computed by several equivalent routes (masked product, the probe
+construction, and autograd), detailed in Appendix~\ref{app:engineering}.
+\end{theorem}
+
+\textbf{We own this equivalence as a strength.} For PL networks at almost every
+input, the knowledge matrix coincides, column for column, with per-class
+gradient$\times$input \citep{shrikumar2016not,ancona2018towards} augmented by a
+per-class aggregate bias attribution in the sense of FullGrad
+\citep{srinivas2019full}; the per-region affine operator itself is the object of
+the spline view of deep networks \citep{balestriero2018spline} and of Jacobian
+analyses of bias-free denoisers \citep{mohan2020robust}. We therefore flag, as a
+load-bearing premise of everything below: \emph{every function-level property of
+$\M$ on PL nets --- invariance, completeness, fixed shape, exact row sums --- is
+shared by that gradient$\times$input data, not specific to the knowledge
+matrix.} This is not a concession but a foothold: it grounds the construction in
+established attribution theory, supplies its exact completeness identity, and is
+what makes the vector--Jacobian-product computation of Appendix~\ref{app:engineering}
+possible. What the knowledge matrix adds over the same data is not a new
+pointwise invariant but a \emph{canonical arrangement}: one fixed-shape matrix
+per input with exact row-sum accounting (the basis of
+Section~\ref{sec:geometry}), comparable across architectures without neuron
+alignment, with a path-resolved quiver-representation lift above it
+\citep{armenta2021representation,armenta2022double} and a secant extension to
+non-PL activations where gradient attributions satisfy no exact completeness
+identity. Computation of $\M$ --- the probe construction, the $C$
+vector--Jacobian-product route, the measured speed-up, and numerical validation
+--- is deferred to Appendix~\ref{app:engineering}.
+
+\begin{remark}[The quiver lift is scaffolding for future work, not machinery of this paper]
+\label{rem:series-positioning}
+Every result in this paper --- the germ identity (Theorem~\ref{thm:germ}), maximal
+invariance (Theorem~\ref{thm:maxinv}), completeness (Theorem~\ref{thm:complete}),
+and the entire distance geometry of Section~\ref{sec:geometry} --- follows from
+the germ alone, i.e.\ from the chain rule on the active region. We use the
+path-resolved quiver representation nowhere in this paper; the knowledge matrix is a
+\emph{contraction} of it (Proposition~\ref{prop:contraction}). We state this
+plainly rather than leave it as an invited objection: the quiver representation
+strictly refines the matrix --- it separates functionally identical but
+non-isomorphic networks that the matrix identifies --- and it is the object of
+future work where that finer information is needed. In this paper it
+is scaffolding for the construction, not a load-bearing tool.
+\end{remark}
+
+\begin{proposition}[The per-input contraction is exactly what is lost]
+\label{prop:contraction}
+There exist same-architecture ReLU networks, functionally identical --- hence
+with $\M_A(x)=\M_B(x)$ for every $x$ --- that are non-isomorphic, with
+distinct path-value multisets; the path-resolved quiver representation
+distinguishes them, the matrix cannot. On the identifiable architecture class
+of \citet{phuong2020functional} (and within general networks of the same
+architecture), knowledge-matrix-field equality is equivalent to
+permutation$\times$positive-rescaling equivalence; for general architectures
+the fibre question is open and connects to functional dimension
+\citep{grigsby2022functional} and the neuromanifold fibres of
+\citet{flinth2026fibers}.
+\end{proposition}
+

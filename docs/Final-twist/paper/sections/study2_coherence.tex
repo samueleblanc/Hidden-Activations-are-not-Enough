@@ -1,0 +1,183 @@
+% ---------------------------------------------------------------------------
+% STUDY 2 — replaces the gamma / amplification framing
+% ---------------------------------------------------------------------------
+\section{Study 2: the coherence of adversarial germ motion (A4)}
+\label{sec:study2}
+\label{sec:A4}
+
+\paragraph{Why it matters.}
+Theorem~\ref{thm:pyth} splits any knowledge-matrix displacement into a
+logit-\emph{visible} part (what the function does differently) and a
+logit-\emph{invisible} part (how the germ restructures without moving the
+output). This study reads adversarial perturbations through that split: it
+asks how much of an attack's matrix motion is visible to the logits, and
+whether the answer organises by attack family --- a question only the
+exact row-sum geometry of the knowledge matrix can pose precisely.
+
+\paragraph{Setup.}
+Architectures: the trio (ResNet-152, DenseNet-121, GoogLeNet) for the
+headline coherence, plus the three extra ordering-only raters (ResNet-18,
+AlexNet, VGG) for the cross-architecture concordance, six in total. Attacks:
+the six-attack suite of Section~\ref{sec:setup}. Inputs: for each
+(architecture, attack) cell we generate clean/adversarial \emph{pairs} and
+record the matrix and logit displacements $(d_M, d_f)$ per pair; we report
+the median over the pairs passing a division guard,
+$d_f > 10^{-6}\max_i d_{f,i}$ --- a \emph{per-cell relative} threshold that
+discards only pairs on which the attack left the logits numerically
+unmoved, not an attack-success criterion. Each cell holds $200$ nominal
+pairs, of which $110$--$200$ pass it: FGSM and PGD keep all $200$ on every
+network, while CW, DeepFool, APGD and Square keep $149$--$161$ on
+ResNet-152, $150$--$152$ on DenseNet-121, $120$--$123$ on GoogLeNet,
+$140$--$141$ on ResNet-18, $110$ on AlexNet and $198$--$200$ on VGG, so those
+cells should be read as low-$n$. The appendix panel
+(Table~\ref{tab:s3_ordering_panel}) recomputes the trio's ordering on the
+full-scale Phase-1 pair set (a different image set), with the cells matched
+on a common image population because one cell was truncated. The coherence statistic is
+$A = (d_f/d_M)^2$, read against two theorem-given reference lines:
+$A = 1$, the exact coherence of any single-pixel within-region
+perturbation (Theorem~\ref{thm:within}(ii)), and $A \le d$, the
+within-region maximum.
+
+\paragraph{Procedure.}
+\begin{enumerate}
+\item For each (architecture, attack) generate clean/adversarial pairs.
+\item For each pair compute $\M(x)$, $\M(x')$, the matrix displacement
+$d_M = \|\M(x')-\M(x)\|_F$, and the logit displacement
+$d_f = \|f(x')-f(x)\|$.
+\item Apply the division guard $d_f > 10^{-6}\max_i d_{f,i}$; compute the
+per-pair coherence $A = (d_f/d_M)^2$. (The stricter attack-success filter
+$d_f \ge 1$, $d_M > 0$ is a different, far more aggressive cut, and is used
+only in the two analyses that hold per-pair records: the mechanism pilot and
+the appendix panel. On VGG the guard drops $2$ of $200$ pairs, whereas
+$64/200$ DeepFool and $57/200$ APGD pairs sit in $0 < d_f < 1$ and would be
+cut by the stricter filter.)
+\item Report the per-cell median $A$ (Table~\ref{tab:coherence}) and the
+per-architecture attack-family ordering by median $d_M/d_f$
+(Table~\ref{tab:ordering}; the trio cross-check is
+Table~\ref{tab:s3_ordering_panel}).
+\end{enumerate}
+
+\input{tables/table_coherence}
+\input{tables/table_ordering}
+
+\paragraph{What we measure and the claim it licenses.}
+Coherence $A$ is a \emph{geometric descriptor} of how an attack moves the
+germ, read against the single-pixel line $A = 1$ and the within-region
+cap $A \le d$. We do not tie it to any decision-relevant quantity: it is
+not a detectability statistic and is not invariant to input rotation (it
+is tied to the pixel basis). The attack-family \emph{ordering} of $A$,
+by contrast, is a genuine standalone finding (a concordance across raters)
+and does not borrow its credibility from the magnitude of $A$.
+
+\paragraph{Result.}
+Three findings. \emph{First}, on the deep ImageNet trio every attack
+family moves the germ with less than a quarter of single-pixel coherence
+(median $A\le0.23$): read descriptively against the reference lines,
+adversarial perturbations are overwhelmingly function-invisible germ
+restructuring, in the precise sense of Theorem~\ref{thm:pyth}. These
+medians are point estimates without bootstrap CIs: the reduce behind
+Table~\ref{tab:coherence} kept only per-cell aggregates, so putting CIs on
+them means re-running the pairs, not resampling a stored file (the appendix
+panel, whose per-pair ratios \emph{are} stored, does carry them). They are
+also sensitive to the filtering convention. On the three cells that retain
+per-pair records --- VGG/APGD, VGG/DeepFool, VGG/Square --- replacing the
+division guard by the stricter attack-success filter ($d_f\ge1$, $d_M>0$)
+moves the median $d_M/d_f$ by $-12\%$, $-39\%$ and $-12\%$ respectively,
+enough to swap VGG's top two (CW ahead of DeepFool) and to carry VGG/APGD
+across the $A=1$ line ($0.84 \to 1.09$); the family-level grouping is
+unchanged. We report the tables under one convention and disclose the
+sensitivity rather than re-cutting them. \emph{Second}, the
+attack-family ordering is stable across architectures. Across all six
+raters it is concordant at Kendall $W=0.921$ (permutation $p<10^{-6}$;
+leave-one-out Spearman $0.77$--$0.99$, Table~\ref{tab:ordering}), with the
+family-level structure
+$\{$DeepFool, CW, Square$\}>$ FGSM $\gg\{$PGD, APGD$\}$ in $d_M/d_f$ ---
+the iterative-PGD family produces the most \emph{coherent} (least
+amplifying) germ motion. The two gaps differ in size: the top family leads
+FGSM by $1.13$--$1.51\times$, while FGSM leads $\max\{$PGD, APGD$\}$ by
+$1.57$--$2.09\times$. The appendix panel
+(Table~\ref{tab:s3_ordering_panel}), which recomputes the trio's ordering on
+the full-scale Phase-1 pair set, reproduces this family-level grouping on
+all three architectures (trio Kendall $W=0.97$, exact permutation
+$p=3.1\times10^{-5}$; the trio rows of Table~\ref{tab:ordering} give $0.91$).
+We do not read the panel as agreeing \emph{better} than those rows: three
+raters give $W$ almost no resolving power against a difference this size, the
+two are computed on different image sets, and the per-cell sampling
+uncertainty below is wide enough to move either. That agreement depends on
+matching the cells to a common image population: the ResNet-152 DeepFool run
+stopped at $512$ of $1000$ pairs, and comparing the six ResNet-152 cells at
+face value --- across different image populations --- moves CW by $+12.9\%$
+and Square by $+8.5\%$ against untruncated cells that move by under $1\%$,
+which is enough to invert CW and FGSM spuriously. Within the matched panel
+the leading ResNet-152 cells are not separated by the data: a seeded
+bootstrap over pairs reads DeepFool $\approx$ Square $\approx$ CW $\approx$
+FGSM $>$ PGD $>$ APGD there, while on DenseNet-121 and GoogLeNet every
+adjacent gap is resolved at $95\%$. We read the panel as a cross-check of
+the family ordering rather than as a separate per-architecture ranking.
+% Ordering tables verified/regenerated 2026-09-04, corrected 2026-09-05 by scripts/regen_ordering_tables.py --population common: tab:ordering = theorem45 reduce (N = 200/cell, W = 0.9206); tab:s3_ordering_panel = Phase-1 S3 reduce, population-matched (n_common 512/1000/1000, W = 0.9746, exact p = 3.086e-05). Unmatched, the same panel gives W = 0.9238 and a spurious ResNet-152 CW/FGSM inversion.
+The ordering our earlier draft
+reported as an amplification artifact is real, and it is an ordering of
+\emph{invisible fractions}. \emph{Third}, the mechanism: the
+smooth$+$crossing anatomy (Theorem~\ref{thm:anatomy}) predicts that
+crossing more region walls reduces coherence
+(Conjecture~\ref{conj:mechanism}). A per-pair pilot on VGG
+(Table~\ref{tab:mechanism-pilot}) finds the predicted sign once two
+disciplines are applied: attack-failure pairs must be excluded ($29$--$33\%$
+of the $200$ stored pairs --- the source of our earlier $\widehat\gamma=0$ anomaly,
+which is exact same-region mathematics, not numerical underflow), and
+perturbation size must be controlled (the raw correlation is
+size-confounded; the partial rank correlation given $d_f$ is negative for
+all three attacks tested, $\rho_S\approx-0.30$ to $-0.34$). This is a
+\emph{VGG pilot, 3 attacks, $n\approx140$, $d_f$-proxy-controlled, with no
+confidence interval}; VGG is not in the trio, and the
+exact-$\|\delta\|$-controlled replication on the full trio (with
+$\|\delta\|$ from the stored pairs, and bootstrap CIs on the partial
+correlations) is registered as follow-up work. The mechanism therefore
+remains a conjecture (Conjecture~\ref{conj:mechanism}), supported but not
+established.\footnote{The VGG $\widehat\gamma=0$ diagnosis itself is the
+rank correlation between the endpoint ReLU-Hamming distance and $d_M$,
+reported over the $n=192$ pairs with nonzero $d_M$. It is sensitive to the
+attack-success filter: imposing $d_f\ge1$ collapses APGD's correlation to
+$\approx0.07$ while DeepFool and Square stay $\approx0.6$, confirming that
+the apparent APGD relationship was carried by the same-region
+attack-failure pairs.}
+
+\WARNING{\textbf{Two headline statistics in this study still lack bootstrap
+confidence intervals.} \emph{Done (2026-09-05):} the appendix ordering panel
+(Table~\ref{tab:s3_ordering_panel}) now carries seeded BCa $95\%$ CIs per cell
+and percentile CIs on every adjacent-rank difference ($B=20{,}000$), which is
+what turned the ResNet-152 top group from an apparent ranking into an
+unresolved one. \emph{Still open:} (i)~the coherence medians (``median
+$A\le0.23$'', Table~\ref{tab:coherence}) are point estimates, and unlike the
+panel they \emph{cannot} be bootstrapped from disk --- the shipped
+\textsc{theorem45} reduce files hold per-cell aggregates only (they were
+written by an earlier version of the worker, and also lack four other keys
+the current one emits), so CIs there require re-running
+\texttt{validate\_theorem45.py}; (ii)~the mechanism partial rank correlations
+($\rho_S\approx-0.30$ to $-0.34$) are reported bare, and these \emph{can} be
+resampled from disk (the three VGG per-pair dumps).
+Separately, the CW, DeepFool, APGD and Square cells are low-$n$ ($110$--$161$
+pairs of $200$ nominal on every network but VGG), so their per-cell
+medians carry the widest uncertainty; state this wherever those numbers appear.}
+
+\paragraph{Reading.}
+The coherence medians describe \emph{where} adversarial germ motion sits
+relative to the single-pixel line; they do not establish that $A$ predicts
+any outcome, and they lack CIs. The attack-family ordering is the robust
+finding here ($W=0.921$ over six raters), with the population-matched
+full-scale appendix panel reproducing the same family-level grouping on all
+three of its architectures. What the appendix panel's confidence intervals
+do \emph{not} support is a per-architecture ranking within the leading
+family on ResNet-152. The crossing
+mechanism that would \emph{explain} the ordering is supported only by an
+off-trio, underpowered, CI-free VGG pilot and stays a conjecture.
+
+\paragraph{On the success of sparse (pixel-budget) attacks.}
+A $k$-pixel
+within-region perturbation concentrates all matrix displacement on $k$
+columns with coherence at most $k$ (Theorem~\ref{thm:within}(iii)) and
+exactly $1$ for $k{=}1$: sparse attacks purchase logit displacement at the
+single-pixel coherence line, while the matrix-space detector of the
+original draft implicitly assumed the diffuse, low-coherence signature of
+dense attacks. Their success against it is a corollary of the geometry,
+not an anomaly.

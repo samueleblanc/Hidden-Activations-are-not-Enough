@@ -1,0 +1,33 @@
+% Phase-1 S3 attack-family ordering panel (APPENDIX cross-check). Source:
+% cluster-data/results/phase1/aggregated/s3_results.json (full-scale Phase-1 reduce;
+% 1000 stored pairs per cell except ResNet-152/DeepFool, 512; da36545/400d083 on Rorqual, 2026-06-19).
+% REGENERATED 2026-09-05 by scripts/regen_ordering_tables.py --convention df1_dM0 --population common --bootstrap-B 20000 --seed 20260905.
+% Statistic: per (arch, attack) the per-pair MEDIAN d_M/d_f over d_f >= 1 and d_M > 0, the stricter attack-success filter (used by the mechanism pilot and this panel, NOT by tab:coherence), descending
+% (= most knowledge-matrix amplification = lowest coherence A).
+% POPULATION: per architecture, the intersection of the six cells' stored pair indices. n_common = ResNet-152 512, DenseNet-121 1000, GoogLeNet 1000.
+% The ResNet-152/DeepFool cell stopped at 512 of 1000 stored pairs,
+% so an unmatched panel would compare medians across different image populations. Matching moves ResNet-152/FGSM -0.6 %, ResNet-152/PGD -0.3 %, ResNet-152/CW +12.9 %, ResNet-152/DeepFool +0.0 %, ResNet-152/APGD +3.9 %, ResNet-152/Square +8.5 %.
+% The ranking is identical under all three filtering conventions and under raw<->RMS rescaling
+% (the RMS factors are per-architecture constants), so this panel does NOT introduce a second
+% coherence-A magnitude -- the A magnitudes are the Study-2 headline (Table~\ref{tab:coherence});
+% this trio only cross-checks the ORDERING.
+% Kendall's W: midranks, tie-corrected; p = exact permutation p-value over the (6!)^2 null.
+% CIs: seeded BCa 95% bootstrap over pairs per cell; adjacent-rank differences resolved only
+% when the independent AND the paired percentile CI both exclude zero.
+% N/cell = pairs kept by the filter within the population (min--max over the six attacks).
+\begin{table}[h]
+\centering
+\caption{Attack-family ordering cross-check on the Phase-1 trio (appendix). Each architecture's six attack families ranked by median $d_M/d_f$ over the attack-success-filtered pairs ($d_f\ge1$, $d_M>0$), descending (equivalently ascending coherence $A=(d_f/d_M)^2$), computed on the full-scale Phase-1 pair set (Phase-1 attack budgets, every departure from the \texttt{torchattacks}~3.5.1 defaults: PGD \texttt{steps}$=7$; CW \texttt{steps}$=100$; DeepFool \texttt{steps}$=100$; APGD \texttt{steps}$=50$, the DLR loss; Square \texttt{n\_queries}$=20{,}000$; FGSM at the library defaults; Table~\ref{tab:ordering} uses the $200$-pair \textsc{theorem45} pair set of Section~\ref{sec:setup}, which is drawn from different images). Cells are matched on a common image population --- the intersection of the six cells' stored pair indices, $n=512$ on ResNet-152 and $n=1000$ on the other two --- because the ResNet-152 DeepFool run stopped at $512$ of $1000$ pairs, so an unmatched panel would compare medians across different images (matching moves ResNet-152 CW by $+12.9$\%, Square by $+8.5$\%, while the cells the filter leaves intact --- FGSM and PGD --- move by under $1$\%). The ranking is unchanged under all three filtering conventions. Kendall $W=0.97$ across the three architectures ($p=3.1\times10^{-5}$, exact permutation test; the $m=3$ null is supported on $77$ lattice points spaced $0.0127$ apart, so $W$ is quoted to two decimals) cross-checks the six-architecture headline concordance ($W=0.921$, Table~\ref{tab:ordering}), and the point-estimate ordering reproduces its family-level grouping $\{$DeepFool, CW, Square$\}>$ FGSM $>\{$PGD, APGD$\}$ on all three architectures (gaps $1.09$--$1.43\times$ and $1.28$--$1.87\times$ respectively). \emph{Bootstrap resolution} (BCa and percentile $95\%$ CIs, $B=20{,}000$, seeded, over pairs): ResNet-152 reads DeepFool $\approx$ Square $\approx$ CW $\approx$ FGSM $>$ PGD $>$ APGD, while on DenseNet-121 and GoogLeNet every adjacent gap is resolved. Computed on the metric-invariant ranks, so no raw/RMS unit choice enters.}
+\label{tab:s3_ordering_panel}
+\begin{tabular}{lll}
+\toprule
+Architecture & Ordering by median $d_M/d_f$ (desc.) & $N$/cell \\
+\midrule
+ResNet-152   & DeepFool $>$ Square $>$ CW $>$ FGSM $>$ PGD $>$ APGD & 449--512 \\
+DenseNet-121 & DeepFool $>$ CW $>$ Square $>$ FGSM $>$ PGD $>$ APGD & 871--1000 \\
+GoogLeNet    & DeepFool $>$ CW $>$ Square $>$ FGSM $>$ PGD $>$ APGD & 770--1000 \\
+\midrule
+\multicolumn{3}{l}{Kendall's $W = 0.97$ (3 architectures $\times$ 6 attacks)} \\
+\bottomrule
+\end{tabular}
+\end{table}

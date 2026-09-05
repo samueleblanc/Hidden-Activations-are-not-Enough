@@ -1,0 +1,26 @@
+% docs/vocab/vocab-macros.tex -- macros used by the shared vocabulary entries.
+%
+% Every definition is guarded with \providecommand so this file can be \input
+% from the BODY of a host paper whose preamble already defines the same names:
+%   HAaNE II (docs/paper-ii/paper.tex) defines \R, \vx, \vone, \KM identically
+%   (\KM = \mathcal{M}); HAaNE I (docs/Final-twist/paper/preamble.tex) defines
+%   \R identically but \KM = \textsc{KM} (a text abbreviation, unused in its
+%   body) and writes the matrix as \M = \mathrm{M}; appendix_vocab_I.tex
+%   therefore re-binds \KM, \vx and \vone inside a group. Do not add
+%   \newcommand / \renewcommand / \def here.
+% Requirements on the host: amsmath + amssymb (both papers load them).
+%
+% The entry macro: title, then the four fixed fields. Inside the entry
+% paragraph a line may break after any underscore of a typewriter path (test
+% and function names run to 100 characters, wider than a line, and cmtt does
+% not hyphenate) and TeX may stretch inter-word space (\sloppy) instead of
+% running into the margin; both settings are scoped to the entry.
+\providecommand{\vocabusbreak}{\vocaborigus\allowbreak}
+\providecommand{\vocabentry}[5]{\par\medskip\noindent\begingroup\sloppy\let\vocaborigus\_\let\_\vocabusbreak\textbf{#1.}\ \emph{Definition.} #2\ \emph{Algebraic reading.} #3\ \emph{Computed here.} #4\ \emph{Validated here.} #5\par\endgroup}
+% Symbols the entries use.
+\providecommand{\R}{\mathbb{R}}
+\providecommand{\vx}{\boldsymbol{x}}
+\providecommand{\vone}{\boldsymbol{1}}
+\providecommand{\KM}{\mathcal{M}}
+% Cross-reference to another entry, by its title.
+\providecommand{\vocabsee}[1]{(see \emph{#1})}

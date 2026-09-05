@@ -1,0 +1,51 @@
+% docs/vocab/appendix_vocab_I.tex -- the HAaNE I drop-in (the subset I uses).
+%
+% Usage from docs/Final-twist/paper/main.tex in the sibling repository, after
+% \appendix and before \bibliographystyle:   \input{../vocab/appendix_vocab_I}
+% with docs/vocab/ mirrored to docs/Final-twist/vocab/ (or \vocabdir defined
+% to wherever the mirror lives, relative to the pdflatex working directory).
+%
+% Notation bridge. HAaNE I's preamble defines \KM as the small-caps text
+% abbreviation \textsc{KM} (unused in its body) and writes the matrix as
+% \M = \mathrm{M}(x), with plain x and \mathbf 1; the shared entries write
+% \KM, \vx and \vone. The group below re-binds the three macros to HAaNE I's
+% conventions for the duration of this appendix only, so the entries render in
+% the host paper's notation and \textsc{KM} is restored at \endgroup.
+\providecommand{\vocabdir}{../vocab}
+\input{\vocabdir/vocab-macros}
+\providecommand{\vocablabel}{app:vocab}
+
+\begingroup
+\renewcommand{\KM}{\mathrm{M}}
+\renewcommand{\vx}{x}
+\renewcommand{\vone}{\mathbf{1}}
+
+\section{Vocabulary for algebraists}
+\label{\vocablabel}
+
+\noindent This appendix collects, for a reader who knows linear algebra, representation theory and quotients but is meeting the vocabulary of machine learning and statistics for the first time, the terms this paper uses. Each entry has four fixed fields: a \emph{definition}; an \emph{algebraic reading}; how the quantity is \emph{computed here}, with the function, file or study that computes it; and how it is \emph{validated here}. The entries are shared between HAaNE~I and HAaNE~II from one source (\texttt{docs/vocab/} in the HAaNE~II repository), so the two appendices cannot drift; this paper includes the subset it uses, and fields that refer to HAaNE~II describe the companion paper's pipeline. Notation: $\KM(\vx)\in\R^{C\times(d+1)}$ is the knowledge matrix of the input $\vx$, $\tilde\KM$ its class-centred form, $\bar\KM$ a population mean, $\vone_k$ the all-ones vector of $\R^k$, and $\langle\cdot,\cdot\rangle_F$, $\|\cdot\|_F$ the Frobenius inner product and norm.
+
+\subsection*{Objects of training}
+\input{\vocabdir/entries/network-as-map}
+\input{\vocabdir/entries/parameters-vs-architecture}
+\input{\vocabdir/entries/activation-function}
+\input{\vocabdir/entries/logits-softmax-cross-entropy}
+
+\subsection*{Knowledge-matrix objects}
+\input{\vocabdir/entries/km}
+\input{\vocabdir/entries/row-sum-invariant}
+\input{\vocabdir/entries/class-centring}
+\input{\vocabdir/entries/frobenius-inner-product}
+
+\subsection*{Baselines}
+\input{\vocabdir/entries/penultimate-features}
+\input{\vocabdir/entries/cka}
+\input{\vocabdir/entries/svcca}
+\input{\vocabdir/entries/invariances-of-measures}
+\input{\vocabdir/entries/discriminability}
+
+\subsection*{Interventions and evaluation}
+\input{\vocabdir/entries/adversarial-pair-attack-family}
+\input{\vocabdir/entries/counterfactual}
+\input{\vocabdir/entries/held-out-validation}
+\endgroup

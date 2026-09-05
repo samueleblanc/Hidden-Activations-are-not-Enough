@@ -1,0 +1,33 @@
+% Signal-relative invariance: permutation noise vs adversarial signal (raw fp64 Frobenius / L2 both sides).
+\begin{table}[t]
+\centering\small
+\begin{tabular}{lcccc}
+\toprule
+\multicolumn{5}{l}{\emph{(a) Permutation-noise floors (KM Frobenius; penultimate L2)}}\\
+architecture & KM mean & KM median & KM max & penult.\ mean \\
+\midrule
+ResNet-152 & 0.116 & 0.005137 & 5.78 & 15.05 \\
+ResNet-18 & 0.0704 & 0.0107 & 0.865 & 29.32 \\
+AlexNet & 1.54e-05 & 1.455e-05 & 3e-05 & 105.7 \\
+VGG & 2.13e-05 & 2.053e-05 & 3.84e-05 & 57.7 \\
+\midrule
+\multicolumn{5}{l}{\emph{(b) Adversarial signal-to-noise (mean signal / mean noise): KM $\mid$ penultimate}}\\
+attack & ResNet-152 & ResNet-18 & AlexNet & VGG \\
+\midrule
+FGSM & $726 \mid 0.51$ & $3257 \mid 0.63$ & $8.7\mathrm{e}6 \mid 0.75$ & $8.3\mathrm{e}6 \mid 0.69$ \\
+PGD & $1029 \mid 1.36$ & $4739 \mid 1.84$ & $1.3\mathrm{e}7 \mid 1.82$ & $1.7\mathrm{e}7 \mid 3.05$ \\
+CW & $845 \mid 0.48$ & $2369 \mid 0.36$ & $4.1\mathrm{e}6 \mid 0.24$ & $3.9\mathrm{e}6 \mid 0.28$ \\
+DeepFool & $984 \mid 0.34$ & $1364 \mid 0.13$ & $2.9\mathrm{e}6 \mid 0.15$ & $2.3\mathrm{e}6 \mid 0.14$ \\
+APGD & $803 \mid 1.02$ & $3430 \mid 1.03$ & $1.3\mathrm{e}7 \mid 1.71$ & $1.1\mathrm{e}7 \mid 1.80$ \\
+Square & $914 \mid 0.48$ & $2748 \mid 0.37$ & $6.0\mathrm{e}6 \mid 0.42$ & $4.9\mathrm{e}6 \mid 0.35$ \\
+\bottomrule
+\end{tabular}
+\caption{Permutation invariance, signal-relative. Penultimate adversarial signal is at most
+$3.05\times$ its own permutation noise (below $1\times$ in 16/24 cells); the KM signal sits
+$7\times10^{2}$--$1.7\times10^{7}$ above its noise floor. Worst-case tail on ResNet-152
+(min signal / max noise): 1.14$\times$ (DeepFool); the ResNet-152 floor is the
+\emph{wide-face} permutation subgroup and its residual is float32 accumulation, not exact invariance.
+DenseNet-121/GoogLeNet have no Step-A run by design (covered by teleportation); penultimate
+per-pair quantiles are unrecoverable from stored summaries.}
+\label{tab:signal-relative}
+\end{table}

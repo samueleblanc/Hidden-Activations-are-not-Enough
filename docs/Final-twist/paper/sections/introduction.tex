@@ -1,0 +1,279 @@
+\section{Introduction}
+\label{sec:introduction}
+
+\paragraph{The question.}
+At one trained network, what is the knowledge matrix $\Mfx$ --- what
+determines it, what it is invariant to, what it determines, and what does
+its geometry measure --- and what does that buy that hidden activations
+cannot provide?
+
+\paragraph{The problem.}
+A trained neural network is, in many practical settings, used not for
+its final logits but for an intermediate representation of its
+inputs. This representation, typically the activations of the
+penultimate layer, drives applications from transfer learning to
+anomaly detection \citep{reiss2022anomaly,roth2022towards}, model
+comparison via representation-similarity analyses
+\citep{kornblith2019similarity}, federated-learning aggregation, and
+out-of-distribution detection \citep{lee2018simple,papernot2018deep}.
+The implicit assumption in all of these uses is that the penultimate
+representation is a \emph{canonical} object attached to the trained
+network --- something that captures what the network has learned
+about each sample, in a way intrinsic to the network's function.
+
+This assumption is wrong. A neural network's function is preserved
+under a non-trivial group of weight-space transformations: at minimum
+the permutation symmetries of each layer's neurons, and more
+generally the quiver-isomorphism group studied in
+\citet{armenta2021representation,armenta2022double}. Penultimate
+activations change under these transformations even though the
+network computes exactly the same function. They are therefore not
+invariants of the network --- they are invariants of the network
+\emph{plus a particular choice of parameterisation}. Two networks
+that compute the same function can have penultimate activations that
+differ by an orthogonal change of basis (or worse), making any
+application that relies on penultimate-distance implicitly sensitive
+to weight-space conventions that have no functional consequence. This
+weakness has been used in the optimisation literature to disprove
+flat-minima generalisation arguments \citep{dinh2017sharp} but is, as
+far as we are aware, not addressed by the analysis pipelines that
+take penultimate features as a primitive.
+
+\paragraph{The series.}
+HAaNE~0 (\emph{Hidden Activations Are Not Enough},
+\citealp{leblanc2024hidden}) defined the knowledge map and its
+contraction, the knowledge matrix, with the exact row-sum identity. This
+paper, HAaNE~I, characterises that object at one trained network: what
+determines it, what it is invariant to, what it determines, and how it
+moves when the input moves. HAaNE~II asks a different question --- whether
+independently trained networks learn the same knowledge matrix --- and
+answers it with population statistics across training runs. Nothing in
+this paper depends on HAaNE~II.
+
+\paragraph{Knowledge matrices.}
+\citet{armenta2021representation} construct an intermediate object other
+than the penultimate activations, the \emph{knowledge matrix}
+$\Mfx \in \R^{C \times (d{+}1)}$, derived from the quiver
+representation of a feedforward network. The matrix decomposes the
+class logits as $f(x) = \Mfx \cdot \mathbf{1}_{d+1}$ (the
+\emph{completeness identity} $\Mfx.\mathrm{sum}(1) = f(x)$); each
+row $i \in \{1, \ldots, C\}$ explains how the input contributes to
+class $i$'s logit through every linear path in the network. This
+identity is not a new pointwise invariant: for PL networks at almost
+every input the knowledge matrix equals per-class
+gradient$\times$input plus an exact aggregate bias attribution
+(Theorem~\ref{thm:weff}), so its invariance, completeness, fixed shape
+and exact row sums are shared with that gradient-based data. What is
+canonical, in the precise sense penultimate features fail, is the
+\emph{arrangement} and what it enables. First, the knowledge matrix is
+invariant under the entire stabiliser of the realised function
+(Theorem~\ref{thm:maxinv}, Section~\ref{sec:germ}; shared with
+per-class gradient$\times$input for PL nets, Theorem~\ref{thm:weff}) ---
+it is the same for any two parameterisations, indeed any two
+architectures, that compute the same function on a neighbourhood of the
+input --- with neuron permutation a special case
+(Proposition~\ref{prop:perm}) that is automatic for anything built
+functorially from the quiver representation. Second, the arrangement
+carries an exact partitioned row-sum into a fixed $C\times(d{+}1)$ shape
+that is comparable across architectures without an alignment step ---
+the property penultimate features genuinely lack, and the one we
+demonstrate as a standalone capability in Study~3. Building on the row
+sums, Theorem~\ref{thm:pyth} (Section~\ref{sec:germ}) decomposes any
+knowledge-matrix displacement into a logit-visible part and a
+logit-invisible part that encodes real changes of the local
+linearisation the endpoint logits cannot see; the unit-free coherence
+$A=(d_f/d_M)^2$ is a geometric descriptor read against a single-pixel
+reference line $A{=}1$.
+
+\paragraph{Thesis and study map.}
+\emph{Hidden activations are gauge-covariant and germ-incomplete
+as a representation of neural-network behaviour
+(Theorem~\ref{thm:complete}); knowledge matrices are a
+canonical alternative; here are independent demonstrations.} This
+paper is HAaNE~I of the series \emph{Hidden Activations Are Not
+Enough} described above; within it we present three studies on
+pretrained ImageNet networks (ResNet-152, DenseNet-121, GoogLeNet,
+chosen to span the residual / dense / inception family triad). \textbf{Study~1} (Section~\ref{sec:study1}) examines invariance
+through two complementary forms of network isomorphism. Study~1A
+(Section~\ref{sec:study1a}) verifies, as a numerical correctness check,
+the exact permutation invariance of Proposition~\ref{prop:perm} on
+ResNet-152; this invariance is automatic by construction --- a neuron
+permutation is a quiver isomorphism, so invariance under it holds for
+anything built functorially from the quiver representation --- and the
+check confirms it survives finite-precision computation rather than
+establishing a new fact. Study~1B (Section~\ref{sec:study1b}) measures
+gate-pinned knowledge-matrix drift under neural teleportation
+\citep{armenta2024neural} on all three architectures (with a
+parallel-branch patch developed for this paper to handle the concat
+topologies of DenseNet and GoogLeNet); teleportation on these
+batch-normalised networks is only \emph{function-approximate}, so by the
+three-tier claim structure of Proposition~\ref{prop:visdrift} the
+visible drift equals the logit gate by the row-sum identity (an
+identity, not a measurement of invariance) and the logit-invisible
+component is not bounded a priori. We credit this three-tier framing as
+the honest accounting it is, and route the cross-architecture invariance
+of Theorem~\ref{thm:maxinv} --- the genuinely non-automatic claim --- to
+this only-approximate evidence, stating the tension rather than smoothing
+it over. \textbf{Study~2} (Section~\ref{sec:study2}) applies the
+visible/invisible decomposition of Theorem~\ref{thm:pyth} to
+adversarial pairs across all three architectures and six adversarial-pair
+generators (FGSM, PGD, CW, DeepFool, APGD, Square), finding that the
+coherence $A$ of adversarial germ motion sits well below the single-pixel
+line and that its attack-family ordering is stable across architectures
+(Kendall $W=0.921$). \textbf{Study~3} (Section~\ref{sec:study4})
+compares architectures directly: because the knowledge matrix has the
+same shape for every feedforward network on a given input, its
+Frobenius distance compares ResNet-152, DenseNet-121, and GoogLeNet
+with no alignment step. We then report \emph{honest negatives}
+(Section~\ref{sec:study3}): a detector bake-off in which penultimate
+features win $5$ of $6$ configurations (the adversarial-detection claim
+is withdrawn), a linear-program counterfactual that fails structurally
+on pretrained ImageNet networks, and the function-approximation limit
+of teleportation. Section~\ref{sec:limitations} catalogues the
+concrete limitations of the present paper, each with an
+explicit forward pointer to either future work or a future paper in
+the series. Section~\ref{sec:conclusion} concludes by restating the
+umbrella thesis and previewing HAaNE~II. The six experiments and the
+question each answers are collected in Table~\ref{tab:a-experiments}.
+
+\begin{table}[t]\centering\small
+\caption{The experiments of this paper, labelled A1--A6, and the question each answers. Every experiment is run on pretrained ImageNet networks at fixed weights; nothing here varies training.}
+\label{tab:a-experiments}
+\smallskip
+\begin{tabular}{@{}llp{7.4cm}l@{}}\toprule
+ & Experiment & Question & Where \\ \midrule
+A1 & permutation invariance & how large is the KM's change under a hidden-neuron permutation, relative to its own adversarial signal, versus the penultimate features' change? & Sec.~\ref{sec:A1} \\
+A2 & teleportation drift & under a function-approximate teleportation, how much of the measured KM drift is logit-visible, and does the gate bound the invisible part? & Sec.~\ref{sec:A2} \\
+A3 & similarity panel & do nine representation-similarity measures, with random-network and shuffled-pair controls, behave consistently on the same pairs? & Sec.~\ref{sec:A3} \\
+A4 & coherence and attack ordering & where does adversarial germ motion sit against the single-pixel and within-region reference lines, and is the attack-family ordering stable across architectures? & Sec.~\ref{sec:A4} \\
+A5 & alignment-free comparison & can the KM Frobenius distance compare ResNet-152, DenseNet-121 and GoogLeNet directly where CKA/Procrustes/Bures need dimension matching? & Sec.~\ref{sec:A5} \\
+A6 & honest negatives & does the KM beat penultimate features as a detector input, and does a matrix-direction counterfactual succeed? (no, and no) & Sec.~\ref{sec:A6} \\
+\bottomrule\end{tabular}\end{table}
+
+A reader of the original submission will note that its
+adversarial-detection claim does not appear here: we have withdrawn it,
+and our own detector bake-off records penultimate features winning $5$
+of $6$ configurations as an honest negative. What this paper contributes
+is deliberately \emph{foundational} and independent of that retracted
+application: a canonical per-sample object, a characterisation of
+\emph{exactly} which transformations it is invariant under (the full
+function-stabiliser, Theorem~\ref{thm:maxinv}, of which neuron
+permutation is one special case, Proposition~\ref{prop:perm}), and the
+resulting alignment-free cross-architecture comparison that penultimate
+features cannot support. The applications that motivated the original
+framing now belong to a separate, unnumbered companion; this paper
+establishes the object and its invariance on a correct footing first.
+
+\paragraph{Position relative to interpretability literature.}
+Like sparse autoencoders \citep{bricken2023monosemanticity,
+templeton2024scaling,cunningham2023sparse} and lens methods, knowledge
+matrices express the output as an additive decomposition; unlike sparse
+autoencoders, the knowledge-matrix basis is given by the quiver
+representation rather than learned, and the decomposition makes no
+monosemanticity claim. Where a sparse autoencoder exists to defeat
+superposition by learning an overcomplete, non-basis-aligned dictionary,
+the knowledge matrix is rigidly basis-tied --- rows index classes,
+columns index input coordinates and a bias slot --- so it occupies the
+opposite end of that design space. The connection to logit lens
+\citep{nostalgebraist2020logitlens} and tuned lens
+\citep{belrose2023tunedlens} is an analogy to the \emph{operation}: a
+partial row-sum over a subset of rows is structurally the lens
+operation of projecting an intermediate object through the unembedding,
+and unlike logit lens the knowledge matrix is defined for general
+feedforward CNNs rather than transformer residual streams. We run no
+such row-lens experiment in this paper; it is future work. The row-sum
+identity $M(x)\mathbf 1=f(x)$ holds in exact arithmetic
+(Equation~\ref{eq:km-def}); in finite precision (eval mode) the residual
+is at the float32 floor (reaching $0.15$--$0.30$ on ResNet-152, and
+$\sim10^{-10}$ at float64).
+Unlike CKA-based representation-similarity
+analyses~\citep{kornblith2019similarity}, which are invariant only to
+orthogonal transformations and isotropic scaling and have documented
+sensitivity~\citep{ding2021grounding},
+manipulability~\citep{davari2023reliability}, and input-confounding
+pathologies~\citep{cui2022deconfounded} in the regime
+relevant to deep representation comparison, the knowledge-matrix
+distance is the metric on a strictly larger invariance class --- the
+quiver-isomorphism group --- and is therefore well-defined without an
+alignment step. Section~\ref{sec:study1c} verifies this property
+empirically against debiased linear CKA, angular CKA, orthogonal
+Procrustes shape distance~\citep{williams2021generalized},
+Bures similarity~\citep{harvey2023bures}, soft-matching~\citep{khosla2024soft},
+RSA~\citep{kriegeskorte2008representational}, output JSD, Gromov-Wasserstein~\citep{memoli2011gromov},
+and distance correlation~\citep{szekely2007measuring} on the same
+teleportation pairs. Section~\ref{sec:study4} extends the comparison
+to the cross-architecture setting, where the dominant CKA/Procrustes/Bures
+family requires dimension matching, the natively cross-dimensional measures
+(soft-matching, RSA, distance correlation) live in their own metric spaces
+incommensurable with logit distance, and the knowledge matrix alone is both
+alignment-free and logit-commensurable.
+We position knowledge matrices as a canonical complement to CKA, sparse
+autoencoders~\citep{bricken2023monosemanticity, templeton2024scaling},
+and lens-based analyses~\citep{nostalgebraist2020logitlens, belrose2023tunedlens}
+rather than a replacement for any of them.
+
+\paragraph{What this paper claims, and does not claim.}
+We collect the scope of this paper in one place.
+
+\begin{tcolorbox}[breakable, colback=white, colframe=black, boxrule=0.4pt, sharp corners]
+\textbf{We claim.}
+
+\smallskip
+\emph{Supported by theorem.}
+\begin{itemize}
+\item Penultimate activations are gauge-covariant and germ-incomplete
+(Theorem~\ref{thm:complete}).
+\item The knowledge matrix is invariant under the entire
+function-stabiliser, with neuron permutation as a special case
+(Theorem~\ref{thm:maxinv}, Proposition~\ref{prop:perm}).
+\item For PL networks the knowledge matrix equals per-class
+gradient$\times$input plus an exact aggregate bias attribution
+(Theorem~\ref{thm:weff}).
+\item Its row-sum identity gives an exact visible/invisible displacement
+decomposition with a unit-free coherence $A$
+(Theorem~\ref{thm:pyth}).
+\item Its fixed shape gives one alignment-free, logit-commensurable
+cross-architecture distance, where the CKA/Procrustes/Bures family requires
+dimension matching and the cross-dimensional similarity measures are not
+commensurable with logit distance
+(Theorem~\ref{thm:maxinv}; Section~\ref{sec:study4}).
+\end{itemize}
+
+\smallskip
+\emph{Supported by experiment.}
+\begin{itemize}
+\item A1 (Sec.~\ref{sec:A1}): permutation noise is $0.1$--$0.2\%$ of the adversarial signal
+(penultimate $\approx 100\%$);
+\item A2 (Sec.~\ref{sec:A2}): teleportation drift is measured, visible part gate-bounded,
+invisible part reported as carrying no gate bound and left unestimated;
+\item A3 (Sec.~\ref{sec:A3}): the panel passes the random-network and shuffled-pair controls;
+\item A4 (Sec.~\ref{sec:A4}): median coherence $A\le 0.23$, attack-family ordering Kendall
+$W=0.921$;
+\item A5 (Sec.~\ref{sec:A5}): the alignment-free distance is available on all three pairs
+where the dimension-matched measures are omitted;
+\item A6 (Sec.~\ref{sec:A6}): penultimate wins $5$ of $6$ detector configurations; the
+matrix-direction counterfactual fails $0/54$.
+\end{itemize}
+
+\smallskip
+\textbf{We do \emph{not} claim.}
+\begin{itemize}
+\item that knowledge matrices are \emph{superior} to penultimate
+features (our bake-off finds penultimate winning $5$ of $6$);
+\item that they are the \emph{only} computable function-invariant
+(per-class gradient$\times$input and FullGrad share the invariance,
+Theorem~\ref{thm:weff});
+\item that the row-sum holds to numerical precision in finite arithmetic
+(float32 residual $0.15$--$0.30$ on ResNet-152, $\sim10^{-10}$ at
+float64);
+\item that teleportation drift is zero (it is \emph{measured};
+teleportation is function-approximate, with logit drift up to $\sim10^{-1}$
+on ResNet-152 and under $4\times10^{-2}$ on the other two);
+\item anything about populations of training runs --- whether, and how
+closely, independently trained networks learn the same knowledge matrix
+(HAaNE~II).
+\end{itemize}
+Whether independently trained networks share the knowledge matrix, and
+how that depends on training, is the subject of HAaNE~II; applications
+are collected in a separate, unnumbered companion.
+\end{tcolorbox}

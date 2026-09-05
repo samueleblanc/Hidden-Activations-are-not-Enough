@@ -1,0 +1,34 @@
+% Attack-family ordering of d_M/d_f (equivalently reverse ordering of coherence A).
+\begin{table}[t]
+\centering\small
+\begin{tabular}{llc}
+\toprule
+architecture & ordering by median $d_M/d_f$ (desc.) & LOO Spearman \\
+\midrule
+ResNet-152 & Square $>$ DeepFool $>$ CW $>$ FGSM $>$ PGD $>$ APGD & 0.771 \\
+DenseNet-121 & DeepFool $>$ CW $>$ Square $>$ FGSM $>$ APGD $>$ PGD & 0.943 \\
+GoogLeNet & DeepFool $>$ Square $>$ CW $>$ FGSM $>$ PGD $>$ APGD & 0.928 \\
+ResNet-18 & DeepFool $>$ Square $>$ CW $>$ FGSM $>$ APGD $>$ PGD & 0.986 \\
+AlexNet & DeepFool $>$ CW $>$ Square $>$ FGSM $>$ APGD $>$ PGD & 0.943 \\
+VGG & DeepFool $>$ CW $>$ Square $>$ FGSM $>$ APGD $>$ PGD & 0.943 \\
+\bottomrule
+\end{tabular}
+\caption{Attack-family ordering concordance across six architectures: Kendall $W=0.921$
+(6 raters $\times$ 6 attacks; permutation $p<10^{-6}$, $10^6$ Monte-Carlo draws); leave-one-architecture-out
+Spearman of each architecture's ranking against
+the mean consensus rank of the other five (midrank ties). The six raters are the paper's trio
+(ResNet-152, DenseNet-121, GoogLeNet) plus three \emph{ordering-only} cross-check raters (ResNet-18,
+AlexNet, VGG) that enter no coherence-magnitude statistic and no cross-architecture distance. The stable
+structure is family-level: $\{$DeepFool, CW, Square$\}>$ FGSM $\gg\{$PGD, APGD$\}$ in $d_M/d_f$ --- i.e.\
+the iterative-PGD family produces the most \emph{coherent} germ motion. The two gaps are of different
+sizes: the top family leads FGSM by $1.13$--$1.51\times$ across the six raters, while FGSM leads
+$\max\{$PGD, APGD$\}$ by $1.57$--$2.09\times$. Attack budgets are those of Section~\ref{sec:setup}: the
+overrides listed there apply to ResNet-152, DenseNet-121, GoogLeNet and ResNet-18, whereas AlexNet and
+VGG ran the \texttt{torchattacks}~3.5.1 defaults throughout. The trio-only restriction of this
+concordance is $W=0.91$ ($p=4.9\times10^{-4}$, exact permutation test). The appendix panel
+(Table~\ref{tab:s3_ordering_panel}) recomputes the trio's ordering on the full-scale Phase-1 reduce, on
+a population-matched pair set and a different image set, and reproduces the family-level grouping on all
+three architectures ($W=0.97$).}
+\label{tab:ordering}
+\end{table}
+% Provenance verified 2026-09-04, re-verified 2026-09-05 (scripts/regen_ordering_tables.py): rows, W = 0.921 and the LOO column reproduce exactly from the theorem45 reduce (experiments/*/theorem45/theorem45_results.json, N = 200 pairs/cell, guard d_f > 1e-6 * max d_f); trio-only restriction W = 0.9111 (exact permutation p = 4.880e-04); six-rater permutation p = 0/1e6 draws; family ratios top/FGSM 1.126-1.512, FGSM/max{PGD,APGD} 1.568-2.095 (hence ">" for the first gap, "\gg" only for the second); ATTACK_OVERRIDES (validate_theorem45.py:84-90) covers resnet_imagenet, resnet152_imagenet, densenet121_imagenet, googlenet_imagenet only. Appendix cross-check on the Phase-1 reduce = tables/s3_table.tex.

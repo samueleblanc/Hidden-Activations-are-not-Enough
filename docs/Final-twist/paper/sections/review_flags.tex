@@ -1,0 +1,28 @@
+% ============================================================================
+%  REVIEW-ONLY master warning index.
+%  Delete this file's \input from main.tex (and this file) before submission.
+% ============================================================================
+\WARNING{\textbf{This PDF carries three open review-only flags} (red \texttt{[WARNING]}
+boxes) marking issues to resolve before submission, plus one resolved and one partly
+closed flag; they are
+not part of the manuscript and each open flag is explained in detail at the relevant
+point below.
+\textbf{(1)~Ordering tables --- RESOLVED 2026-09-05} (\texttt{scripts/regen\_ordering\_tables.py}):
+Table~\ref{tab:ordering} verified on the theorem45 reduce ($W=0.921$; rows and the LOO column
+reproduce exactly), Table~\ref{tab:s3_ordering_panel} regenerated from the Phase-1 reduce on a
+common image population ($W=0.97$).
+\textbf{(2)~Cross-dimensional similarity panel}
+(Section~\ref{sec:study4}): CKA/Bures/distance-correlation are computed on
+unequal dimensions with no PCA; the methodology (especially Bures) must be
+confirmed. \textbf{(3)~Missing controls} (Section~\ref{sec:study4}): the
+Cui/Murphy controls for the cross-architecture study were not run.
+\textbf{(4)~Confidence intervals --- PARTLY CLOSED 2026-09-05}
+(Section~\ref{sec:study2}): the appendix ordering panel
+(Table~\ref{tab:s3_ordering_panel}) now carries seeded BCa $95\%$ CIs per cell and
+percentile CIs on every adjacent-rank difference ($B=20{,}000$). Still open: the
+coherence medians of Table~\ref{tab:coherence} --- whose reduce stored aggregates
+only, so CIs require re-running the pairs, not resampling a file --- and the
+mechanism partial correlations, whose per-pair data \emph{are} on disk. \textbf{(5)~Unverified figure} (Figure~\ref{fig:lp-pathology},
+Section~\ref{sec:study3}): the LP-counterfactual figure predates this revision;
+its caption numbers must be verified against the run and the figure regenerated
+if needed.}

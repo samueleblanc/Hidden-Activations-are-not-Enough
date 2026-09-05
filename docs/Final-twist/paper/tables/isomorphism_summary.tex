@@ -1,0 +1,13 @@
+% Requires: \usepackage{booktabs, amssymb}
+\begin{table}[t]
+\centering
+\caption{Pillar 1 (Isomorphism invariance). Random neuron permutations within the penultimate channel/layer group produce an isomorphic network that computes the same function (predictions match exactly). Penultimate activations change substantially ($\|h(x)-h(x\prime)\|$, absolute L2), while knowledge matrices remain essentially invariant ($\|M(x)-M(x\prime)\|$, absolute Frobenius; relative to mean KM norm).}
+\label{tab:iso_summary}
+\begin{tabular}{lcccc}
+\toprule
+Architecture & $\|h - h^\prime\|$ & $\|M - M^\prime\|$ & rel.\ $\|M - M^\prime\|$ & Pred.\ match \\
+\midrule
+ResNet152 & 15.05 & 1.16e-01 & --- & yes \\
+\bottomrule
+\end{tabular}
+\end{table}

@@ -1,0 +1,202 @@
+\section{Study 3: alignment-free cross-architecture comparison (A5)}
+\label{sec:study4}
+\label{sec:A5}
+
+\paragraph{Why it matters.}
+Studies~1 and~2 establish knowledge-matrix invariance under
+\emph{within-architecture} isomorphisms and the visible/invisible
+decomposition of adversarial-pair displacement \emph{within} a single
+architecture. Study~3 turns to the one standalone capability the
+function-determination property of Theorem~\ref{thm:maxinv} demonstrably
+buys: \emph{alignment-free} cross-architecture comparison. Because the
+knowledge matrix is determined by the realised function germ rather than
+by any particular parameterisation, the same construction returns an
+object of \emph{the same shape} for any feedforward network on a fixed
+input and label space --- so a knowledge-matrix distance between two
+architectures is well-defined with no correspondence to learn. The
+penultimate features carry no such structure, and this is exactly where
+the standard representational-similarity machinery must first solve an
+alignment problem. We present this as a capability that is demonstrated,
+not as a claim that the knowledge-matrix number is a better
+quality ranking than the penultimate ones. The penultimate-feature
+dimensions of the
+three architectures used in this paper differ
+($D_{\text{RN-152}} = 2048$, $D_{\text{DN-121}} = D_{\text{GN}} = 1024$),
+so the dominant similarity-measure family of the post-2019 literature --
+linear and angular CKA~\citep{kornblith2019similarity}, orthogonal
+Procrustes shape distance~\citep{williams2021generalized}, Normalized
+Bures Similarity~\citep{harvey2023bures}, distance
+correlation~\citep{szekely2007measuring} -- cannot be applied without
+either projecting both architectures to a common dimension (which
+discards variance and reverses depending on which dimension is chosen)
+or zero-padding the smaller (which introduces structurally-zero
+coordinates that bias the measure toward higher agreement). The
+``natively cross-dimensional'' alternatives -- soft
+matching~\citep{khosla2024soft}, Gromov-Wasserstein~\citep{memoli2011gromov},
+representational similarity analysis~\citep{kriegeskorte2008representational}
+-- handle unequal dimensions natively but live in their own metric
+spaces and do not naturally compare to logit-space distances. Knowledge
+matrices alone are simultaneously
+(i)~defined uniformly across architectures
+($1000 \times (d{+}1) = 1000 \times 150{,}529$ for any feedforward
+network on $224\times224$ ImageNet inputs and 1000-class outputs),
+(ii)~equipped with the exact row-sum accounting that splits any
+displacement into logit-visible and logit-invisible parts
+(Theorem~\ref{thm:pyth}), and (iii)~invariant under the entire
+function-stabiliser (Theorem~\ref{thm:maxinv}). This study reports the
+resulting \emph{alignment-free comparability} empirically: we place the
+knowledge-matrix distance side by side with the similarity measures on
+the same architecture pairs, not to argue that one number is better than
+another, but to show that the knowledge-matrix distance is available
+directly where the others are available only after a correspondence is
+imposed.
+
+\paragraph{Setup.}
+We compare the three pretrained ImageNet networks of this paper
+(ResNet-152, DenseNet-121, GoogLeNet) pairwise -- ResNet-152
+$\leftrightarrow$ DenseNet-121, ResNet-152 $\leftrightarrow$ GoogLeNet,
+DenseNet-121 $\leftrightarrow$ GoogLeNet -- on the same
+$N = 25{,}000$ ImageNet-validation samples (the first $25{,}000$ by sorted
+filename, the same sample set used in Study~1; Study~2 draws its adversarial
+pairs from different, smaller sets --- see Section~\ref{sec:setup}).
+For each architecture pair we report:
+\begin{itemize}
+\item \textbf{Penultimate features:} seven similarity measures ---
+  debiased linear CKA, angular CKA, Bures similarity, soft-matching
+  distance, RSA-Spearman, square-root output JSD, and distance correlation
+  --- all computed \emph{directly on the unequal-dimension} penultimate
+  features, with no PCA projection and no alignment
+  (Table~\ref{tab:s2_table}). Two further measures are reported only as
+  honest omissions: entropic Gromov-Wasserstein, whose solver failed to
+  converge on every cross-architecture pair, and cross-architecture
+  Procrustes, whose per-chunk PCA target dimension collapses to the chunk
+  sample count (unsound across chunks); the latter is reported
+  within-architecture in Study~1 only.
+\item \textbf{Knowledge matrices:} Frobenius distance
+  $\|M_{W_A}(x) - M_{W_B}(x)\|_F$ per-sample. KMs are uniformly
+  $1000 \times (d{+}1) = 1000 \times 150{,}529$ regardless of
+  architecture, so no dimension matching is required and the metric
+  is computed independently per sample. We do not apply CKA / Procrustes /
+  etc.\ to knowledge matrices: the canonical metric on KMs is the
+  Frobenius distance itself, whose displacement decomposes exactly via
+  Theorem~\ref{thm:pyth}, and applying rotation-invariant similarity
+  measures to a representation that is already canonical under the
+  entire function-stabiliser would weaken, not strengthen, the
+  comparison.
+\end{itemize}
+All penultimate measures are accompanied by the random-network control
+of~\citet{cui2022deconfounded} and the shuffled-pair control
+of~\citet{murphy2024debiased}, as in Section~\ref{sec:study1c}; in this
+reduce those controls were not run and are pending (a caveat we lead with,
+not bury).
+
+\WARNING{\textbf{Two issues in this cross-architecture study need resolution
+before submission.} \textbf{(a)~The ``dimension-matched (PCA)'' panel was never
+computed.} The \texttt{D2} block of
+\texttt{results/phase1/aggregated/s2\_results.json} is empty; the debiased CKA,
+angular CKA, Bures, and distance-correlation values in Table~\ref{tab:s2_table}
+are the \texttt{D1} values computed \emph{directly on the raw unequal-dimension}
+penultimate features, with no PCA projection (the prose above has been corrected
+accordingly). Confirm this is intended: debiased/angular CKA and distance
+correlation are Gram-/distance-matrix based and \emph{are} well-defined for
+unequal feature dimensions, but \textbf{Bures similarity is normally defined on
+equal-dimension covariance operators} --- either verify the cross-dimensional
+Bures value uses an intended (e.g.\ kernel) formulation, or drop the Bures
+column. A genuine dimension-matched comparison would require a new reduce that
+actually populates \texttt{D2}. \textbf{(b)~The Cui (random-network) and Murphy
+(shuffled-pair) controls were not run in this reduce} (the aggregated
+\texttt{controls.json} is empty; populated control values exist only in the
+separate controls reduce used by Study~1C). Without them the cross-architecture
+separations are uncontrolled and the ``availability'' framing cannot be
+hardened: run a controls-enabled cross-architecture reduce, or state explicitly
+in the Limitations that this comparison is uncontrolled.}
+
+\paragraph{Procedure.}
+\begin{enumerate}
+\item For each architecture pair and each of the $N = 25{,}000$ samples,
+compute the per-sample knowledge matrices $M_{W_A}(x)$, $M_{W_B}(x)$
+(uniform $1000 \times 150{,}529$) and the penultimate features
+$h_{W_A}(x)$, $h_{W_B}(x)$ (unequal dimension).
+\item Compute the knowledge-matrix Frobenius distance per sample directly
+(no alignment), and average to a per-pair RMS-per-coordinate distance.
+\item Compute the seven penultimate similarity measures directly on the
+unequal-dimension features --- no PCA, no alignment --- recording
+Gromov-Wasserstein and cross-architecture Procrustes as honest omissions
+(Table~\ref{tab:s2_table}).
+\item Compare the orderings the different measures induce over the three
+pairs.
+\end{enumerate}
+
+\paragraph{What we measure and the claim it licenses.}
+The per-pair distances and the orderings they induce. The claim is one of
+\emph{availability}: the knowledge-matrix distance is a single canonical
+quantity computed with no correspondence, whereas each penultimate measure
+lives in its own metric space --- incommensurable with logit distance ---
+and the penultimate orderings disagree among themselves. This is not
+a claim that the knowledge-matrix number is a better measure of
+architectural similarity.
+
+\paragraph{Result.}
+\input{tables/s2_table}
+
+The knowledge-matrix Frobenius distance (RMS-per-coordinate,
+Table~\ref{tab:s2_table}) is available directly for all three pairs and
+ranges from $0.0107$ (ResNet-152 $\leftrightarrow$ GoogLeNet, the closest
+pair) to $0.0180$ (DenseNet-121 $\leftrightarrow$ GoogLeNet, the farthest),
+with ResNet-152 $\leftrightarrow$ DenseNet-121 at $0.0169$. The natively
+cross-dimensional penultimate measures also separate the pairs ---
+soft-matching distance from $63.6$ to $124.0$, RSA-Spearman from $0.33$ to
+$0.52$, square-root output JSD from $0.34$ to $0.39$ --- but each lives in
+its own metric space and the orderings they induce are themselves
+measure-dependent: KM Frobenius and soft-matching \emph{agree} that
+ResNet-152 $\leftrightarrow$ GoogLeNet is the closest pair, whereas
+RSA-Spearman ranks it the \emph{least} similar of the three. The
+penultimate ordering is therefore not even self-consistent across
+measures, while the knowledge-matrix distance is a single canonical
+quantity computed with no alignment.
+The CKA family (debiased CKA, angular CKA, Bures, distance correlation;
+Table~\ref{tab:s2_table}) is likewise computed directly on the
+unequal-dimension features. Gromov-Wasserstein and cross-architecture
+Procrustes are omitted as honest negatives (entropic-solver non-convergence
+on all three pairs; unsound cross-chunk PCA). The Cui/Murphy controls were
+not run in this reduce and are pending.
+
+\paragraph{Reading.}
+The result demonstrates a \emph{capability}: a single cross-architecture
+distance available with no alignment, where each penultimate measure lives
+in its own metric space incommensurable with logit distance, and where the
+penultimate measures do not even agree among themselves which pair is
+closest. It does \emph{not} show that the knowledge-matrix number is a
+better measure of architectural similarity --- there is no ground-truth
+ordering to be better against, and the supporting Cui/Murphy controls are
+still pending. What is licensed is availability, not a quality ranking.
+
+\paragraph{Cross-architecture comparison without alignment.}
+The knowledge-matrix Frobenius distance in Table~\ref{tab:s2_table} is
+computed directly between architectures with no PCA projection,
+dimension matching, or learned alignment, whereas the penultimate
+distance $d_h$ requires the PCA projection to a common dimension
+described above. The per-pair knowledge-matrix Frobenius distances are
+$0.0169$ (RN--DN), $0.0107$ (RN--GN), and $0.0180$ (DN--GN), each computed
+directly on the uniform $1000\times150{,}529$ matrices with no projection,
+illustrating that the knowledge matrix supports an alignment-free
+cross-architecture metric where the penultimate features do not. The same cross-architecture
+displacement $M_{W_A}(x)-M_{W_B}(x)$ is moreover subject to the exact
+accounting of Theorem~\ref{thm:pyth}: it splits into the part visible to
+the two networks' logit gap and an orthogonal part that records how
+differently the two architectures linearise the input, with the
+coherence $A=(d_f/d_M)^2$ available per pair from the same two stored
+scalars used in Study~2. We read this decomposition as descriptive
+geometry, not as a quality ranking of the architectures.
+
+\paragraph{Same-architecture cross-recipe positioning.}
+A companion experiment (Step~E of our pipeline) applies the same
+alignment-free distance to \emph{differently-trained} checkpoints of one
+architecture rather than to different architectures; we report it as
+supplementary material and do not rely on it for any claim in this
+paper.
+
+Whether independently trained networks converge to the same
+population-mean knowledge matrix, and how that depends on width, learning
+rate and parameterisation, is the subject of HAaNE~II; this study only
+establishes that the comparison is well-posed.

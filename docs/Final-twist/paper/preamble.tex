@@ -1,0 +1,53 @@
+% ============================================================================
+%  Preamble: packages, theorem environments, and notation macros.
+%  Shared by main.tex (\input{preamble}). Edit document-wide formatting here.
+% ============================================================================
+
+% --- Packages ---
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage[colorlinks=true,linkcolor=blue!70!black,citecolor=green!50!black,urlcolor=blue!70!black]{hyperref}
+\usepackage[round]{natbib}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,decorations.pathreplacing,calc,positioning}
+\usepackage[most]{tcolorbox}
+
+% --- Theorem environments ---
+\newtheorem{theorem}{Theorem}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{remark}[theorem]{Remark}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
+\newtheorem{conjecture}[theorem]{Conjecture}
+\numberwithin{theorem}{section}
+
+% --- Notation ---
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\M}{\mathrm{M}}
+\newcommand{\Mfx}{M(W{,}f)(x)}
+\newcommand{\Mfxp}{M(W{,}f)(x')}
+\newcommand{\Weff}{W_{\text{eff}}}
+\newcommand{\beff}{b_{\text{eff}}}
+\newcommand{\KM}{\textsc{KM}}
+
+% Placeholder macro for empirical numbers wired in by wire_paper_results.py.
+% Renders the argument verbatim in the PDF until substituted.
+\newcommand{\TODO}[1]{\textcolor{red}{\textbf{[TODO:}\ #1\textbf{]}}}
+
+% ===== REVIEW-ONLY WARNING BOXES (remove every \WARNING{...} before submission) =====
+% Red-framed [WARNING] box with a detailed explanation, visible in the compiled PDF.
+\newcommand{\WARNING}[1]{%
+  \par\smallskip\noindent
+  \fcolorbox{red}{red!6}{%
+    \begin{minipage}{0.93\linewidth}%
+      \small\textcolor{red}{\textbf{[WARNING --- review note; remove before submission]}}\par\smallskip
+      #1%
+    \end{minipage}}\par\smallskip}

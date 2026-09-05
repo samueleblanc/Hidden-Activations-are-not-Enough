@@ -32,3 +32,17 @@ cluster-commands.sh
 commands-cluster.sh
 cluster-fix-step-e.sh
 rorqual-commands.sh
+
+# Track only the paper figure the manuscript \includegraphics (Section study3,
+# figures/lp_counterfactual_pathology.pdf); keep the rest of docs/ ignored.
+# Leading slashes anchor to the repo root so other 'docs' dirs (e.g. legacy/docs)
+# stay ignored. Re-include each parent dir, re-ignore siblings, un-ignore the file.
+!/docs/
+/docs/*
+!/docs/Final-twist/
+/docs/Final-twist/*
+!/docs/Final-twist/paper/
+/docs/Final-twist/paper/*
+!/docs/Final-twist/paper/figures/
+/docs/Final-twist/paper/figures/*
+!/docs/Final-twist/paper/figures/lp_counterfactual_pathology.pdf

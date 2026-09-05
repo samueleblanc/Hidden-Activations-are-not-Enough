@@ -1,0 +1,132 @@
+\section{Distance geometry in matrix space}
+\label{sec:geometry}
+
+The row-sum identity $\M\mathbf 1=f$ gives knowledge-matrix perturbations an
+exact visible/invisible accounting. This accounting is shared with any
+representation carrying the same fixed row-sum constraint --- in particular
+per-class gradient$\times$input (Theorem~\ref{thm:weff}); what it excludes is
+\emph{stored activation-based} representations, for which no fixed
+parameter-independent vector plays the role of $\mathbf 1$
+(Proposition~\ref{prop:dichotomy}).
+
+\begin{theorem}[Visible/invisible decomposition]\label{thm:pyth}
+For any $\Delta\M\in\R^{C\times(d+1)}$ with logit displacement
+$\Delta f=\Delta\M\,\mathbf 1$, let $P=\Delta f\,\mathbf 1^{\!\top}/(d{+}1)$
+and $Q=\Delta\M-P$. Then $P$ is the orthogonal projection of $\Delta\M$ onto
+constant-row matrices and the unique minimum-norm matrix with row sums
+$\Delta f$; $Q\mathbf 1=0$; and
+\[
+\|\Delta\M\|_F^2=\frac{\|\Delta f\|_2^2}{d+1}+\|Q\|_F^2,
+\qquad\text{hence}\qquad
+\|\Delta\M\|_F\;\ge\;\frac{\|\Delta f\|_2}{\sqrt{d+1}},
+\]
+with equality iff $\Delta\M$ has constant rows. We call
+$\rho_{\mathrm{vis}}=\|\Delta f\|^2/((d{+}1)\|\Delta\M\|_F^2)$ the visible
+fraction and $A:=(d{+}1)\,\rho_{\mathrm{vis}}=(d_f/d_M)^2$ the
+\textbf{coherence} of the perturbation; both are computable from the two
+stored scalars $(d_M,d_f)$, and rank statistics of $d_M/d_f$ are exactly
+reverse rank statistics of $A$.
+\end{theorem}
+
+$Q$ is invisible \emph{to the evaluated logit displacement}: it encodes real
+changes of the local linearisation that the endpoint logits cannot see. The
+split is an exact orthogonal decomposition --- short to prove but load-bearing,
+since the entire descriptive geometry below rests on it. The
+decomposition is invariant under output rescaling, under the gauge group, and
+under per-coordinate input reparameterisations (pixel-unit changes move
+nothing); it is \emph{not} invariant under general input rotations --- the
+statistic is tied to the pixel basis, which for images is the natural one, and
+we make no claim of rotation invariance.
+This theorem retires our earlier amplification claims: raw Frobenius
+comparisons inflate with mass-spreading and per-coordinate (RMS) comparisons
+deflate with dimension, and both are monotone transforms of the same
+unit-free coherence $A=(d_f/d_M)^2$ (a monotone transform of the $d_M/d_f$
+ratio). We use $A$ as a \emph{geometric descriptor} of a perturbation, read
+against the two theorem-given reference lines $A=1$ (the one-pixel law,
+Theorem~\ref{thm:within}(ii)) and $A\le d$ (the within-region cap,
+Theorem~\ref{thm:within}(i)). We do \emph{not} tie $A$ to detectability or to
+any decision-relevant outcome: it is descriptive geometry, not a validated
+statistic, and the standalone empirical finding it is reported alongside is the
+attack-family rank ordering, which does not depend on $A$ having any such link.
+
+\begin{theorem}[Within-region anatomy]\label{thm:within}
+If $x$ and $y=x+\delta$ share the strict mask pattern, then
+$\M(y)-\M(x)=[\,J\,\mathrm{diag}(\delta)\mid 0\,]$ --- the bias column cancels
+exactly --- and $d_M^2=\sum_i\delta_i^2\|J_{:,i}\|_2^2$. Consequently:
+\emph{(i)} (coherence cap) $A\le d$, with the sharp maximum iff all weighted
+columns $\delta_iJ_{:,i}$ are equal and nonzero; \emph{(ii)} (one-pixel law)
+for $\delta=s\,e_{i_0}$ with $J_{:,i_0}\neq0$: $d_M=d_f$ exactly, i.e.\
+$A=1$, independent of pixel and magnitude; \emph{(iii)} ($k$-sparse bound) a
+perturbation supported on $k$ pixels has at most $k$ nonzero columns,
+$A\le k$, and column-energy participation ratio at most $k$.
+\end{theorem}
+
+\begin{theorem}[Smooth $+$ crossing anatomy]\label{thm:anatomy}
+For a generic pair $(x,y)$ whose segment crosses region walls transversally at
+$t_1<\dots<t_N$, with $\bar J=\int_0^1J(x+t\delta)\,dt$,
+\[
+\M(y)-\M(x)=\bigl[\,\bar J\,\mathrm{diag}(\delta)\mid 0\,\bigr]
+\;+\;K,\qquad
+K=\sum_{j}\sigma_j\,u_{k_j}\bigl[\,v_{k_j}^{\top}\mathrm{diag}(z_j)\mid
+\gamma_{k_j}\,\bigr],\qquad K\mathbf 1=0,
+\]
+where each crossing contributes a rank-one dyad whose row sums vanish (the
+flipped unit's pre-activation is zero at the crossing), and
+$\Delta f=\bar J\,\delta$: \emph{the crossing part moves the germ and not the
+function}. The bias column of $\M(y)-\M(x)$ equals $c(y)-c(x)
+=\sum_j\sigma_j\gamma_{k_j}u_{k_j}$ exactly; a nonzero bias column therefore
+certifies at least one crossing (no false positives; the converse fails ---
+bias-free networks are silent). The endpoint mask-Hamming $H$ lower-bounds the
+crossing count, with parity equality, at one forward pass per endpoint.
+\end{theorem}
+
+\begin{conjecture}[Mechanism of the attack-family ordering]\label{conj:mechanism}
+Iterative small-step attacks cross fewer walls and align with high-energy
+Jacobian columns, raising $A$; one-shot sign-based and gradient-free attacks
+do the opposite. Testable as a size-controlled negative rank correlation
+between per-pair $H$ and $A$. A pilot on per-pair VGG data (attack-success
+filtered, size-controlled) finds the predicted sign on all three attacks
+tested (Table~\ref{tab:mechanism-pilot}); the exact-$\|\delta\|$-controlled
+replication on the full architecture set is future work.
+\end{conjecture}
+
+\begin{proposition}[Penultimate distances carry no germ-level accounting]
+\label{prop:dichotomy}
+The decomposition of Theorem~\ref{thm:pyth} exists because
+$\M\mathbf 1=f$ holds with a fixed, parameter-independent vector $\mathbf 1$
+(it is shared by any representation with the same row-sum constraint, e.g.\
+gradient$\times$input, Theorem~\ref{thm:weff}). Penultimate
+features admit no analogue: on a gauge orbit the stored distance $d_h$ sweeps
+an unbounded range while $f$, $d_f$ and $d_M$ are fixed, so any gauge-invariant
+statistic built from stored penultimate norms is independent of $d_h$ ---
+i.e.\ not a statistic of the penultimate representation at all.
+\end{proposition}
+
+\subsection{Teleportation: what is bounded and what must be measured}
+\label{sec:teleport-claims}
+
+\begin{theorem}[No $C^0$ bound]\label{thm:nogo}
+For every $\varepsilon,B>0$ there exist same-architecture networks with
+$\sup_{x'}\|f(x')-g(x')\|\le\varepsilon$, identical masks at $x$, and
+$\|\M_g(x)-\M_f(x)\|_F\ge B$. Function-space closeness does not control germ
+drift.
+\end{theorem}
+
+\begin{proposition}[Three-tier claim structure for teleportation]\label{prop:visdrift}
+\emph{(i)} Under an exact isomorphism, the knowledge-matrix drift is zero.
+\emph{(ii)} Under an approximate teleportation with logit gate $\varepsilon$,
+the \emph{visible} drift is bounded unconditionally:
+$\|(\M_\tau(x)-\M(x))\mathbf 1\|=\|f_\tau(x)-f(x)\|\le\varepsilon$.
+\emph{(iii)} The \emph{invisible} drift admits no a priori bound from the gate
+(Theorem~\ref{thm:nogo}). A conditional bound exists when
+both networks are affine on a common ball of radius $r$ around $x$:
+$\|\M_\tau(x)-\M(x)\|_F\le(\varepsilon_r/r)\sqrt{\min(C,d)}\,\|x\|_\infty
++\varepsilon_r(1+\|x\|_2/r)$.
+\end{proposition}
+
+Our teleportation study (Section~\ref{sec:study1b}) reports the \emph{visible}
+drift through identity~(ii)---an equality, not an estimate---with the gate
+$\varepsilon$ measured directly on the logits; no table entry is asserted from a
+theorem whose hypotheses the experiment does not satisfy. The empirical
+visible/invisible split is exhibited separately, on adversarial pairs where the
+gate is exact, in Study~2 (Section~\ref{sec:study2}).

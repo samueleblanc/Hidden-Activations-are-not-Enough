@@ -1,0 +1,113 @@
+\section{Conclusion}
+\label{sec:conclusion}
+
+\paragraph{Summary.}
+We have presented three studies of pretrained ImageNet networks that,
+together with two honest negatives, witness a single thesis: the
+knowledge matrix is a \emph{canonical arrangement} of a trained network's
+per-sample behaviour that penultimate-layer activations cannot supply.
+Study~1 (Section~\ref{sec:study1}) is a correctness-and-measurement
+study. Its permutation arm verifies the permutation invariance of
+Proposition~\ref{prop:perm} on ResNet-152 --- where invariance is automatic
+by construction, so this is a numerical correctness check rather than
+independent evidence (the load-bearing, non-automatic invariance of
+Theorem~\ref{thm:maxinv} is the cross-architecture case): measured signal-relative, random neuron
+permutations leave the knowledge matrix with a permutation drift of only
+$0.1$--$0.2\%$ of its own adversarial-pair signal (the residual being
+float32 accumulation, $\sim10^{-10}$ at float64), while the penultimate
+features move by an amount of the same order as their own adversarial
+signal. Its teleportation arm measures, rather than asserts, the
+knowledge-matrix drift across all three architectures (ResNet-152,
+DenseNet-121, GoogLeNet): teleportation visibly perturbs the penultimate
+features on every architecture (the similarity panel of
+Section~\ref{sec:study1}), but function-equivalence holds only
+approximately --- the logit drift reaches $\sim10^{-1}$ on ResNet-152 and
+stays under $4\times10^{-2}$ on the other two --- so the
+knowledge matrix's visible drift is gated by the row-sum identity ---
+reported as \emph{equal} to that logit gate rather than asserted zero
+(Proposition~\ref{prop:visdrift}, Limitation L1).
+Study~2 (Section~\ref{sec:study2}) is descriptive geometry: it applies
+the visible/invisible decomposition of Theorem~\ref{thm:pyth} to
+adversarial pairs and reads the resulting coherence $A=(d_f/d_M)^2$
+against the single-pixel line $A=1$. On the deep ImageNet trio every
+attack family moves the germ with median $A\le0.23$, well below that
+line, and the attack-family ordering of $A$ is stable across six
+rater architectures (Kendall $W=0.921$), the population-matched full-scale
+appendix panel reproducing the same family-level grouping on all three of
+its architectures (Table~\ref{tab:s3_ordering_panel}). Study~3
+(Section~\ref{sec:study4}) is an availability result: the fixed-shape
+knowledge matrix lets one compare architectures directly, with no
+alignment step. The two honest negatives (Section~\ref{sec:study3}) are
+the detector bake-off, in which penultimate features win $5$ of $6$
+configurations and the original detection claim is withdrawn, and an
+LP-counterfactual that fails structurally on pretrained ImageNet networks
+(\texttt{region\_ok} = 0/54, Limitation L3).
+
+\paragraph{The umbrella thesis, restated.}
+Hidden activations are gauge-covariant and germ-incomplete
+(Theorem~\ref{thm:complete}): they change under
+network isomorphisms that preserve the function exactly, and they
+admit no exact accounting that ties their displacement to the change
+in the network's output. The knowledge matrix avoids both: it is an
+invariant of the function (Theorem~\ref{thm:maxinv}), and every
+displacement splits exactly into a logit-visible and a logit-invisible
+part whose balance is the unit-free coherence $A$
+(Theorem~\ref{thm:pyth}). For the piecewise-linear networks studied
+here, these function-level properties --- invariance and the exact
+completeness identity --- are shared with per-class gradient$\times$input
+plus an aggregate bias attribution (Theorem~\ref{thm:weff}); what the
+knowledge matrix contributes is the canonical \emph{arrangement} of that
+data, which is what makes the alignment-free cross-architecture
+comparison possible and what the $C$-VJP computation of
+Appendix~\ref{app:engineering} exploits. The three studies above, with
+their two negatives, are the first witnesses of this thesis.
+
+\paragraph{HAaNE~I is foundational; HAaNE~II asks a different question.}
+This paper is HAaNE~I of an ongoing series, and its standalone
+contribution is deliberately foundational: a canonical per-sample object,
+a characterisation of \emph{exactly} which transformations leave it
+invariant (the full function-stabiliser, Theorem~\ref{thm:maxinv}, of
+which neuron permutation is one special case), and the resulting
+alignment-free cross-architecture comparison that penultimate features
+cannot support. We make no application claim in this paper; the
+applications that motivated the original framing belong to a separate,
+unnumbered companion. Whether independently trained networks share the
+knowledge matrix, and how that depends on training, is the subject of
+HAaNE~II.
+
+\paragraph{Future directions.}
+Subsequent installments take up different questions about the same
+object. The next paper, HAaNE~II, asks whether independently trained
+networks learn the same knowledge matrix, and how the answer depends on
+width, learning rate and parameterisation. Several concrete follow-ups
+suggest themselves from the Limitations of this paper. A BatchNorm-aware
+extension of
+\texttt{neuralteleportation}'s change-of-basis transformation would
+tighten the function-equivalence gate in Study~1B from the current
+$2$--$10\%$ logit drift toward the floating-point floor, so that the
+measured knowledge-matrix gate shrinks to accumulation noise (closes L1).
+A concat-aware extension of the random-permutation correctness check
+would extend Study~1A from ResNet-152 to all three architectures (closes
+L4). A multi-region or continuation reformulation of the
+$\M(x)$-counterfactual would convert the structural negative of
+Section~\ref{sec:study3} into a positive one (closes L3). Concrete
+experiments demonstrating the practical consequences of the
+canonical-arrangement claim --- federated-learning aggregation in matrix
+space, model comparison without CKA-style alignment, $k$-nearest-neighbour
+classification on knowledge matrices --- are the natural application track
+of the separate, unnumbered companion (closes L5). Cross-pollination with
+transformer-interpretability methods --- training sparse autoencoders on
+knowledge-matrix rows
+\citep{bricken2023monosemanticity,templeton2024scaling}, projecting
+through partial row sums in analogy with the logit lens
+\citep{nostalgebraist2020logitlens} --- would extend the framework
+beyond the CNN setting of this paper (closes L6).
+
+\paragraph{Closing.}
+Hidden activations are not enough. A trained network's behaviour
+on a sample is a property of its \emph{function}, and --- unlike the
+penultimate activations --- the knowledge matrix derived from its
+quiver representation is an invariant of that function
+(Theorem~\ref{thm:maxinv}) with an exact accounting of how it moves.
+The studies in this paper are the first three
+witnesses in a longer multi-witness argument.

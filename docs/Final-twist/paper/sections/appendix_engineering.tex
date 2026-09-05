@@ -1,0 +1,177 @@
+\section{Computing the knowledge matrix}
+\label{app:engineering}
+
+This appendix collects all of the software and computational material for the
+knowledge matrix, so that the main text can remain conceptual. It states the
+three equivalent ways to compute $\M(x)$ that Theorem~\ref{thm:weff}
+establishes, gives the cost accounting that motivates the autograd route,
+reports the numerical validation that the three routes agree, and lists the
+implementation requirements that make the row-sum identity
+$\M(x)\mathbf{1}=f(x)$ hold exactly. Throughout, $\M(x)\in\R^{C\times(d+1)}$ is
+the knowledge matrix of a feedforward, piecewise-linear (PL) network with $C$
+output classes on an input of dimension $d$; its slope block is
+$\Weff(x)=J=\partial f/\partial x\in\R^{C\times d}$ and its final column is the
+aggregate bias attribution $\beff(x)=f(x)-Jx$.
+
+\subsection{Three equivalent computations}
+\label{app:eng-three-routes}
+
+For a PL network at a regular point (one not on a non-linearity's switching
+surface), the knowledge matrix can be obtained by three routes that coincide.
+
+\paragraph{(i) Masked product.}
+Freeze the activation pattern at $x$: each non-linearity contributes a fixed
+diagonal mask $D^{(\ell)}(x)$ recording which units are active. On the resulting
+mask-frozen affine map, the slope block is the ordered product
+$\Weff(x)=W^{(L)}D^{(L-1)}\cdots D^{(1)}W^{(1)}$, evaluated at $x$, and the bias
+column is the corresponding aggregate of the per-layer biases pushed through the
+same masks. This is the definitional route used by the
+\texttt{knowledgematrix} library probe internally.
+
+\paragraph{(ii) Probe construction ($d{+}1$ forward passes).}
+The library realises the masked product without ever forming it explicitly, by
+freezing the mask at $x$ and then sending $d{+}1$ scaled basis vectors through
+the mask-frozen network: one column of $\M(x)$ per input coordinate (recovering
+$\Weff$ column by column) plus one pass for the bias column. This is $d{+}1$
+forward passes of the (now affine) network. At ImageNet scale this is the
+expensive route, because $d{+}1 = 150{,}529$.
+
+\paragraph{(iii) Autograd ($C$ vector--Jacobian products plus one forward pass).}
+Because $\Weff(x)=J=\partial f/\partial x$ is exactly the Jacobian of the
+network output with respect to the input at $x$, the slope block can be read off
+by automatic differentiation: $C$ vector--Jacobian products (one per output
+class, each seeding a unit covector $e_c$) recover the $C$ rows of $J$, and one
+additional forward pass gives $f(x)$, from which the bias column is
+$\beff(x)=f(x)-Jx$. This is $C$ backward passes plus one forward pass.
+
+By Theorem~\ref{thm:weff} these three routes coincide at almost every input for
+PL networks: they agree at every regular point, i.e.\ off the measure-zero set
+of switching surfaces. On that null set the gradient is not single-valued and
+the probe inherits whichever one-sided pattern the forward pass selects; we
+compute at regular points throughout. The equality of (i)--(iii) is what lets us
+use the cheapest route, (iii), in practice while retaining the library probe
+(ii) as the reference implementation. Per Theorem~\ref{thm:weff}, this slope
+block is per-class gradient$\times$input and the bias column is an aggregate bias
+attribution in the FullGrad sense
+\citep{shrikumar2016not,ancona2018towards,srinivas2019full}; the function-level
+properties of $\M$ on PL nets are shared with that data, and what the matrix
+contributes is the canonical \emph{arrangement} rather than a separate
+invariant.
+
+\subsection{Cost and speed-up}
+\label{app:eng-cost}
+
+Theorem~\ref{thm:weff} replaces $d{+}1$ probe passes by $C$ backward passes,
+a predicted saving of $\approx(d{+}1)/(\kappa C+1)$, where $\kappa$ is the
+forward-to-backward cost ratio. At ImageNet scale ($C=1000$,
+$d{+}1=150{,}529$) this is a factor in the $50$--$150\times$ band (JSON key
+\texttt{timing\_224.thm\_predicted\_ratio\_range} $=[50.2,\,150.4]$). The demo
+below reports a measured CPU ratio of $\approx296\times$, above the theory band
+for the reasons noted there; we report it as a compute-cost ratio consistent
+with the lower-bound estimate, not as a tighter claim than the theory supports.
+
+\subsection{Numerical validation: $\Weff$ $=$ grad$\times$input, three ways}
+\label{app:eng-validation}
+
+This subsection reports the numerical demonstration anchoring
+Theorem~\ref{thm:weff}: that the three routes of
+Appendix~\ref{app:eng-three-routes} agree to machine precision, and that the
+autograd route is cheaper. We expose the bare slope
+$\Weff(x)=J=\partial f/\partial x \in \R^{C\times d}$ (the knowledge matrix
+$\M(x)$ before its bias column is appended) through the library probe's
+\verb|extract_weff=True| flag, and compare it against (a) the masked product
+$W^{(L)}D^{(L-1)}\cdots D^{(1)}W^{(1)}$ evaluated at $x$, and (b) autograd
+($C$ vector--Jacobian products plus one forward pass). All computations are
+in \texttt{float64} with the network in evaluation mode, the conditions under
+which the row-sum identity $\M(x)\mathbf{1}=f(x)$ is exact. Per
+Theorem~\ref{thm:weff}, every function-level property of $\M$ on PL nets
+(invariance, completeness, the exact row sum) is already shared by
+gradient$\times$input with an aggregate bias attribution in the FullGrad
+sense \citep{shrikumar2016not,ancona2018towards,srinivas2019full}; what the
+matrix contributes is the canonical \emph{arrangement}, not a separate
+invariant. This subsection only checks that the three routes to that shared
+slope coincide, and that the autograd route is cheaper.
+
+\paragraph{Three-route agreement on a small MLP.}
+On a tiny MLP at a regular point, the masked product, the probe, and autograd
+agree to the float64 floor: probe-vs-product max-abs error
+$7.1\times10^{-15}$, autograd-vs-product $3.6\times10^{-14}$, the row-sum
+residual $\|\M(x)\mathbf{1}-f(x)\|_\infty = 2.0\times10^{-14}$, and the
+$\Weff$ identity $\|[\,\Weff\mid c\,]\,\mathbf{1}-f(x)\|_\infty
+= 2.1\times10^{-14}$.
+(JSON keys \texttt{mlp\_three\_route\_max\_abs\_err}.\{\texttt{prod\_vs\_probe},
+\texttt{prod\_vs\_auto}, \texttt{rowsum}, \texttt{weff\_identity}\}.) As a
+sanity check on the geometry of Theorem~\ref{thm:within}, a single-pixel
+perturbation on the same network gives $d_M = d_f$ to
+$|A-1| = 5.5\times10^{-10}$ with exactly one nonzero column, the one-pixel
+law $A=1$ (key \texttt{one\_pixel\_law}).
+
+\paragraph{Probe-vs-autograd agreement on AlexNet.}
+The exactness check at scale uses AlexNet on a $3\times64\times64$ input
+($d=12{,}288$, $C=1000$; the fork's fully connected dimensions constrain the
+input size, so this check is run at $64\times64$, not at the $224\times224$
+size used for the timing extrapolation below), with random weights at a
+regular point (the identities are parameter-independent). The library probe
+and autograd agree to a max-abs error of $3.2\times10^{-17}$ on $\M(x)$ (key
+\texttt{M\_lib\_vs\_M\_auto\_max\_abs}; the two reported rows are
+$3.21\times10^{-17}$ and $3.30\times10^{-17}$), the bare-slope route
+$\Weff$ matches autograd to $\approx 4.8\times10^{-19}$ max-abs (key
+\texttt{weff\_vs\_autograd}: $4.8\times10^{-19}$ and $4.1\times10^{-19}$),
+and the row-sum residual is $\le 3.5\times10^{-17}$ (probe) and
+$\le 1.2\times10^{-17}$ (autograd).
+
+\paragraph{Finite-precision behaviour at depth.}
+The float64 agreement above is the favourable case. In \texttt{float32} the
+row-sum completeness residual is materially larger on deep networks --- it
+reaches $0.15$--$0.30$ on ResNet-152 --- and falls to $\sim10^{-10}$ when the
+same computation is repeated at \texttt{float64}. The exact row sum is therefore
+a property of the idealised PL map, not of finite arithmetic at depth; we
+report completeness as exact in theory and measured-near-exact at float64, and
+we do not claim agreement ``to numerical precision'' in single precision.
+
+\paragraph{Compute cost.}
+Theorem~\ref{thm:weff} replaces $d{+}1$ probe passes by $C$ backward passes,
+a predicted saving of $\approx(d{+}1)/(\kappa C+1)$, i.e.\ a factor in the
+$50$--$150\times$ band at ImageNet scale ($C=1000$, $d{+}1=150{,}529$; JSON
+key \texttt{timing\_224.thm\_predicted\_ratio\_range} =
+$[50.2,\,150.4]$). The demo's measured cost ratio on this hardware is
+$\approx296\times$ (probe path $\approx8475$\,s, VJP path $\approx29$\,s per
+sample, both extrapolated from measured slices; key
+\texttt{ratio\_probe\_over\_vjp}). The measured figure lies above the theory
+band because it is an \texttt{float64} CPU run in which the probe passes are
+emulated by batched forward evaluations (JSON \texttt{timing\_224.note});
+we report it as a compute-cost ratio, consistent with the lower-bound theory
+estimate. The smaller AlexNet check confirms the same ordering directly
+(probe $\approx23.7$\,s vs.\ VJP $\approx14.7$\,s per sample at $64\times64$).
+
+\subsection{Implementation requirements}
+\label{app:eng-gotchas}
+
+The identities above hold for the idealised PL map; reproducing them in software
+requires the following.
+
+\paragraph{Evaluation mode is mandatory.}
+The network must be in evaluation mode for every pass used to build $\M(x)$.
+Active Dropout desynchronises the saving, probe, and autograd passes --- each
+draws a different mask --- so the three routes no longer share an activation
+pattern, and the row-sum identity $\M(x)\mathbf{1}=f(x)$ then appears to fail at
+the $\sim10^{-2}$ level. This is not a violation of Theorem~\ref{thm:weff} but a
+mismatch of activation patterns across passes; \texttt{model.eval()} (freezing
+Dropout, and BatchNorm to running statistics) removes it.
+
+\paragraph{Input shape.}
+The \texttt{KnowledgeMatrixComputer} forward call expects a $3$D input tensor
+$(C_{\text{in}},H,W)$, \emph{not} a $4$D batched tensor $(1,C_{\text{in}},H,W)$;
+the leading batch axis must not be added with \texttt{unsqueeze} before the
+call. (Here $C_{\text{in}}$ is the number of input channels, distinct from the
+$C$ output classes that index the rows of $\M$.)
+
+\paragraph{Chunked computation and storage discipline.}
+At ImageNet scale a single knowledge matrix is $1000\times150{,}529$, so per-sample
+matrices are large and a sweep produces many of them. Computation is chunked, and
+matrices are \emph{not} written one file per sample onto shared cluster storage:
+the per-sample files are computed on node-local scratch and bundled into a single
+archive before being shipped to shared storage, to avoid the metadata load of
+many small files on a parallel filesystem. The autograd route of
+Appendix~\ref{app:eng-cost} compounds with this: fewer passes per sample and
+fewer intermediate writes.

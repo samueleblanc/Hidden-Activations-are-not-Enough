@@ -1,0 +1,28 @@
+% Phase-1 cross-architecture panel (S2). Source: results/phase1/aggregated/s2_results.json
+% (full-scale reduce, N=25,000 pairs/arch-pair, da36545/400d083 on Rorqual, 2026-06-19).
+% KM Frobenius is RMS-per-coordinate (canonical metric, utils/scaling.py). Panel measures
+% are the natively cross-dimensional ones computed on the raw unequal-dim penultimate features.
+% OMITTED columns (honest reporting, not silent zeros):
+%   - Gromov-Wasserstein: the entropic-GW solver failed to produce a transport plan on every
+%     cross-arch pair (returned 0.0); excluded pending a converged re-run.
+%   - Procrustes: cross-arch Procrustes requires per-chunk PCA whose target dim collapses to the
+%     chunk sample count (unsound across chunks); reported only within-architecture (Study 1).
+\begin{table}[h]
+\centering
+\caption{Alignment-free cross-architecture comparison (Study~3). KM Frobenius distance
+(RMS-per-coordinate, mean over $N=25{,}000$ ImageNet-val samples) is computed directly between
+architectures with \emph{no} dimension matching; the penultimate-feature panel measures require
+the unequal-dimension handling described in the text. GW omitted (solver non-convergence on all
+pairs); cross-architecture Procrustes omitted (see text). Cui/Murphy controls pending a
+controls-enabled reduce.}
+\label{tab:s2_table}
+\begin{tabular}{lcccccccc}
+\toprule
+Pair & KM Frob$_{\mathrm{RMS}}$ & deb.\ CKA & ang.\ CKA & Bures & soft-match & RSA & out-JSD & dCor \\
+\midrule
+RN--DN & $0.0169$ & $0.442$ & $1.113$ & $0.488$ & $123.98$ & $0.419$ & $0.342$ & $0.661$ \\
+RN--GN & $0.0107$ & $0.358$ & $1.205$ & $0.478$ & $63.63$  & $0.334$ & $0.388$ & $0.594$ \\
+DN--GN & $0.0180$ & $0.539$ & $1.002$ & $0.595$ & $109.11$ & $0.524$ & $0.354$ & $0.751$ \\
+\bottomrule
+\end{tabular}
+\end{table}

@@ -1,0 +1,6 @@
+% entries/svcca.tex
+\vocabentry{SVCCA}
+{Singular-vector canonical correlation analysis (Raghu et al.\ 2017): reduce each centred feature matrix to the top singular directions carrying $99\%$ of its variance, then compute the canonical correlations between the two reduced feature sets and report their mean, in $[0,1]$.}
+{Canonical correlations are the singular values of $\Sigma_A^{-1/2}\Sigma_{AB}\Sigma_B^{-1/2}$, i.e.\ the cosines of the principal angles between the column spaces of the whitened features; they are invariant under any invertible linear map of either feature space, which is why the SVD truncation must come first (without it, two generic subspaces of $\R^N$ of dimensions $m_a,m_b$ with $m_a+m_b>N$ intersect and correlations of $1$ appear for free). The measure is ill-posed unless $N$ is comfortably larger than the retained dimensions; the de-risk probe refuses the comparison when $N\le2\max(m_a,m_b)$.}
+{\texttt{compute\_svcca} in \texttt{src/metrics/svcca\_penult.py} (\texttt{energy\_keep=0.99}); the head-to-head in \texttt{od10\_derisk\_probe.py} with its permuted-probe null and its CLEAN / AMBIGUOUS / PATHOLOGICAL verdict.}
+{\texttt{tests/test\_od10\_derisk\_probe.py} (an orthonormal embedding is CLEAN, the ill-posed case is PATHOLOGICAL, independent arms are AMBIGUOUS).}

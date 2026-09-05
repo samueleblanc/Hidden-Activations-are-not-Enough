@@ -1,0 +1,6 @@
+% entries/frobenius-inner-product.tex
+\vocabentry{Frobenius inner product}
+{For $A,B\in\R^{C\times(d+1)}$, $\langle A,B\rangle_F=\mathrm{tr}(A^\top B)=\sum_{c,i}A_{ci}B_{ci}$, with norm $\|A\|_F=\langle A,A\rangle_F^{1/2}$ and distance $\|A-B\|_F$. It is the inner product behind every knowledge-matrix comparison in both papers.}
+{The standard inner product of $\R^{C(d+1)}$ transported along the vectorisation $\mathrm{vec}:\R^{C\times(d+1)}\to\R^{C(d+1)}$, equal to the tensor product of the standard inner products of $\R^C$ and $\R^{d+1}$; hence an orthogonal projector on either factor ($P\otimes\mathrm{Id}$ for class-centring, $\mathrm{Id}\otimes\vone\vone^\top/(d{+}1)$ for the visible part) is orthogonal for it and Pythagoras applies. Unlike the operator norm it is basis-dependent in the input factor: a rotation of $\R^d$ does not preserve $\KM$, whose columns are tied to the input coordinates --- stated, not hidden, in both papers.}
+{\texttt{numpy.linalg.norm} on the $(10,41)$ arrays throughout \texttt{src/metrics/mbar\_similarity.py}; HAaNE~I's $d_M=\|\KM(\vx')-\KM(\vx)\|_F$ per pair.}
+{\texttt{tests/test\_mbar\_similarity.py::test\_mbar\_distance\_known\_value}; HAaNE~I's decomposition theorem is checked numerically on every pair (the visible part equals the logit displacement).}
