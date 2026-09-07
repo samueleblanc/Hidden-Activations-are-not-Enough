@@ -2,24 +2,125 @@
 
 ## Overview
 
-Research implementation of "Hidden Activations Are Not Enough: A General Approach to Neural Network Predictions" (arXiv:2409.13163) by Samuel Leblanc, Aiky Rasolomanana, and Marco Armenta. Computes "knowledge matrices" via quiver representations of neural networks and demonstrates their superiority over penultimate-layer activations as canonical representations.
+Research implementation of "Hidden Activations Are Not Enough: A General Approach to Neural Network Predictions" (arXiv:2409.13163) by Samuel Leblanc, Aiky Rasolomanana, and Marco Armenta. Computes "knowledge matrices" via quiver representations of neural networks and studies them as function-determined (gauge-invariant, germ-complete) per-sample representations. Do NOT describe KMs as "superior to penultimate activations" — the repo's own detector bake-off refuted that framing (penultimate won 5/6 configurations; reported as an honest negative).
 
 - **Language:** Python 3.11 + Bash (Slurm job scripts)
 - **Cluster:** Compute Canada Alliance HPC (Rorqual, H100 GPUs)
 - **License:** Apache 2.0
 - **Key dependencies:** torch 2.2.2, torchvision 0.17.2, torchattacks 3.5.1, knowledgematrix (git+MarcoArmenta/knowledgematrix-cluster@fe64a13 — Phase-1 fork; pinned in `requirements-{slurm,local}.txt`), scikit-learn 1.3.2, scipy 1.10.1, neuralteleportation (for teleportation experiment)
 
+## This is HAaNE I of a three-paper series (decided 2026-09-04) — read this first
+
+| | Paper | Where |
+|---|---|---|
+| **HAaNE 0** | *Hidden Activations Are Not Enough* (arXiv:2409.13163) — defines the knowledge map, the KM and the row-sum identity | published; rejected by TMLR Nov 2024; being renamed 0 |
+| **HAaNE I** | **this repository** — *Knowledge Matrices as Higher Representations* | `docs/Final-twist/paper/` |
+| **HAaNE II** | *Do Independently Trained Networks Learn the Same Knowledge Matrix?* | the `Neural-Networks-Matrices` repo, branch `learning-mechanics` |
+
+**The boundary rule.** HAaNE I is about **the object at one trained network**: `x` moves, `θ` is fixed —
+germ identity, maximal invariance, completeness, the VJP equivalence, adversarial distance geometry,
+teleportation tiers, and the alignment-free comparison on the pretrained zoo. HAaNE II is about **the
+population statistic across training runs**. Do not let work drift across that line.
+
+**Vocabulary ownership is enforced by greps, not by taste.** This paper never writes *universality*,
+*seed floor* or *training controls* — those are II's. II never writes *higher representation* — that is
+this paper's title. The gates are at the top of the status board.
+
+> **`docs/Final-twist/paper/STATUS.md` is the living board.** It answers "where are we on paper I":
+> what is ready, what is left in order, the open review flags, and the pre-submission checklist. Read it
+> before planning anything, and update it in place when you change the paper. `CLUSTER-RUNS-STATUS.md`
+> (repo root, local-only) remains the cluster record.
+
+**State as of 2026-09-05.** All cluster work is complete and **nothing is blocked**; every remaining item
+is a local decision, a local run, or writing. The paper builds clean at 48 pages and is **not submitted**.
+Three things a session here must know:
+
+- **The paper tree is now tracked.** `docs/` is ignored by this repo's `.gitignore`; commit `8b2f731`
+  started tracking `docs/Final-twist/paper/` with `git add -f` and staged the ignore carve-out. Further
+  paper commits still need `-f` for **new** files.
+- **The vocabulary appendix is a mirror, not a fork.** `docs/Final-twist/paper/sections/vocab/` is copied
+  byte-for-byte from `docs/vocab/` in the HAaNE II repository (16 of its 31 entries; the rest carry II's
+  reserved vocabulary). Fix the shared source and re-copy — never edit the copy, or the next sync silently
+  clobbers it. Re-sync recipe: the last section of the status board.
+- **The ordering tables are generated, not hand-written.** `scripts/regen_ordering_tables.py` emits
+  `tables/s3_table.tex` from the Phase-1 reduce, with 80 enforced self-checks that abort the run and write
+  nothing rather than print a caption that disagrees with its numbers. Regenerate; do not hand-edit.
+
 ## TMLR Resubmission Direction
 
 Paper rejected by TMLR (Nov 2024). New direction: **"Knowledge Matrices as Canonical Neural Network Representations"** — dropping adversarial detection claims entirely. Three studies:
 
-1. **Study 1 — Isomorphism Invariance.** KMs are provably invariant under neuron permutations and broader quiver isomorphisms; no other practically computable representation has this. Sub-studies: 1a (random neuron permutation, retired from orchestrator), 1b (neural teleportation), 1c (within-arch invariance under the 9-measure similarity panel).
-2. **Study 2 — Theorem 4.5 Distance Lower Bound.** KM distances are guaranteed to exceed logit-space distances. Novel empirical finding: the amplification factor splits cleanly by attack type.
+1. **Study 1 — Invariance.** CORRECTED 2026-06-11: the paper's Thms 4.1/4.2 cover nonzero per-neuron *rescalings* only — permutations are NOT in that group. Permutation invariance (and invariance under the entire function-stabilizer) is now covered by the new germ-identity/maximal-invariance theorems (proofs in `../resubmission-artifacts-2026-06-11/paper-drop-in/`). The uniqueness claim ("no other practically computable representation has this") is FALSE — gradient×input/FullGrad share the invariance for piecewise-linear nets; we own that via the equivalence theorem instead. Sub-studies: 1a (permutation, signal-relative framing), 1b (neural teleportation — function-approximate on BN nets; the measured-drift column was DROPPED by decision on 2026-06-23 (PATH B) after the fp32-vs-fp64 diagnostic showed the measured drift was a `load_cob_into_km` load bug, so 1b now rests on exact invariance, the visible-drift logit-gate equality, and an invisible part left unestimated — never asserted 0), 1c (9-measure similarity panel).
+2. **Study 2 — Distance geometry.** CORRECTED 2026-06-11: raw and RMS "amplification" are both unit artifacts of the row-sum constraint. The metric-invariant statistic is the coherence $A=(d_f/d_M)^2$, with theorem reference lines $A=1$ (one-pixel law) and $A\le d$ (within-region cap). The surviving empirical results: the attack-family ordering (Kendall $W=0.921$ across 6 archs) and the size-controlled crossing-mechanism pilot.
 3. **Study 3 — Cross-architecture canonical comparison.** KMs are uniformly $1000 \times 150{,}529$ for any feedforward network on $224 \times 224$ ImageNet inputs, so KM Frobenius distance compares ResNet-152, DenseNet-121, and GoogLeNet directly without any alignment step. Includes a same-arch cross-recipe positioning experiment (Step E).
 
 Phase 1 (added 2026-05-03) extends Studies 1, 2, and 3 with a 9-measure representation-similarity panel and Cui/Murphy controls (`docs/superpowers/specs/2026-05-03-cka-similarity-experiments-design.md`).
 
 Additionally: testing how penultimate activation distances behave when increasing network size (using pretrained torchvision models directly, no training needed).
+
+## Resubmission status — what is left (updated 2026-06-11)
+
+**Read these first:** the adjudicated plan + proved theorems are in
+`../HAaNE-Resubmission-Plan-and-Proofs-2026-06-11.pdf`; all paper-ready artifacts
+(tables, theory drop-in sections, full proofs appendix, Fig. 1, cover letter, scripts,
+demo results) are in `../resubmission-artifacts-2026-06-11/` (see its README). Every
+theorem there was verified numerically at float64 by independent adversarial agents.
+
+**Gate decision (spent).** Both gates cleared: the Phase-1 reduce is green (06-19, controls
+06-21) and the Step-B question closed on 06-23 — see PATH B below. Step E was never a gate
+and is now effectively dropped: "Step E" appears nowhere in the paper source. The remaining
+sequence to submission is the ordered LEFT list on the status board.
+
+> **Cluster-runs status board — `CLUSTER-RUNS-STATUS.md` (repo root).** The single
+> source of truth for everything cluster-side: what has run, what is in flight, what is
+> left (Steps A–E, Phase-1 S1–S3, reduce→tar, the D2 deployment), push state, gate
+> files, result paths, standing facts, and risks. It is a **living document updated IN
+> PLACE** — rewrite stale fields, never append logs. **It is LOCAL-ONLY: never commit or
+> push it** (it is in `.git/info/exclude`); the status-doc edits in this CLAUDE.md are
+> likewise kept uncommitted. It gets updated when Marco pastes cluster output into a
+> local session (e.g., a `/cluster-debug` transcript, scheduler snapshots, or pulled
+> result files): read it at session start, rewrite the rows the new information touches
+> before the session ends. Same convention as `TRILLIUM-PIPELINE.md` in the
+> Neural-Networks-Matrices repo.
+
+### Writing actions (local)
+1. Wire the drop-ins into `docs/Final-twist/paper/`: `paper-drop-in/{fig1_germ_identity,
+   section_math_core, appendix_proofs, study_snippets}.tex` + `study2_tables/*.tex`
+   (compile-tested together; see PREVIEW.pdf). Add bib entries: Shrikumar/Ancona (G×I),
+   Srinivas–Fleuret (FullGrad), Balestriero–Baraniuk (spline/CPA), Lakshminarayanan–Singh
+   (NPF/NPK), Mohan et al. (denoiser Jacobians), Novak et al., Phuong–Lampert,
+   Rolnick–Kording, Grigsby–Lindsey, Flinth et al. 2026.
+2. Apply the cut list (file:line table in the plan PDF, Part B §3). The five land-mines:
+   `study1_invariance.tex:144-161` (γ⁻¹ upper bound — INVERTS Thm 4.5; cut),
+   `:211-216` (theorem-asserted 0 — replace with measured drift), the 130×/5×/8–16×
+   headlines, `mathematical_background.tex:48` vs `:55-60` (1_d vs 1_{d+1}),
+   `study1_invariance.tex:23-31` (describe the wide_face permutation correctly).
+3. Fill `docs/Final-twist/paper/tables/s{1,2,3}_table.tex` stubs when the reduce lands;
+   regenerate theorem45/isomorphism tables in survivor metrics
+   (`../resubmission-artifacts-2026-06-11/scripts/make_study2_tables.py`).
+4. Cover letter: `paper-drop-in/cover_letter.md` — every bullet keyed to a verbatim
+   reviewer/AE quote; includes the "what we deliberately do not claim" section.
+
+### Claims discipline (dead list — never reintroduce)
+Raw or RMS amplification headlines (both unit artifacts; use coherence A); "superior to
+penultimate"; DPI arguments in either direction; "γ̂>0 validated"; theorem-asserted table
+zeros; "identical to numerical precision" (float32 completeness residuals reach 0.15–0.30
+on ResNet-152; float64 spot-checks reduce them to ~1e-10); "no other practically
+computable representation has this property"; permutation invariance cited to Thms 4.1/4.2.
+
+### Facts established 2026-06-11 (cite, don't rediscover)
+- Germ identity: M(x) = [J·diag(x) | f−Jx] with J = ∂f/∂x a.e. for PL nets ⇒ M is
+  computable by C VJPs: 50–150× cheaper than probing at ImageNet (measured 296× on CPU;
+  library-probe vs autograd agreement 3.3e-17 max-abs on AlexNet, fp64, eval mode).
+- Networks MUST be in eval mode for KM computation: active Dropout desynchronizes the
+  saving/probe/autograd passes and the row-sum identity appears to fail at ~1e-2.
+- VGG γ̂=0 diagnosed: attack-failure pairs in a single linear region (8 identical sample
+  indices across attacks; d_M=0 is exact). Apply an attack-success filter (d_f ≥ 1).
+- Mechanism pilot (VGG per-pair debug data): raw Spearman(H, A) is size-confounded;
+  the size-controlled partial correlation is negative (−0.30…−0.34) on all three attacks
+  — the conditional crossing mechanism is supported. D4 inherits this analysis plan.
+- Signal-relative invariance: KM permutation noise ≈0.1–0.2% of its adversarial signal
+  (worst tail 1.14×); penultimate ≤3.05× its own noise, below 1× in 16/24 cells.
 
 ## Directory Structure
 
