@@ -25,7 +25,7 @@ APGD & 0.113 & 0.192 & 0.228 & 0.229 & 1.28 & 0.837 \\
 Square & 0.0146 & 0.0273 & 0.0183 & 0.0373 & 0.228 & 0.0834 \\
 \bottomrule
 \end{tabular}
-\caption{Median coherence $A=(d_f/d_M)^2$ of adversarial knowledge-matrix motion ($d{+}1=150{,}529$;
+\caption{Median coherence $A=(d_\Psi/d_M)^2$ of adversarial knowledge-matrix motion ($d{+}1=150{,}529$;
 $\rho_{\mathrm{vis}}=A/(d{+}1)$). $A=1$ is the single-pixel coherence line; $A\le d$ the within-region cap.
 On the deep ImageNet trio every attack family sits at $A\le0.23$ --- germ motion less coherent than a
 single within-region pixel --- with the iterative-PGD family consistently the most coherent; only on
@@ -35,6 +35,10 @@ $9/36$ cells are odd-count/exact, so even-count cells (the DenseNet-121 column i
 interpolation-approximate. \emph{Caveat (cell sizes):} each cell holds $200$ nominal pairs, of which $110$--$200$
 are valid; FGSM and PGD keep all $200$, while the CW, DeepFool, APGD and Square cells keep $149$--$161$
 (ResNet-152), $150$--$152$ (DenseNet-121), $120$--$123$ (GoogLeNet), $140$--$141$ (ResNet-18), $110$ (AlexNet)
-and $198$--$200$ (VGG), so read those cells as low-$n$.}
+and $198$--$200$ (VGG), so read those cells as low-$n$.
+\clarify{Each entry is a median over the valid pairs of \emph{that one cell}; nothing here is
+pooled across attacks or across architectures. Accordingly the ``$A\le0.23$'' headline in
+Section~\ref{sec:study2} is the largest of the $18$ trio cell medians (GoogLeNet/APGD, $0.228$),
+not the median of a pooled population.}}
 \label{tab:coherence}
 \end{table}

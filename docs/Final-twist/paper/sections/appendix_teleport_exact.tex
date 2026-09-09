@@ -1,0 +1,272 @@
+% ============================================================================
+%  Appendix: neural teleportation is an exact isomorphism; the measured logit
+%  drift is floating-point roundoff.
+%
+%  Added 2026-09-07. This appendix REPLACES the earlier "teleportation is
+%  function-approximate" diagnosis, which attributed the measured drift to
+%  un-migrated BatchNorm running statistics. That diagnosis was a conjecture
+%  (docs/Final-twist/km-notes.md, 2026-05-01, "Most likely cause: ...") and it
+%  is wrong: the library does not migrate the running statistics because it does
+%  not need to. See scripts/verify_teleportation_exactness.py.
+% ============================================================================
+
+\section{Neural teleportation is exact: the measured drift is roundoff}
+\label{app:teleport-exact}
+
+That neural teleportation preserves the function exactly is a theorem, not a
+finding of this paper: an isomorphism of neural networks $\tau:(W,f)\to(V,g)$
+satisfies $\Psi(W,f)=\Psi(V,g)$ \citep[Thm.~4.13]{armenta2021representation}, and
+a per-neuron change of basis is such an isomorphism. This appendix does two
+things that the theorem does not. Section~\ref{app:teleport-why} records why
+batch normalisation is inside the theorem's scope rather than an exception to it,
+since that is the point at which the construction is most often doubted.
+Sections~\ref{app:teleport-eps}--\ref{app:teleport-tf32} then verify that our
+\emph{software} realises the identity, and calibrate the arithmetic floor below
+which no drift figure in this paper can be resolved --- a question about the
+implementation, on which a theorem is silent.
+
+\subsection{Why the transform is exact, batch normalisation included}
+\label{app:teleport-why}
+
+A teleportation assigns a nonzero scalar $\tau_q$ to each hidden neuron $q$ and
+conjugates the parameters, $W^{(\ell)}\mapsto T_\ell W^{(\ell)}T_{\ell-1}^{-1}$
+and $b^{(\ell)}\mapsto T_\ell b^{(\ell)}$ with $T_\ell=\mathrm{diag}(\tau)$. The
+group acts on the activations as well, by
+\begin{equation}
+(\tau\cdot f)_v(z)\;=\;\tau_v\,f_v\!\left(\frac{z}{\tau_v}\right)
+\label{eq:cob-activation}
+\end{equation}
+at each hidden vertex $v$ \citep[Eq.~2]{armenta2021representation}. For a
+positively homogeneous activation --- ReLU with $\tau_v>0$ --- this leaves $f_v$
+unchanged, the $T_\ell$ telescope through the layer stack, and the function is
+preserved.
+
+Batch normalisation is the case that looks like an obstruction, and it is worth
+being explicit about why it is not. In evaluation
+mode a BN channel is the affine
+map $z\mapsto\gamma(z-\mu)/\sqrt{\sigma^2+\epsilon}+\beta$, which is
+\emph{not} positively homogeneous: the running mean $\mu$ and the shift $\beta$
+break $\varphi(\tau z)=\tau\varphi(z)$. One repair is to migrate the running
+statistics, $\mu\mapsto\tau\mu$ and $\sigma^2\mapsto\tau^2\sigma^2$; note that
+this repair is only exact if the numerical guard $\epsilon$ is rescaled too,
+since $\sqrt{\tau^2\sigma^2+\epsilon}\neq\tau\sqrt{\sigma^2+\epsilon}$.
+
+None of that is necessary, because the framework already prescribes the answer.
+Two facts settle it. First, in evaluation mode $\mu$ and $\sigma^2$ are not
+batch-dependent quantities but ordinary weights of the network
+\citep[Remark~5.4]{armenta2021representation}, so a normalisation layer is a pair
+of affine vertices like any other and Theorem~4.13 applies to it unchanged.
+Second, the action on its activation is given by
+Equation~\eqref{eq:cob-activation}, and that is precisely what the
+\texttt{neuralteleportation} implementation computes: it divides the incoming
+activation by the incoming change of basis, applies the unmodified
+normalisation, and carries the outgoing basis on the affine parameters,
+\[
+z \;\xrightarrow{\;\text{incoming COB}\;}\; \tau_{\mathrm{in}} z
+\;\xrightarrow{\;\div\,\tau_{\mathrm{in}}\;}\; z
+\;\xrightarrow{\;\mathrm{BN}_{\mu,\sigma^2,\epsilon}\;}\; \mathrm{BN}(z)
+\;\xrightarrow{\;\gamma,\,\beta\;\times\;\tau_{\mathrm{out}}\;}\;
+\tau_{\mathrm{out}}\,\mathrm{BN}(z).
+\]
+which is Equation~\eqref{eq:cob-activation} with $f_v=\mathrm{BN}$. The division
+restores the original pre-normalisation activation exactly, so the original
+$\mu$, $\sigma^2$ and $\epsilon$ remain correct, and the composite is
+$\tau_{\mathrm{out}}\mathrm{BN}(z)$ --- with no condition on $\epsilon$, and no
+migration of the running statistics. Teleportation of a batch-normalised network
+in evaluation mode is therefore function-exact, and satisfies the hypotheses of
+Theorem~\ref{thm:maxinv} and Lemma~\ref{lem:quiver-inv} exactly.
+
+We note one boundary of the framework that bears on this paper elsewhere:
+\citet{armenta2021representation} observe that average and global-average pooling
+sit inside it without qualification, whereas max-pooling ``break[s] the algebraic
+structure'' --- the same tie-dependence that Theorem~\ref{thm:weff} excludes by
+hypothesis.
+
+\subsection{The measured drift scales with machine epsilon}
+\label{app:teleport-eps}
+
+Exactness in real arithmetic does not mean a zero measurement in floating point.
+The round trip above --- multiply by $\tau_{\mathrm{in}}$ inside the preceding
+convolution, then divide by $\tau_{\mathrm{in}}$ inside the normalisation --- is
+exact over $\R$ but not over floats: the convolution is recomputed with rescaled
+weights, so its partial sums have different magnitudes and round differently.
+The drift is therefore $O(\varepsilon_{\mathrm{mach}})$ and, decisively,
+\emph{linear in the working precision}.
+
+That is a falsifiable prediction, and it separates the two hypotheses cleanly. If
+the transform genuinely changed the function --- if the running statistics really
+were stale --- the discrepancy would be a property of the weights and would be
+essentially \emph{independent} of working precision, giving a
+\texttt{fp32}/\texttt{fp64} ratio near $1$. If it is roundoff, the ratio must be
+near $\varepsilon_{32}/\varepsilon_{64}=2^{29}\approx5.4\times10^{8}$.
+
+We ran the identical change-of-basis draw (same seed, same COB vector) at both
+precisions on all three architectures, with the library's three internal
+\texttt{float32} down-casts patched out so that the \texttt{fp64} arm is
+genuinely double precision.\footnote{The library hard-casts to single precision
+in \texttt{COBForwardMixin.forward}, in \texttt{layers/merge.py:Add.forward} (the
+residual skip connection), and via a \texttt{float32} tracing input in
+\texttt{NeuralTeleportationModel.\_\_init\_\_}. Without these three patches the
+\texttt{fp64} arm silently retains a single-precision floor and the ratio
+saturates near $10$.} Table~\ref{tab:teleport-exactness} reports the result.
+
+\begin{table}[t]\centering\small
+\caption{Teleportation is exact; the drift is roundoff. Maximum absolute logit
+discrepancy $\max|\Net-\Psi_\tau(W\!,f)|$ between a network and its teleported image, for the
+\emph{same} change-of-basis draw evaluated at two working precisions ($5$ seeds,
+$8$ inputs, \texttt{cob\_range}$=1$, CPU, evaluation mode). The \texttt{fp64}
+discrepancy sits at the double-precision floor ($\sim10^{-15}$ relative), and the
+ratio between the two columns matches
+$\varepsilon_{32}/\varepsilon_{64}=5.37\times10^{8}$ --- the signature of pure
+roundoff. A genuine change of function would give a ratio near $1$.}
+\label{tab:teleport-exactness}
+\smallskip
+\begin{tabular}{@{}lccc@{}}\toprule
+Architecture & \texttt{fp32} drift & \texttt{fp64} drift (relative) & \texttt{fp32}/\texttt{fp64} ratio \\ \midrule
+ResNet-152   & $4.2$--$6.1\times10^{-6}$ & $8.2\times10^{-15}$--$1.0\times10^{-14}$ \; ($1.4$--$1.7\times10^{-15}$) & $4.2$--$6.7\times10^{8}$ \\
+DenseNet-121 & $6.2$--$10.5\times10^{-6}$ & $1.2$--$2.3\times10^{-14}$ \; ($1.6$--$3.2\times10^{-15}$) & $3.3$--$7.9\times10^{8}$ \\
+GoogLeNet    & $5.7$--$8.6\times10^{-6}$ & $1.4$--$1.7\times10^{-14}$ \; ($1.9$--$2.2\times10^{-15}$) & $3.4$--$5.7\times10^{8}$ \\
+\bottomrule\end{tabular}\end{table}
+
+The ratio is $3.3$--$7.9\times10^{8}$ across all fifteen runs, straddling the
+predicted $5.37\times10^{8}$; the \texttt{fp64} residual is $1.4$--$3.2\times
+10^{-15}$ relative, i.e.\ at the double-precision floor. The measured drift is
+roundoff, and nothing else.
+
+\subsection{The knowledge matrix itself, not merely the logits}
+\label{app:teleport-km}
+
+The logit test above certifies that the \emph{function} is preserved. The
+knowledge matrix is a strictly finer object --- it records the germ, which
+Theorem~\ref{thm:nogo} shows the logits do not control --- so it deserves its own
+check. Writing $\Psi_c$ for class $c$'s component of $\Net$, we recomputed
+knowledge-matrix rows directly, as
+$\M_{c,:}(x)=[\,\nabla_x\Psi_c(x)\odot x \mid \Psi_c(x)-\nabla_x\Psi_c(x)^{\!\top}x\,]$
+by one vector--Jacobian product per class, for the original and the teleported
+network, at both precisions ($12$ class rows, \texttt{cob\_range}$=1$).
+
+At double precision the knowledge-matrix drift is
+$0.8$--$2.5\times10^{-15}$ relative across all six runs --- the same
+machine-epsilon floor as the logits. \emph{The knowledge matrix is invariant under teleportation to double
+precision}, on ResNet-152, DenseNet-121 and GoogLeNet alike, exactly as
+Lemma~\ref{lem:quiver-inv} requires.
+
+Two scope notes, so this test is not read for more than it establishes. First,
+the bias column here is \emph{derived} as $\Psi_c(x)-\nabla_x\Psi_c(x)^{\!\top}x$
+rather than accumulated independently, so the row-sum identity holds by
+construction and is not itself under test; what the comparison tests --- and what
+Lemma~\ref{lem:quiver-inv} is about --- is that the Jacobian block
+$\nabla_x\Psi(x)\,\mathrm{diag}(x)$ is identical between the original and
+teleported networks. Second, this route computes the knowledge matrix by
+vector--Jacobian products on the teleported model directly, and therefore
+deliberately bypasses the library's serialised change-of-basis loading path. That
+path has a separate, genuine defect --- a knowledge matrix loaded through it
+violates $\M\mathbf 1=\Net$ structurally --- which is why the measured-drift
+column of the earlier teleportation run was withdrawn, and which the present
+result does not repair. The two findings are about different code, and both
+stand: the transform is exact, and the loader is buggy.
+
+One detail is worth recording rather than smoothing over. The
+\texttt{fp32}/\texttt{fp64} ratio for the knowledge matrix is
+$7\times10^{10}$--$2.4\times10^{12}$,
+\emph{larger} than the $5.4\times10^{8}$ epsilon ratio that the logits obey. The
+excess is not evidence of a function change --- a function change would push the
+ratio \emph{towards} $1$, not away from it. It is the ill-conditioning of the
+change of basis (Section~\ref{app:teleport-tf32}) acting on a differentiated
+quantity: the backward pass propagates through the same $\tau$ factors as the
+forward pass, so single precision loses accuracy super-linearly where double
+precision still has the headroom to stay at its floor. The decisive fact is the
+\texttt{fp64} column, which is at machine epsilon.
+
+\subsection{Why the cluster run measured $10^{-2}$ rather than $10^{-6}$}
+\label{app:teleport-tf32}
+
+The single-precision drift above is $\sim\!10^{-6}$, three orders of magnitude
+\emph{below} the $10^{-3}$ acceptance threshold that the original
+equivalence check applied --- yet that check reported every teleportation
+exceeding it, at $3.1\times10^{-2}$ to $1.0\times10^{-1}$ on ResNet-152. The gap
+is the accelerator's arithmetic, not the mathematics.
+
+The teleportation run ran on H100 GPUs (\texttt{job\_teleportation.sh} requests
+\texttt{-{}-gpus=h100:1}). PyTorch enables TF32 for cuDNN convolutions by
+default, and this repository never disables it. TF32 carries a $10$-bit
+mantissa, so $\varepsilon_{\mathrm{TF32}}=2^{-11}=4.9\times10^{-4}$, coarser
+than single precision by a factor of $8192$. Since the drift is linear in
+$\varepsilon$, scaling the measured CPU \texttt{fp32} drift by that factor
+predicts a TF32 drift of $3.5$--$5.0\times10^{-2}$ on ResNet-152, against
+$3.1\times10^{-2}$--$1.0\times10^{-1}$ observed. For DenseNet-121 and GoogLeNet
+the prediction ($5$--$9\times10^{-2}$) overshoots the observed
+$1.6$--$3.9\times10^{-2}$ by a factor of two to four, as expected --- not every
+kernel in those graphs runs in TF32, and our inputs are synthetic rather than
+natural images. The mechanism is established by the precision-scaling law of
+Section~\ref{app:teleport-eps}; the TF32 arithmetic explains the particular
+magnitude the cluster recorded.
+
+A second, independent amplifier is the conditioning of the change of basis
+itself. With \texttt{cob\_range}$=1$ the library samples $\tau$ uniformly on
+$[0,2]$, an interval whose closure contains zero: over the $\sim\!2\times10^{4}$
+neurons of these networks the smallest drawn $\tau$ is $\sim\!3\times10^{-5}$,
+so the multiply-then-divide round trip passes through a factor of $\sim\!10^{4}$.
+This is why the roundoff constant is large in absolute logit units, and it is the
+same conditioning problem that forced \texttt{cob\_range}$=0.1$ for ResNet-152 in
+the knowledge-matrix drift run (where the per-path product of $152$ such factors
+overflowed single precision outright). Sampling $\tau$ on an interval bounded
+away from zero is the appropriate fix and costs nothing: the transform is
+function-preserving at any range.
+
+\subsection{What this establishes, and what it does not}
+\label{app:teleport-consequences}
+
+\begin{enumerate}
+\item \textbf{The transform satisfies the theorems' hypothesis.} Teleportation is
+an exact quiver isomorphism (Lemma~\ref{lem:quiver-inv}), so the knowledge-matrix
+drift under it is zero in exact arithmetic and the teleportation check covers a multi-architecture
+verification of invariance on all three of the residual, dense and inception
+topologies.
+
+\item \textbf{It does not supply evidence for the cross-architecture claim.}
+Invariance under a quiver isomorphism is automatic by construction, so this
+result --- like the permutation check of the permutation check --- confirms that the
+implementation realises an identity the theory already guarantees. The
+non-automatic content of Theorem~\ref{thm:maxinv} is invariance across
+\emph{different architectures} realising one function, which no
+same-architecture transform can exercise (Section~\ref{sec:limitations}, L1).
+
+\item \textbf{The three-tier structure of Proposition~\ref{prop:visdrift} applies
+at tier~(i).} The visible/invisible split, the no-go theorem
+(Theorem~\ref{thm:nogo}) and the conditional bound remain correct and remain
+worth stating --- they are what one needs for a transform that is genuinely
+approximate. Teleportation is not such a transform.
+
+\item \textbf{The measured drift is a resolution figure, not a property of the
+symmetry.} It belongs with the permutation noise floor of the permutation check --- both are
+finite-precision accumulation --- and it falls to the double-precision floor by
+computing in \texttt{fp64}, or on the accelerator by disabling TF32
+(\texttt{torch.backends.cudnn.allow\_tf32 = False}) and sampling the change of
+basis away from zero.
+\end{enumerate}
+
+\subsection{The two implementation checks in full}
+\label{app:teleport-checks}
+
+The setup, procedure and measured values of the permutation and teleportation
+checks are collected here. Neither establishes a mathematical fact --- both
+transforms are quiver isomorphisms, so the invariance they exercise is
+guaranteed by Theorem~4.13 of \citet{armenta2021representation} --- and both are
+reported for what they are: verification that the software realises the identity,
+and calibration of the floor below which no drift figure in this paper can be
+resolved.
+
+\input{sections/study1ab_snippet}
+
+\input{tables/table_signal_relative}
+
+\subsection{Reproducing this}
+\label{app:teleport-repro}
+
+\texttt{scripts/verify\_teleportation\_exactness.py} runs the precision-scaling
+comparison of Table~\ref{tab:teleport-exactness} end to end on CPU for all three
+architectures; it applies the three de-downcasting patches described above,
+teleports with a fixed seed at each precision, and reports the ratio against the
+$\varepsilon_{32}/\varepsilon_{64}$ prediction. It needs no GPU and no cluster
+allocation, and runs in a few minutes per architecture.

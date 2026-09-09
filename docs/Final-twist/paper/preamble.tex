@@ -51,3 +51,48 @@
       \small\textcolor{red}{\textbf{[WARNING --- review note; remove before submission]}}\par\smallskip
       #1%
     \end{minipage}}\par\smallskip}
+
+% ===== INLINE CLARIFICATIONS (added 2026-09-07) =====
+% Blue inline text answering reader questions: definitions of notation and
+% terminology given at the point of first use, rather than in a glossary.
+%   \clarify{...}     inline blue prose (a sentence or a short paragraph)
+%   \clarifyterm{t}{d} bolds the term being defined, then the blue definition
+% Both are plain \textcolor wrappers -- they add no vertical space and can be
+% used inside theorem statements, captions, and tables.
+\definecolor{clarifyblue}{RGB}{0,70,190}
+\newcommand{\clarify}[1]{\textcolor{clarifyblue}{#1}}
+\newcommand{\clarifyterm}[2]{\textcolor{clarifyblue}{\emph{#1}: #2}}
+% Display-style clarification: an indented blue block for multi-sentence notes.
+\newenvironment{clarifybox}
+  {\par\smallskip\begingroup\color{clarifyblue}\small\leftskip=1.2em\rightskip=1.2em\noindent\ignorespaces}
+  {\par\endgroup\smallskip}
+
+% ===== NETWORK FUNCTION: Psi(W,f) (notation fix, 2026-09-07) =====
+% The paper previously used f for BOTH the activation function (as in the
+% knowledge matrix M(W,f), where f IS the activation) and the network function
+% (as in f(theta,x)). That collision is resolved by writing the network function
+% in the quiver-representation notation of Armenta & Jodoin: Psi(W,f), the
+% function realised by weight collection W and activation f. From here on
+%   f      = the activation function
+%   Psi(W,f) = the network function it realises
+\newcommand{\Net}{\Psi(W\!,f)}          % the network function itself
+\newcommand{\Netx}{\Psi(W\!,f)(x)}      % evaluated at x
+\newcommand{\Nety}{\Psi(W\!,f)(y)}
+\newcommand{\Netxp}{\Psi(W\!,f)(x')}
+\newcommand{\Netarg}[1]{\Psi(W\!,f)(#1)}
+
+% ===== KNOWLEDGE MATRIX indexed by (W,f), not by theta (2026-09-07) =====
+% Companion to the \Net macros above. The paper previously wrote the knowledge
+% matrix two ways -- M(W,f)(x) in the abstract/intro/setup and M(theta,x) in the
+% math core -- which was tolerable while the network function was f(theta,.),
+% because the theta matched. With the network function now Psi(W,f), the (W,f)
+% form is canonical and the theta-indexed form reads as a leftover. These macros
+% carry (W,f) into the theorem statements and proofs.
+%   \KMwf        M(W,f)          \KMwfx        M(W,f)(x)
+%   \KMarg{W'}{x}  M(W',f)(x)    -- for a second/transformed weight collection
+%   \Jwf         J(W,f)          \cwf          c(W,f)
+\newcommand{\KMwf}{\M(W\!,f)}
+\newcommand{\KMwfx}{\M(W\!,f)(x)}
+\newcommand{\KMarg}[2]{\M(#1\!,f)(#2)}
+\newcommand{\Jwf}{J(W\!,f)}
+\newcommand{\cwf}{c(W\!,f)}

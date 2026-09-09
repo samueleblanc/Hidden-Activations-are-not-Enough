@@ -10,10 +10,14 @@ per-sample object from a feedforward network's quiver representation
 piecewise-linear networks --- ``higher'' meaning situated above the
 gauge orbit of activations, i.e.\ determined by the realised function
 germ. The knowledge matrix has fixed shape $C\times(d{+}1)$ for any
-feedforward network, an exact row-sum $\Mfx\,\mathbf 1 = f(x)$, and is
+feedforward network, an exact row-sum $\Mfx\,\mathbf 1 = \Netx$
+\clarify{(throughout, $f$ is the \emph{activation} function and $W$ the weight
+collection, so that $\Net$ denotes the network function they realise --- the
+same $W$ and the same $f$ that name the knowledge matrix $M(W{,}f)$)}, and is
 invariant under the entire stabiliser of the realised function germ
 (Theorem~\ref{thm:maxinv}), with neuron permutation as one special case
-(Proposition~\ref{prop:perm}). For PL networks the KM equals per-class
+(Proposition~\ref{prop:perm}). When the slope diagonal is locally constant --- the ReLU family, and our
+setting throughout --- the KM equals per-class
 gradient$\times$input plus an exact aggregate bias attribution
 (Theorem~\ref{thm:weff}); we own this as a positive characterisation ---
 an equivalence shared with gradient-based attributions that grounds the
@@ -29,7 +33,7 @@ and logit-commensurable, where the CKA/Procrustes/Bures family requires
 dimension matching and the cross-dimensional measures are incommensurable
 with logit distance. Its row-sum identity also gives an
 orthogonal displacement decomposition with a unit-free coherence
-$A=(d_f/d_M)^2$ (Theorem~\ref{thm:pyth}), read against reference lines
+$A=(d_\Psi/d_M)^2$ (Theorem~\ref{thm:pyth}), read against reference lines
 $A{=}1$ (single-pixel) and $A\le d$: adversarial pairs move the germ
 with median $A\le0.23$, and their attack-family ordering is stable
 across architectures (Kendall $W=0.921$). We are deliberate about what

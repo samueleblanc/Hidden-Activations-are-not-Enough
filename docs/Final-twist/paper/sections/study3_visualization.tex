@@ -1,11 +1,12 @@
-\section{Honest negatives (A6)}
+\section{Honest negatives (A4)}
 \label{sec:study3}
-\label{sec:A6}
+\label{sec:A4}
 
 The studies above establish what the knowledge matrix \emph{is} --- a
 function-determined object with an exact displacement accounting. This
-section reports, with equal prominence, three places where it does
-\emph{not} buy what one might hope. The scope of each negative is
+section reports, with equal prominence, two places where it does
+\emph{not} buy what one might hope, and one methodological commitment that
+constrains what we allow ourselves to report. The scope of each negative is
 deliberately narrow: knowledge matrices are insufficient \emph{as
 invariants for the specific tasks tested here}, which is not the claim
 that they are worse for every downstream use. We include these results
@@ -79,7 +80,7 @@ $x$}, pushes the target--source logit gap past a margin $m>0$:
 \quad\text{s.t.}\quad
 \big(\Weff(x)_{t,\cdot}-\Weff(x)_{s,\cdot}\big)\cdot\delta
 \;\ge\;
-m-(f(x)_t-f(x)_s),
+m-\bigl(\Netx_t-\Netx_s\bigr),
 \label{eq:lp-cf}
 \end{equation}
 subject to a per-coordinate box $\delta_i\in[-x^{\text{px}}_i/\sigma_c,
@@ -133,7 +134,7 @@ at the actual (un-clamped) $x+\delta$ the source class still wins by a
 large margin ($14.33$ vs.\ $1.14$); \emph{region\_ok = False}: the
 region the LP solved against does not contain $x+\delta$. Every one of the
 $54$ source/target pairs across the three architectures fails identically
-(\emph{region\_ok} $=0/54$, Limitation~L3).}
+(\emph{region\_ok} $=0/54$, Limitation~L4).}
 \label{fig:lp-pathology}
 \end{figure}
 
@@ -151,48 +152,35 @@ standard budget), and we avoid that framing deliberately. The negative
 is that the matrix direction does not transfer to the model's actual
 logits once it leaves the source region; a multi-region or
 continuation-based reformulation is left as future work
-(Section~\ref{sec:limitations}, L3).
+(Section~\ref{sec:limitations}, L4).
 
-\subsection{Teleportation drift is measured, never asserted zero}
+\subsection{Knowledge-matrix drift is measured, never asserted from a theorem}
 \label{sec:study3-teleport}
 
 \paragraph{Why it matters.}
-The third negative is a claim we are careful \emph{not} to make. The
-temptation in Study~1B (Section~\ref{sec:study1b}) is to enter a table zero
-for the knowledge-matrix drift on the strength of the invariance theorem.
-Resisting that temptation is what keeps the invariance claim of Study~1
-defensible: teleportation does not verify invariance here, because its
-transform is function-approximate and fails the theorem's hypothesis. We
-do not assert a zero, for two reasons that compound. First, by
-Theorem~\ref{thm:nogo} there is \emph{no} bound on knowledge-matrix germ
-drift from function-space ($C^0$) closeness alone: two networks can be
-uniformly arbitrarily close as functions yet have knowledge matrices
-arbitrarily far apart at a point. Second, teleportation on
-BatchNorm architectures is function-\emph{approximate}, not exact ---
-every one of our $100$ teleports exceeds the $10^{-3}$ logit-drift gate
-(up to $\sim10^{-1}$ on ResNet-152) because the BN running statistics are
-not migrated under the change-of-basis --- so the invariance theorem's
-hypothesis simply does not hold, and an asserted zero would be reporting
-a number the experiment did not measure.
+The third item is not a negative result but a methodological commitment, and it
+is the one that makes the other two credible. The temptation in Appendix~\ref{app:teleport-checks}
+(Section~\ref{sec:study1b}) is to enter a table zero for the knowledge-matrix
+drift on the strength of the invariance theorem, since teleportation is an exact
+quiver isomorphism and the theorem says the drift vanishes. We do not do that,
+for a reason that survives the transform being exact: by
+Theorem~\ref{thm:nogo} there is \emph{no} bound on knowledge-matrix germ drift
+from function-space ($C^0$) closeness alone --- two networks can be uniformly
+arbitrarily close as functions yet have knowledge matrices arbitrarily far apart
+at a point. A theorem-asserted zero would therefore be reporting a number the
+experiment did not produce, and would conceal exactly the quantity a sceptical
+reader wants to see: how far the implementation actually sits from the identity
+it is supposed to satisfy.
 
 \paragraph{Reading.}
-We therefore report knowledge-matrix drift under teleportation through
-the structure of Proposition~\ref{prop:visdrift}: the visible component
-is an identity equal to the logit gate and checked per pair, while the
-invisible component carries no a~priori bound (Theorem~\ref{thm:nogo})
-and is left unestimated here --- its empirical behaviour is exhibited on
-adversarial pairs, where the gate is exact, in Study~2. This reports
-only what the violated hypothesis permits, rather than asserting a zero
-from a theorem whose hypothesis fails. A BN-aware teleportation that
-migrates the running statistics would tighten the gate toward exactness
-and is the highest-priority follow-up (Section~\ref{sec:limitations},
-L1).
+We measure both components instead. The visible one is checked per pair through
+the equality of Proposition~\ref{prop:visdrift}(ii); the invisible one --- the
+part Theorem~\ref{thm:nogo} shows the logits cannot constrain --- is computed
+directly at double precision, giving $0.8$--$2.5\times10^{-15}$ relative on all
+three architectures (Appendix~\ref{app:teleport-km}). The same discipline
+governs the numbers reported elsewhere in this paper: the permutation residual of
+the permutation check is quoted as float32 accumulation rather than rounded to zero, and the
+float32 completeness residual is quoted at $0.15$--$0.30$ on ResNet-152 rather
+than described as machine-precision agreement. Where the theory predicts an
+identity, we report the distance from it.
 
-\paragraph{Auxiliary visualisations.}
-The \texttt{km\_feature\_viz} pipeline additionally produces a
-Jacobian-sensitivity heatmap, DeepDream activation-maximisation
-\citep{olah2017feature}, and feature-dictionary artefacts from the same
-linearisation; these are exploratory uses of $\Weff(x)$ rather than
-tests of any claim in this paper, and we provide them only in the
-supplementary HTML index
-(\texttt{results/km-feature-viz/\_viewable/index.html}).

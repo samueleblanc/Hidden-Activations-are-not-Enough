@@ -8,7 +8,8 @@ budgets, similarity-measure settings) are stated step by step in each study
 section.
 
 \paragraph{Setting.}
-We work with pretrained feedforward networks $f \colon \R^d \to \R^C$.
+We work with pretrained feedforward networks $\Net \colon \R^d \to \R^C$,
+where $W$ is the collection of weights and $f$ the activation function.
 Inputs are ImageNet-normalised RGB tensors of shape $(3, 224, 224)$,
 so $d = 3 \cdot 224 \cdot 224 = 150{,}528$, and $C = 1000$ for the
 standard ImageNet head. Penultimate-layer activations are denoted
@@ -31,11 +32,11 @@ and no cross-architecture distance, and serve only to test whether the
 attack-family ranking is stable beyond the trio.
 
 \paragraph{The knowledge matrix.}
-For a network $f$ with parameters $W$ the knowledge matrix
+For a network $\Net$ the knowledge matrix
 $\Mfx \in \R^{C \times (d+1)}$ is the per-sample matrix of
 Equation~\ref{eq:km-def}, built from the local affine map (Jacobian and
-bias) that $f$ realises on the activation region of $x$; its row sums
-reproduce the logits, $\M(W{,}f)(x)\,\mathbf 1_{d+1} = f(x)$. The
+bias) that $\Net$ realises on the activation region of $x$; its row sums
+reproduce the logits, $\M(W{,}f)(x)\,\mathbf 1_{d+1} = \Netx$. The
 construction is uniform across architectures: for any feedforward network
 on $224\times224$ ImageNet inputs with a 1000-class head, $\Mfx$ has the
 fixed shape $1000 \times 150{,}529$, which is what makes the
@@ -67,9 +68,9 @@ boundary), and Square~\citep{andriushchenko2020square} (gradient-free,
 score-based). We keep \emph{all} clean/adversarial pairs (including
 attack-failure pairs). The per-cell medians of Study~2
 (Section~\ref{sec:study2}) are taken over the pairs passing a division
-guard, $d_f > 10^{-6}\max_i d_{f,i}$, a per-cell relative threshold that
+guard, $d_\Psi > 10^{-6}\max_i d_{f,i}$, a per-cell relative threshold that
 removes only pairs whose logits did not move; the stricter attack-success
-filter ($d_f \ge 1$, $d_M > 0$) is applied in the two analyses that keep
+filter ($d_\Psi \ge 1$, $d_M > 0$) is applied in the two analyses that keep
 per-pair records --- the mechanism pilot
 (Table~\ref{tab:mechanism-pilot}) and the appendix ordering panel
 (Table~\ref{tab:s3_ordering_panel}).
@@ -91,6 +92,110 @@ with the DLR loss, and Square \texttt{n\_queries}$=20{,}000$; only FGSM runs
 at the library default. The budgets are
 recorded in the generation scripts of our reproducibility package; the
 per-attack result JSONs store aggregates only and do not carry them.
+
+\paragraph{\clarify{Signal and noise: the two reference scales.}}
+\begin{clarifybox}
+\emph{Adversarial signal.} Several studies below report a drift ``relative to
+the adversarial signal''. The \emph{adversarial signal} of a representation is
+the distance that representation moves between a clean input $x$ and its
+adversarial counterpart $x'$ from the six-attack suite above:
+$\|\Mfx-\Mfxp\|_F$ for the knowledge matrix and $\|h(x)-h(x')\|_2$ for the
+penultimate features, averaged over the pairs of one (architecture, attack)
+cell. It is the reference scale --- the magnitude of change the representation
+is \emph{supposed} to register. Reporting some other drift as a fraction of it
+makes the comparison unit-free and judges each representation in its own units,
+which a direct comparison of a Frobenius norm on a $1000\times150{,}529$ matrix
+against an $\ell_2$ norm on a $2048$-vector cannot do.
+
+\emph{Permutation noise floor.} The \emph{permutation noise floor} is the
+residual $\|\M_{\tilde\Psi}(x)-\M(x)\|_F$ that survives a neuron permutation.
+A permutation is a quiver isomorphism, so in exact arithmetic this residual is
+$0$; what the pipeline measures is therefore a pure finite-precision artifact
+(float32 accumulation in the construction), and it is the smallest drift the
+pipeline can resolve. Any measured drift at or below it is indistinguishable
+from zero. On ResNet-152 it is $0.116$ in the mean and $5.78$ at its maximum in
+Frobenius norm (Table~\ref{tab:signal-relative}(a), over $5$ permutation draws
+$\times\,50$ knowledge-matrix samples); float64 spot checks reduce it to
+numerical zero. The penultimate floor in the same panel is the same quantity
+for $h$, $\|h_{\tilde\Psi}(x)-h(x)\|_2$, over $5$ draws $\times\,500$ samples,
+and it is \emph{not} a precision artifact --- penultimate activations genuinely
+move under a relabelling of neurons.
+
+\emph{Reading a signal-to-noise cell.} Panel~(b) of
+Table~\ref{tab:signal-relative} reports these two scales as a ratio, one cell
+per (attack, architecture), written ``$x \mid y$'': the bar packs two numbers
+into one cell and is a separator, not a division or a conditioning. Here $x$ is
+the knowledge matrix's ratio and $y$ the penultimate features' own, each formed
+entirely in its own units, and both are \emph{mean adversarial signal} $\div$
+\emph{mean permutation noise}. The numerator is the mean over that cell's
+guarded clean/adversarial pairs of the clean-to-adversarial distance
+($\|\Mfx-\Mfxp\|_F$ for $x$, $\|h(x)-h(x')\|_2$ for $y$); the denominator is
+the matching permutation floor of panel~(a), the mean over the permutation
+draws of the clean-to-permuted distance at the same architecture
+($\|\M_{\tilde\Psi}(x)-\M(x)\|_F$ for $x$, $\|h_{\tilde\Psi}(x)-h(x)\|_2$ for $y$),
+which is the same all the way down an architecture's column because a
+permutation floor does not depend on the attack. A ratio above $1$ therefore
+says the representation registers the attack more strongly than it registers a
+function-preserving relabelling of neurons; below $1$ says the reverse --- the
+representation moved further when nothing about the function changed than when
+the input was attacked. Worked example, ResNet-152/FGSM: $83.98/0.1157 = 726$
+for the knowledge matrix and $7.600/15.05 = 0.51$ for the penultimate features.
+Signal and noise come from two separate runs on the same architecture (the
+attack suite and the permutation experiment), so such a cell compares two
+\emph{scales}, and is not a paired per-image measurement. Panel~(a) itself is
+summarised over the same draws: ``KM mean'' and ``KM max'' average and maximise
+the per-draw statistics, while ``KM median'' is the median of the pooled
+per-sample distances.
+\end{clarifybox}
+
+\paragraph{\clarify{What a $95\%$ bootstrap confidence interval is here.}}
+\begin{clarifybox}
+A $95\%$ bootstrap confidence interval is obtained by resampling the observed
+units \emph{with replacement} $B$ times, recomputing the statistic on each
+resample, and reading percentiles off the resulting distribution of $B$ values.
+Two such intervals appear in this paper and they agree in nothing but the
+$95\%$, so we state both explicitly. \emph{(i)}~The teleportation panel
+(Table~\ref{tab:s1_table}) uses the \emph{percentile} bootstrap of the
+\emph{mean}, $B=10{,}000$ resamples, fixed seed; the resampled unit is the
+$T=50$ teleportation draws of that architecture, with the $N=25{,}000$ images
+held fixed. \emph{(ii)}~The appendix ordering panel
+(Table~\ref{tab:s3_ordering_panel}) uses a seeded bias-corrected and
+accelerated (BCa) bootstrap of the \emph{median}, $B=20{,}000$; the resampled
+unit is the adversarial pairs inside one cell. Its intervals on an
+adjacent-rank \emph{difference} are percentile intervals computed twice ---
+resampling the two cells independently, and resampling the matched pair indices
+jointly --- and a gap counts as resolved only when both exclude zero.
+
+What such an interval means: it is the range of values of the statistic that
+resampling the observed units is consistent with. It quantifies the sampling
+variability of \emph{this} estimate over \emph{that} unit, and nothing else. It
+is not a range for the underlying quantity across anything the resampled unit
+does not vary over: an interval over $50$ teleportations says nothing about how
+the number would move on a different image set, and an interval over
+adversarial pairs says nothing about how it would move on a different
+architecture or a different attack budget.
+\end{clarifybox}
+
+\paragraph{\clarify{Samples versus features ($n$ versus $p$), and the CKA estimator.}}
+\begin{clarifybox}
+In the representational-similarity literature $n$ is the number of samples
+entering an estimator and $p$ the dimension of the representation being
+compared; $n<p$ names the \emph{high-dimensional} regime, the regime in which
+the biased (V-statistic) HSIC estimator's upward bias is worst. The similarity
+panel of Section~\ref{sec:study1c} is not in that regime. Its HSIC is evaluated
+on the full $N=25{,}000$-sample Gram matrix --- the chunking is an I/O device,
+the row blocks being concatenated before the estimator is applied --- against
+penultimate dimensions $D\in\{1024,2048\}$, so here $n = 25{,}000 \gg p$: the
+\emph{low}-dimensional regime. The estimator choice is unaffected by that. The
+unbiased HSIC$_1$ $U$-statistic removes the $O(1/n)$ upward bias of the biased
+estimator at \emph{any} ratio of $n$ to $p$, and it is the estimator the
+minibatch-CKA framework we follow specifies, so it is the right choice
+regardless of regime --- the high-dimensional regime is simply where the
+difference matters most, and we are not in it. That it leaves no residual
+upward bias is checked directly rather than argued: the Murphy shuffled-pair
+control returns debiased CKA $\le 5.4\times10^{-4}$
+(Section~\ref{sec:study1c}).
+\end{clarifybox}
 
 \paragraph{Library versions.}
 The knowledge matrix construction is implemented in the

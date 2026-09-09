@@ -38,10 +38,16 @@ Three things a session here must know:
 - **The paper tree is now tracked.** `docs/` is ignored by this repo's `.gitignore`; commit `8b2f731`
   started tracking `docs/Final-twist/paper/` with `git add -f` and staged the ignore carve-out. Further
   paper commits still need `-f` for **new** files.
-- **The vocabulary appendix is a mirror, not a fork.** `docs/Final-twist/paper/sections/vocab/` is copied
-  byte-for-byte from `docs/vocab/` in the HAaNE II repository (16 of its 31 entries; the rest carry II's
-  reserved vocabulary). Fix the shared source and re-copy — never edit the copy, or the next sync silently
-  clobbers it. Re-sync recipe: the last section of the status board.
+- **The vocabulary appendix is a mirror that has been deliberately FORKED (2026-09-07).**
+  `docs/Final-twist/paper/sections/vocab/` was copied byte-for-byte from `docs/vocab/` in the HAaNE II
+  repository (16 of its 31 entries; the rest carry II's reserved vocabulary). **It is no longer byte-equal.**
+  On Marco's instruction the copy now uses this paper's notation: `f_\theta` → `\Psi(W\!,f)` for the
+  network function (θ = parameters, W = weights, so θ = W), and `d_f` → `d_\Psi`. Nine entries changed:
+  network-as-map, km, row-sum-invariant, penultimate-features, logits-softmax-cross-entropy,
+  parameters-vs-architecture, activation-function, class-centring, invariances-of-measures.
+  **Consequence: a naive `cp` re-sync from `docs/vocab/` will silently revert all of this.** Either port
+  the notation upstream into HAaNE II first, or re-apply the rename after any future sync. Re-sync recipe:
+  the last section of the status board.
 - **The ordering tables are generated, not hand-written.** `scripts/regen_ordering_tables.py` emits
   `tables/s3_table.tex` from the Phase-1 reduce, with 80 enforced self-checks that abort the run and write
   nothing rather than print a caption that disagrees with its numbers. Regenerate; do not hand-edit.
@@ -50,7 +56,7 @@ Three things a session here must know:
 
 Paper rejected by TMLR (Nov 2024). New direction: **"Knowledge Matrices as Canonical Neural Network Representations"** — dropping adversarial detection claims entirely. Three studies:
 
-1. **Study 1 — Invariance.** CORRECTED 2026-06-11: the paper's Thms 4.1/4.2 cover nonzero per-neuron *rescalings* only — permutations are NOT in that group. Permutation invariance (and invariance under the entire function-stabilizer) is now covered by the new germ-identity/maximal-invariance theorems (proofs in `../resubmission-artifacts-2026-06-11/paper-drop-in/`). The uniqueness claim ("no other practically computable representation has this") is FALSE — gradient×input/FullGrad share the invariance for piecewise-linear nets; we own that via the equivalence theorem instead. Sub-studies: 1a (permutation, signal-relative framing), 1b (neural teleportation — function-approximate on BN nets; the measured-drift column was DROPPED by decision on 2026-06-23 (PATH B) after the fp32-vs-fp64 diagnostic showed the measured drift was a `load_cob_into_km` load bug, so 1b now rests on exact invariance, the visible-drift logit-gate equality, and an invisible part left unestimated — never asserted 0), 1c (9-measure similarity panel).
+1. **Study 1 — Invariance.** CORRECTED 2026-06-11: the paper's Thms 4.1/4.2 cover nonzero per-neuron *rescalings* only — permutations are NOT in that group. Permutation invariance (and invariance under the entire function-stabilizer) is now covered by the new germ-identity/maximal-invariance theorems (proofs in `../resubmission-artifacts-2026-06-11/paper-drop-in/`). The uniqueness claim ("no other practically computable representation has this") is FALSE — gradient×input/FullGrad share the invariance for piecewise-linear nets; we own that via the equivalence theorem instead. Sub-studies: 1a (permutation, signal-relative framing), 1b (neural teleportation — **function-EXACT**, corrected 2026-09-07; see the dedicated section below), 1c (9-measure similarity panel).
 2. **Study 2 — Distance geometry.** CORRECTED 2026-06-11: raw and RMS "amplification" are both unit artifacts of the row-sum constraint. The metric-invariant statistic is the coherence $A=(d_f/d_M)^2$, with theorem reference lines $A=1$ (one-pixel law) and $A\le d$ (within-region cap). The surviving empirical results: the attack-family ordering (Kendall $W=0.921$ across 6 archs) and the size-controlled crossing-mechanism pilot.
 3. **Study 3 — Cross-architecture canonical comparison.** KMs are uniformly $1000 \times 150{,}529$ for any feedforward network on $224 \times 224$ ImageNet inputs, so KM Frobenius distance compares ResNet-152, DenseNet-121, and GoogLeNet directly without any alignment step. Includes a same-arch cross-recipe positioning experiment (Step E).
 
@@ -101,9 +107,72 @@ sequence to submission is the ordered LEFT list on the status board.
 4. Cover letter: `paper-drop-in/cover_letter.md` — every bullet keyed to a verbatim
    reviewer/AE quote; includes the "what we deliberately do not claim" section.
 
+### No f(0)=0 condition (2026-09-08)
+
+The KM is defined for **every** activation; there is no condition on `f`, and in particular none on
+`f(0)`. The hypothesis is `x in X_nz`: no hidden pre-activation vanishes. Sigmoid (`f(0)=0.5`) satisfies
+the row-sum identity to 1e-14. At an exactly-zero pre-activation the identity fails by exactly `f(0)` and
+**no guard can repair it** (`D*0 = 0` for any finite `D`; checked with guards 0, 1, 1e6) -- so `f(0)=0` is
+just the condition making that exceptional set empty, a bonus not a prerequisite. `X_nz` is open, dense,
+full measure for real-analytic `f`, and for the ReLU family equals the complement of Lemma A.1's
+hyperplanes. Caveat to keep stating: when `f(0) != 0`, `D ~ f(0)/z` is unbounded near `{z=0}` (5.25 at
+z=1e-1, 5e5 at z=1e-6 for sigmoid) -- exact, but not small. Under (LCS)+continuity `f(0)=0` is a
+*consequence*, so `X_nz` is vacuous there.
+
+### (LCS), not "PL", is the hypothesis (2026-09-07)
+
+The germ results need **(LCS)**: the slope diagonal `D^(l)` is *locally constant* in `x`. This is
+**strictly stronger than PL** and the difference is real: hard-tanh `clip(z,-1,1)` and `max(z-1,0)` are
+piecewise linear, their networks are piecewise affine and have germs, **but the germ identity fails** --
+at `z=2` hard-tanh has `f(z)/z = 1/2` vs `f'(z) = 0` (verified: `|J_sec - dPsi| = 1.67` end-to-end; `0`
+for ReLU/LeakyReLU/abs). Prop 2.2 proves that for continuous `f` with `f(0)=0`, (LCS) holds iff
+`f(z) = a+ max(z,0) + a- min(z,0)` -- each piece through the origin, so continuity forces the only break
+to be at `z=0`, which is why Lemma A.1's walls are exactly the zero sets. Never write "for PL networks"
+as the hypothesis of the germ identity, maximal invariance, or the gradient x input equivalence; write
+"under (LCS)". "PL" is fine as descriptive shorthand for our ReLU architectures.
+
+### The KM is defined for ANY activation (clarified 2026-09-07)
+
+`D^(l)(x)` is the diagonal of activation-to-pre-activation quotients `f(z_q)/z_q` (guard `0/0 -> 0`), for
+any activation with `f(0) = 0`. This is **the** definition — it is Armenta-Jodoin's induced thin quiver
+representation `W^f_x`, and their **Theorem 6.4** gives the row-sum identity for any activation. The `0/1`
+mask is the **ReLU specialisation**, not the definition; do not describe the secant form as an
+"extension to non-PL activations".
+
+What IS piecewise-linear: the **germ identity** (Thm 2.2) and everything downstream of it (maximal
+invariance Thm 2.5, completeness Thm 2.7, and all of Section 3's region/wall/crossing geometry). For
+non-PL `f` the quotient `f(z)/z` is not `f'(z)`, so `J` is not the Jacobian and the matrix is **not**
+determined by the germ — verified: at `x0=1` a tanh unit and the affine map with the same germ
+(0.419974, 0.761594) give KMs `[0.761594|0]` vs `[0.419974|0.341620]`; the ReLU control gives `[1|0]` for
+both. Lemma A.1 likewise does not generalise: for smooth `f` the pattern is locally constant essentially
+nowhere, so `X_reg` is generically empty. Whether weaker function-determination survives for non-PL is
+**open** — do not claim it either way.
+
+### Teleportation is EXACT (corrected 2026-09-07) — do not reintroduce "approximate"
+
+Neural teleportation is an **exact** function-preserving isomorphism on these BatchNorm nets in eval
+mode. `neuralteleportation` does not migrate BN running stats because it does not need to:
+`layers/neuron.py:BatchNormMixin._forward` computes `base_BN(input / prev_cob)`, restoring the original
+pre-BN activation, then scales `weight`/`bias` by `next_cob`. The measured drift is pure floating-point:
+the same COB draw at fp32 vs fp64 gives a ratio of 3.3–7.9e8 against the roundoff prediction
+`eps32/eps64 = 5.37e8` (a real function change would give ~1), with the fp64 residual at ~1e-15 relative;
+the KM itself drifts 0.8–2.5e-15 relative at fp64 on all three archs. The cluster's 1e-2–1e-1 is **TF32
+convolution arithmetic on the H100** (`job_teleportation.sh` uses `--gpus=h100:1`; PyTorch defaults
+`cudnn.allow_tf32=True` and this repo never disables it; TF32 eps = 4.9e-4, 8192x coarser than fp32).
+Secondary amplifier: `cob_range=1` samples tau on [0,2], so the smallest of ~2e4 draws is ~3e-5 and the
+multiply/divide round trip passes through ~1e4.
+
+Reproduce: `scripts/verify_teleportation_exactness.py`, `scripts/verify_teleportation_km_exactness.py`
+(CPU, minutes, no cluster). Paper: `docs/Final-twist/paper/sections/appendix_teleport_exact.tex`.
+Consequences: Study 1b is a genuine multi-arch invariance verification; **Limitation L1 withdrawn**; the
+third honest negative (approximate teleportation) **withdrawn**; the "BN-aware teleportation" follow-up is
+**closed**. The June PATH B finding is NOT refuted — it concerns the separate `load_cob_into_km` load
+path, which does have a real bug and whose measured-drift column stays dropped.
+
 ### Claims discipline (dead list — never reintroduce)
 Raw or RMS amplification headlines (both unit artifacts; use coherence A); "superior to
-penultimate"; DPI arguments in either direction; "γ̂>0 validated"; theorem-asserted table
+penultimate"; DPI arguments in either direction; "γ̂>0 validated"; "teleportation is
+function-approximate" (it is EXACT — see above); theorem-asserted table
 zeros; "identical to numerical precision" (float32 completeness residuals reach 0.15–0.30
 on ResNet-152; float64 spot-checks reduce them to ~1e-10); "no other practically
 computable representation has this property"; permutation invariance cited to Thms 4.1/4.2.

@@ -6,9 +6,8 @@
 % ---------------------------------------------------------------------------
 % STUDY 1a — replaces the "130x / identical to numerical precision" framing
 % ---------------------------------------------------------------------------
-\subsection{Study 1A: permutation invariance (a correctness check) (A1)}
+\subsection{Permutation: the float32 accumulation floor}
 \label{sec:study1a}
-\label{sec:A1}
 
 \paragraph{Why it matters.}
 A neuron permutation is a quiver isomorphism, so knowledge-matrix
@@ -20,8 +19,9 @@ realises the identity the theory guarantees, and quantifies the float32
 accumulation that separates the computed object from its exact value. It
 is not the paper's primary evidence for invariance; the load-bearing,
 non-automatic invariance is the cross-architecture case
-(Theorem~\ref{thm:maxinv}, Study~3), whose only transform-based evidence
-is the approximate teleportation of Study~1B.
+(Theorem~\ref{thm:maxinv}), which no same-architecture transform --- neither the
+permutation here nor the teleportation of the teleportation check --- can exercise
+(Section~\ref{sec:limitations}, L1).
 
 \paragraph{Setup.}
 Architecture: ResNet-152 (the only trio member that admits an in-place
@@ -39,11 +39,11 @@ model's adversarial-pair signal} so the comparison is unit-free.
 \begin{enumerate}
 \item Compute $\M(x)$ and $h(x)$ for each input.
 \item Draw a random wide-face neuron permutation $P$ and build the
-isomorphic network $\tilde f = P \cdot f$ (identical function, permuted
+isomorphic network $\tilde\Psi = P \cdot \Net$ (identical function, permuted
 weights).
-\item Recompute $\M_{\tilde f}(x)$ and $h_{\tilde f}(x)$.
-\item Record the permutation \emph{noise} $\|\M_{\tilde f}(x)-\M(x)\|_F$
-and $\|h_{\tilde f}(x)-h(x)\|_2$.
+\item Recompute $\M_{\tilde\Psi}(x)$ and $h_{\tilde\Psi}(x)$.
+\item Record the permutation \emph{noise} $\|\M_{\tilde\Psi}(x)-\M(x)\|_F$
+and $\|h_{\tilde\Psi}(x)-h(x)\|_2$.
 \item Record the adversarial \emph{signal} $\|\M(x')-\M(x)\|_F$ and
 $\|h(x')-h(x)\|_2$ over the attack pairs, and report each noise relative
 to its own signal.
@@ -87,18 +87,45 @@ in place.
 % ---------------------------------------------------------------------------
 % STUDY 1b — replaces the theorem-asserted zero
 % ---------------------------------------------------------------------------
-\subsection{Study 1B: teleportation, under the three-tier claim structure (A2)}
+\subsection{Teleportation: the same check on all three architectures}
 \label{sec:study1b}
-\label{sec:A2}
 
 \paragraph{Why it matters.}
-Teleportation is the only \emph{multi-architecture} invariance arm and the
-only one that exercises a transform broader than a quiver isomorphism. But
-on these BatchNorm networks it is function-\emph{approximate}, so the
-invariance theorem's hypothesis does not hold and no table entry may be
-asserted from it. This study is the honest reporting of that situation:
-it measures what can be measured and bounds only what the violated
-hypothesis still permits.
+Teleportation is the only \emph{multi-architecture} invariance arm, and the only
+one that applies the same transform to all three of ResNet-152, DenseNet-121 and
+GoogLeNet --- including the two concatenation topologies that admit no in-place
+channel permutation and are therefore invisible to the permutation check.
+
+Teleportation is an \emph{exact} function-preserving isomorphism on these
+networks, batch normalisation in evaluation mode included. Batch normalisation
+looks like an obstruction --- in evaluation mode a BN channel is affine but not
+positively homogeneous, so the per-neuron rescalings do not obviously telescope
+through it --- but the \texttt{neuralteleportation} library divides the incoming
+change of basis out before applying the unmodified normalisation and carries the
+outgoing basis on the affine parameters, which restores positive homogeneity by
+construction and leaves the running statistics correct
+(Appendix~\ref{app:teleport-why}). The transform therefore satisfies the
+hypothesis of Lemma~\ref{lem:quiver-inv} exactly, and the knowledge-matrix drift
+under it is zero in exact arithmetic.
+
+What we measure is not zero, because finite-precision arithmetic is not exact
+arithmetic, and the size of that residual is a property of the hardware rather
+than of the symmetry. Running the identical change-of-basis draw at double
+precision drives the logit discrepancy to $1.4$--$3.2\times10^{-15}$ relative ---
+the machine-epsilon floor --- for a \texttt{fp32}/\texttt{fp64} ratio of
+$3.3$--$7.9\times10^{8}$, matching $\varepsilon_{32}/\varepsilon_{64}=
+5.4\times10^{8}$; a transform that genuinely changed the function would give a
+ratio near $1$ (Appendix~\ref{app:teleport-eps}). The $10^{-2}$ magnitude this
+study's panel records is TF32 convolution arithmetic on the H100, whose $10$-bit
+mantissa is $8192\times$ coarser than single precision
+(Appendix~\ref{app:teleport-tf32}).
+
+Because the transform is exact, the three-tier structure of
+Proposition~\ref{prop:visdrift} applies at tier~(i): both the visible and the
+invisible components of the drift are zero up to roundoff, and we measure the
+invisible one directly rather than leaving it unestimated. Tiers~(ii) and~(iii)
+are retained in Section~\ref{sec:geometry} because they are what one needs for a
+transform that genuinely is approximate; we do not have one here.
 
 \paragraph{Setup.}
 Architectures: all three trio members (ResNet-152, DenseNet-121,
@@ -111,50 +138,86 @@ $0,\ldots,49$), evaluated on $N = 25{,}000$ ImageNet-validation samples
 (Table~\ref{tab:s1_table}, Section~\ref{sec:study1c}). We verify
 function-equivalence per teleportation via the $10^{-3}$ logit-drift
 gate.
+\clarify{Two settings that matter for reading the numbers. (i)~The change-of-basis
+magnitude is \texttt{cob\_range}$=1$ here, and $0.1$ for the ResNet-152
+knowledge-matrix drift run --- at \texttt{cob\_range}$=1$ the library samples each
+$\tau$ uniformly on $[0,2]$, an interval whose closure contains zero, so over
+$\sim\!2\times10^{4}$ neurons the smallest drawn $\tau$ is $\sim\!3\times10^{-5}$
+and the per-path product over $152$ layers overflows single precision outright.
+The transform is function-preserving at any range; $0.1$ merely keeps the
+computation conditioned. (ii)~The $10^{-3}$ threshold is an arithmetic-resolution
+figure, not a property of the transform, and on TF32 hardware it is below the
+noise floor --- see the Result paragraph and
+Appendix~\ref{app:teleport-exact}.}
 
 \paragraph{Procedure.}
 \begin{enumerate}
-\item Compute $\M(x)$, $h(x)$, $f(x)$ for each sample.
-\item Draw a random COB teleportation $\tau$ and build $\tilde f = \tau
-\cdot f$, an approximate-isomorphism image.
-\item Measure the logit gate $\varepsilon = \|f_\tau(x) - f(x)\|$ per
+\item Compute $\M(x)$, $h(x)$, $\Netx$ for each sample.
+\item Draw a random COB teleportation $\tau$ and build $\tilde\Psi = \tau
+\cdot \Net$, an exact-isomorphism image (Appendix~\ref{app:teleport-why}).
+\item Measure the logit gate $\varepsilon = \|\Psi_\tau(W\!,f)(x) - \Netx\|$ per
 sample and test it against $10^{-3}$.
 \item Compute the \emph{visible} knowledge-matrix drift
 $\|(\M_\tau(x)-\M(x))\mathbf 1\|$ and verify per pair that it equals the
 gate $\varepsilon$ (Proposition~\ref{prop:visdrift}(ii)).
+\item Compute the full knowledge-matrix drift $\|\M_\tau(x)-\M(x)\|_F$ --- and
+hence the invisible component --- at double precision, by one vector--Jacobian
+product per class on each network (Appendix~\ref{app:teleport-km}).
 \item Recompute the penultimate features $h_\tau(x)$ and pass the pairs
-to the similarity panel of Study~1C (Section~\ref{sec:study1c}).
+to the similarity panel of Study~1 (Section~\ref{sec:study1c}).
 \end{enumerate}
 
 \paragraph{What we measure and the claim it licenses.}
-The logit gate, the visible knowledge-matrix drift (an \emph{identity}
-equal to the gate by the row-sum identity, not a measurement of
-invariance), and the penultimate drift that the Study~1C panel
-adjudicates. The claim this licenses is exactly the three-tier structure
-of Proposition~\ref{prop:visdrift}: under an exact isomorphism the drift
-would be zero; under this approximate teleportation the visible component
-equals the gate; the invisible component carries no a priori bound from
-the gate (Theorem~\ref{thm:nogo}) and is \emph{not} estimated here.
+The logit discrepancy between the two networks, the knowledge-matrix drift in
+both its visible and its invisible component, and the penultimate drift that the
+similarity panel adjudicates. The claim this licenses is that the knowledge matrix
+is invariant under teleportation on all three architectures, to the resolution of
+the arithmetic used. It does \emph{not} license a discovery claim: teleportation
+is a quiver isomorphism, so this invariance is automatic by construction
+(Lemma~\ref{lem:quiver-inv}) and the experiment confirms that the implementation
+realises it. What the arm adds over the permutation check is coverage of the two concatenation
+topologies, which admit no in-place channel permutation, and of a transform with a
+continuous parameter rather than a discrete one.
 
 \paragraph{Result.}
-In our runs, $100/100$ teleportations exceed the $10^{-3}$ logit-drift
-gate (up to $10^{-1}$ on ResNet-152, under $4\times10^{-2}$ otherwise),
-so the invariance theorem's hypothesis does not hold and no table entry
-may be asserted from it. We report the knowledge-matrix drift through the
-visible/invisible split: the visible channel obeys the equality
-$\|(\M_\tau(x)-\M(x))\mathbf 1\|=\|f_\tau(x)-f(x)\|$, which we verify per
-pair against the logit gate; the invisible component is left unestimated.
-The penultimate features drift substantially under teleportation (the
-panel of Study~1C reports Procrustes shape distance $632$--$1471$ and
-soft-matching distance $22$--$61$ across the trio,
-Table~\ref{tab:s1_table}); against these the panel adjudicates which
-measures quotient the drift out.
+On the TF32 panel, all $100$ teleportations exceed the $10^{-3}$ logit-drift
+threshold (up to $10^{-1}$ on ResNet-152, under $4\times10^{-2}$ otherwise). That
+threshold is below the arithmetic's own resolution and so cannot be met: TF32
+carries $\varepsilon=4.9\times10^{-4}$, and the same teleportations recomputed on
+CPU give $4$--$10\times10^{-6}$ in single precision --- three orders of magnitude
+\emph{below} the threshold --- and $\sim\!10^{-14}$ in double
+(Appendix~\ref{app:teleport-exact}). The panel's figures record the precision of
+the hardware, not a departure from the symmetry.
+
+The knowledge-matrix drift splits into a visible and an invisible component. The
+visible channel obeys the equality
+$\|(\M_\tau(x)-\M(x))\mathbf 1\|=\|\Psi_\tau(W\!,f)(x)-\Netx\|$, which we verify
+per pair. The invisible component --- the part Theorem~\ref{thm:nogo} shows the
+logits cannot constrain --- is zero in exact arithmetic here, because the
+transform is an exact isomorphism, and we measure it directly rather than
+inferring it: recomputing knowledge-matrix rows for the original and teleported
+networks at double precision gives a relative drift of
+$0.8$--$2.5\times10^{-15}$ on all three architectures, i.e.\ machine epsilon
+(Appendix~\ref{app:teleport-km}). The knowledge matrix is invariant under
+teleportation to the limit of double-precision arithmetic, on the residual, dense
+and inception topologies alike.
+
+The penultimate features, on the same pairs, drift substantially: the panel of
+the panel reports Procrustes shape distance $632$--$1471$ and soft-matching
+distance $22$--$61$ across the trio (Table~\ref{tab:s1_table}), and against these
+the panel adjudicates which measures quotient the drift out. Under a transform
+that provably preserves the function exactly, then, the knowledge matrix moves by
+$10^{-15}$ and the penultimate features move by $10^{2}$--$10^{3}$.
 
 \paragraph{Reading.}
-This study does \emph{not} verify invariance across the three
-architectures: its transform fails the isomorphism hypothesis $100/100$.
-What it shows is the visible knowledge-matrix drift pinned to the
-function-approximation gate by an identity, with the invisible component
-honestly flagged as unbounded and unmeasured. We credit the three-tier
-framing as the correct reporting of an approximate transform, not as
-evidence the matrix is invariant under one.
+This study verifies knowledge-matrix invariance across all three architectures,
+under a transform that satisfies the isomorphism hypothesis exactly. The residual
+drift is finite-precision accumulation --- the same kind of quantity as the
+permutation noise floor of the permutation check, and reducible to $10^{-15}$ by working in
+double precision --- so it measures the resolution of the pipeline, not the
+symmetry. Two things it does \emph{not} show. Teleportation is a quiver
+isomorphism, so invariance under it is automatic by construction and this arm
+confirms the implementation rather than discovering a fact. And the genuinely
+non-automatic claim of Theorem~\ref{thm:maxinv} is the \emph{cross-architecture}
+one, which no same-architecture transform can exercise; nothing in this paper
+supplies transform-based evidence for it (Section~\ref{sec:limitations}, L1).

@@ -28,6 +28,12 @@ $7\times10^{2}$--$1.7\times10^{7}$ above its noise floor. Worst-case tail on Res
 (min signal / max noise): 1.14$\times$ (DeepFool); the ResNet-152 floor is the
 \emph{wide-face} permutation subgroup and its residual is float32 accumulation, not exact invariance.
 DenseNet-121/GoogLeNet have no Step-A run by design (covered by teleportation); penultimate
-per-pair quantiles are unrecoverable from stored summaries.}
+per-pair quantiles are unrecoverable from stored summaries.
+\clarify{In panel~(b) the bar in ``$x \mid y$'' is a separator, not a division: $x$ is the
+knowledge matrix's ratio and $y$ the penultimate features' own, each formed in its own units.
+Both cells are \emph{mean adversarial signal} $\div$ \emph{mean permutation noise}, the two
+scales defined in Section~\ref{sec:setup}, so a value above $1$ says the representation
+registers the attack more strongly than it registers a function-preserving relabelling of
+neurons. Worked example (ResNet-152/FGSM): $83.98/0.1157=726$ and $7.600/15.05=0.51$.}}
 \label{tab:signal-relative}
 \end{table}

@@ -1,6 +1,10 @@
 #!/usr/bin/env python
 """Regenerate the HAaNE I attack-family ordering tables from the on-disk reduces.
 
+NOTATION: the stored JSON keys are "d_f" / "d_f_rms" (unchanged, they name data on disk),
+but the paper writes this quantity as d_\Psi, since the network function is \Psi(W,f).
+LaTeX-emitting strings below therefore say d_\Psi while the data access says p["d_f"].
+
 Two reduces of the per-pair ratio d_M/d_f exist on disk and the paper draws on both:
 
   * Phase-1 S3 reduce  -- cluster-data/results/phase1/aggregated/s3_results.json
@@ -113,9 +117,9 @@ CONVENTIONS = OrderedDict([
                 "(used by the mechanism pilot and this panel, NOT by tab:coherence)"),
 ])
 CONVENTION_TEX = {
-    "unfiltered": r"the unfiltered pairs ($d_f>0$)",
-    "df1": r"the pairs with $d_f\ge1$",
-    "df1_dM0": r"the attack-success-filtered pairs ($d_f\ge1$, $d_M>0$)",
+    "unfiltered": r"the unfiltered pairs ($d_\Psi>0$)",
+    "df1": r"the pairs with $d_\Psi\ge1$",
+    "df1_dM0": r"the attack-success-filtered pairs ($d_\Psi\ge1$, $d_M>0$)",
 }
 POPULATIONS = OrderedDict([
     ("common", "per architecture, the intersection of the six cells' stored pair indices"),
@@ -663,9 +667,9 @@ def tex_s3_panel(ctx):
 
     cap = (
         r"\caption{Attack-family ordering cross-check on the Phase-1 trio (appendix). Each "
-        r"architecture's six attack families ranked by median $d_M/d_f$ over "
+        r"architecture's six attack families ranked by median $d_M/d_\Psi$ over "
         + CONVENTION_TEX[conv] +
-        r", descending (equivalently ascending coherence $A=(d_f/d_M)^2$), computed on the "
+        r", descending (equivalently ascending coherence $A=(d_\Psi/d_M)^2$), computed on the "
         r"full-scale Phase-1 pair set (" + ctx["budgets_tex"] + r"; "
         r"Table~\ref{tab:ordering} uses the $200$-pair \textsc{theorem45} pair set of "
         r"Section~\ref{sec:setup}, which is drawn from different images). "
@@ -687,7 +691,7 @@ def tex_s3_panel(ctx):
     lines.append(r"\label{tab:s3_ordering_panel}")
     lines.append(r"\begin{tabular}{lll}")
     lines.append(r"\toprule")
-    lines.append(r"Architecture & Ordering by median $d_M/d_f$ (desc.) & $N$/cell \\")
+    lines.append(r"Architecture & Ordering by median $d_M/d_\Psi$ (desc.) & $N$/cell \\")
     lines.append(r"\midrule")
     for arch, (order, nmin, nmax) in rows.items():
         lines.append(f"{arch:<12s} & {_order_tex(order)} & {nmin}--{nmax} \\\\")
@@ -717,7 +721,7 @@ def tex_table_ordering(rows, W, loo, variant, ctx):
     lines.append(r"\centering\small")
     lines.append(r"\begin{tabular}{llc}")
     lines.append(r"\toprule")
-    lines.append(r"architecture & ordering by median $d_M/d_f$ (desc.) & LOO Spearman \\")
+    lines.append(r"architecture & ordering by median $d_M/d_\Psi$ (desc.) & LOO Spearman \\")
     lines.append(r"\midrule")
     for arch, order in rows.items():
         lines.append(f"{arch} & {_order_tex(order)} & {loo[arch]:.3f} \\\\")
@@ -737,7 +741,7 @@ def tex_table_ordering(rows, W, loo, variant, ctx):
         cap += ("\n" r"The stable structure is family-level: $\{$DeepFool, CW, Square$\}"
                 + _gg_or_gt(ctx["t45_fam_top_min"]) + r"$ FGSM $"
                 + _gg_or_gt(ctx["t45_fam_bot_min"]) + r"\{$PGD, APGD$\}$ in "
-                r"$d_M/d_f$ --- i.e.\ the iterative-PGD family produces the most \emph{coherent} germ motion.}")
+                r"$d_M/d_\Psi$ --- i.e.\ the iterative-PGD family produces the most \emph{coherent} germ motion.}")
     else:
         cap += ("\n" r"Trio rows recomputed on the population-matched Phase-1 pair set; ordering-only raters "
                 r"unchanged.}")

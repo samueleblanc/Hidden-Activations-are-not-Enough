@@ -55,11 +55,11 @@ this paper depends on HAaNE~II.
 than the penultimate activations, the \emph{knowledge matrix}
 $\Mfx \in \R^{C \times (d{+}1)}$, derived from the quiver
 representation of a feedforward network. The matrix decomposes the
-class logits as $f(x) = \Mfx \cdot \mathbf{1}_{d+1}$ (the
-\emph{completeness identity} $\Mfx.\mathrm{sum}(1) = f(x)$); each
+class logits as $\Netx = \Mfx \cdot \mathbf{1}_{d+1}$ (the
+\emph{completeness identity} $\Mfx.\mathrm{sum}(1) = \Netx$); each
 row $i \in \{1, \ldots, C\}$ explains how the input contributes to
 class $i$'s logit through every linear path in the network. This
-identity is not a new pointwise invariant: for PL networks at almost
+identity is not a new pointwise invariant: for PL (Piecewise Linear) networks at almost
 every input the knowledge matrix equals per-class
 gradient$\times$input plus an exact aggregate bias attribution
 (Theorem~\ref{thm:weff}), so its invariance, completeness, fixed shape
@@ -68,7 +68,7 @@ canonical, in the precise sense penultimate features fail, is the
 \emph{arrangement} and what it enables. First, the knowledge matrix is
 invariant under the entire stabiliser of the realised function
 (Theorem~\ref{thm:maxinv}, Section~\ref{sec:germ}; shared with
-per-class gradient$\times$input for PL nets, Theorem~\ref{thm:weff}) ---
+per-class gradient$\times$input for PL (Piecewise Linear) nets, Theorem~\ref{thm:weff}) ---
 it is the same for any two parameterisations, indeed any two
 architectures, that compute the same function on a neighbourhood of the
 input --- with neuron permutation a special case
@@ -82,7 +82,7 @@ sums, Theorem~\ref{thm:pyth} (Section~\ref{sec:germ}) decomposes any
 knowledge-matrix displacement into a logit-visible part and a
 logit-invisible part that encodes real changes of the local
 linearisation the endpoint logits cannot see; the unit-free coherence
-$A=(d_f/d_M)^2$ is a geometric descriptor read against a single-pixel
+$A=(d_\Psi/d_M)^2$ is a geometric descriptor read against a single-pixel
 reference line $A{=}1$.
 
 \paragraph{Thesis and study map.}
@@ -93,28 +93,23 @@ canonical alternative; here are independent demonstrations.} This
 paper is HAaNE~I of the series \emph{Hidden Activations Are Not
 Enough} described above; within it we present three studies on
 pretrained ImageNet networks (ResNet-152, DenseNet-121, GoogLeNet,
-chosen to span the residual / dense / inception family triad). \textbf{Study~1} (Section~\ref{sec:study1}) examines invariance
-through two complementary forms of network isomorphism. Study~1A
-(Section~\ref{sec:study1a}) verifies, as a numerical correctness check,
-the exact permutation invariance of Proposition~\ref{prop:perm} on
-ResNet-152; this invariance is automatic by construction --- a neuron
-permutation is a quiver isomorphism, so invariance under it holds for
-anything built functorially from the quiver representation --- and the
-check confirms it survives finite-precision computation rather than
-establishing a new fact. Study~1B (Section~\ref{sec:study1b}) measures
-gate-pinned knowledge-matrix drift under neural teleportation
-\citep{armenta2024neural} on all three architectures (with a
-parallel-branch patch developed for this paper to handle the concat
-topologies of DenseNet and GoogLeNet); teleportation on these
-batch-normalised networks is only \emph{function-approximate}, so by the
-three-tier claim structure of Proposition~\ref{prop:visdrift} the
-visible drift equals the logit gate by the row-sum identity (an
-identity, not a measurement of invariance) and the logit-invisible
-component is not bounded a priori. We credit this three-tier framing as
-the honest accounting it is, and route the cross-architecture invariance
-of Theorem~\ref{thm:maxinv} --- the genuinely non-automatic claim --- to
-this only-approximate evidence, stating the tension rather than smoothing
-it over. \textbf{Study~2} (Section~\ref{sec:study2}) applies the
+chosen to span the residual / dense / inception family triad). \textbf{Study~1} (Section~\ref{sec:study1}) asks what the standard
+representational-similarity machinery does with a transformation that provably
+changes nothing about the function. Invariance of the knowledge matrix under the
+two symmetries at issue --- neuron permutation and neural teleportation --- is not
+in question and needs no experiment: both are quiver isomorphisms, and
+Theorem~4.13 of \citet{armenta2021representation} gives
+$\Psi(W,f)=\Psi(V,g)$ under any such map, batch normalisation in evaluation mode
+included. Nor is the effect on the penultimate features in question: a
+permutation reindexes them and a teleportation rescales them coordinatewise,
+$h\mapsto\tau\odot h$, so their drift has a closed form in $h$ and $\tau$ and we
+report the algebra rather than a measurement. What is genuinely open is whether
+the nine canonical similarity measures --- which exist to quotient out exactly
+this kind of nuisance transformation --- succeed in doing so, and by how much.
+Section~\ref{sec:study1c} settles that on pairs whose ground truth is known
+exactly, with the random-network and shuffled-pair controls, and finds the
+measures disagreeing with each other across three orders of magnitude on
+networks that compute the same function. \textbf{Study~2} (Section~\ref{sec:study2}) applies the
 visible/invisible decomposition of Theorem~\ref{thm:pyth} to
 adversarial pairs across all three architectures and six adversarial-pair
 generators (FGSM, PGD, CW, DeepFool, APGD, Square), finding that the
@@ -127,9 +122,8 @@ Frobenius distance compares ResNet-152, DenseNet-121, and GoogLeNet
 with no alignment step. We then report \emph{honest negatives}
 (Section~\ref{sec:study3}): a detector bake-off in which penultimate
 features win $5$ of $6$ configurations (the adversarial-detection claim
-is withdrawn), a linear-program counterfactual that fails structurally
-on pretrained ImageNet networks, and the function-approximation limit
-of teleportation. Section~\ref{sec:limitations} catalogues the
+is withdrawn), and a linear-program counterfactual that fails structurally
+on pretrained ImageNet networks. Section~\ref{sec:limitations} catalogues the
 concrete limitations of the present paper, each with an
 explicit forward pointer to either future work or a future paper in
 the series. Section~\ref{sec:conclusion} concludes by restating the
@@ -142,12 +136,10 @@ question each answers are collected in Table~\ref{tab:a-experiments}.
 \smallskip
 \begin{tabular}{@{}llp{7.4cm}l@{}}\toprule
  & Experiment & Question & Where \\ \midrule
-A1 & permutation invariance & how large is the KM's change under a hidden-neuron permutation, relative to its own adversarial signal, versus the penultimate features' change? & Sec.~\ref{sec:A1} \\
-A2 & teleportation drift & under a function-approximate teleportation, how much of the measured KM drift is logit-visible, and does the gate bound the invisible part? & Sec.~\ref{sec:A2} \\
-A3 & similarity panel & do nine representation-similarity measures, with random-network and shuffled-pair controls, behave consistently on the same pairs? & Sec.~\ref{sec:A3} \\
-A4 & coherence and attack ordering & where does adversarial germ motion sit against the single-pixel and within-region reference lines, and is the attack-family ordering stable across architectures? & Sec.~\ref{sec:A4} \\
-A5 & alignment-free comparison & can the KM Frobenius distance compare ResNet-152, DenseNet-121 and GoogLeNet directly where CKA/Procrustes/Bures need dimension matching? & Sec.~\ref{sec:A5} \\
-A6 & honest negatives & does the KM beat penultimate features as a detector input, and does a matrix-direction counterfactual succeed? (no, and no) & Sec.~\ref{sec:A6} \\
+A1 & similarity panel & do nine representation-similarity measures, with random-network and shuffled-pair controls, behave consistently on the same pairs? & Sec.~\ref{sec:A1} \\
+A2 & coherence and attack ordering & where does adversarial germ motion sit against the single-pixel and within-region reference lines, and is the attack-family ordering stable across architectures? & Sec.~\ref{sec:A2} \\
+A3 & alignment-free comparison & can the KM Frobenius distance compare ResNet-152, DenseNet-121 and GoogLeNet directly where CKA/Procrustes/Bures need dimension matching? & Sec.~\ref{sec:A3} \\
+A4 & honest negatives & does the KM beat penultimate features as a detector input, and does a matrix-direction counterfactual succeed? (no, and no) & Sec.~\ref{sec:A4} \\
 \bottomrule\end{tabular}\end{table}
 
 A reader of the original submission will note that its
@@ -182,7 +174,7 @@ operation of projecting an intermediate object through the unembedding,
 and unlike logit lens the knowledge matrix is defined for general
 feedforward CNNs rather than transformer residual streams. We run no
 such row-lens experiment in this paper; it is future work. The row-sum
-identity $M(x)\mathbf 1=f(x)$ holds in exact arithmetic
+identity $M(x)\mathbf 1=\Netx$ holds in exact arithmetic
 (Equation~\ref{eq:km-def}); in finite precision (eval mode) the residual
 is at the float32 floor (reaching $0.15$--$0.30$ on ResNet-152, and
 $\sim10^{-10}$ at float64).
@@ -226,8 +218,9 @@ We collect the scope of this paper in one place.
 \item The knowledge matrix is invariant under the entire
 function-stabiliser, with neuron permutation as a special case
 (Theorem~\ref{thm:maxinv}, Proposition~\ref{prop:perm}).
-\item For PL networks the knowledge matrix equals per-class
-gradient$\times$input plus an exact aggregate bias attribution
+\item When the slope diagonal is locally constant (Definition~\ref{def:lcs};
+the ReLU family, by Proposition~\ref{prop:lcs}) the knowledge matrix equals
+per-class gradient$\times$input plus an exact aggregate bias attribution
 (Theorem~\ref{thm:weff}).
 \item Its row-sum identity gives an exact visible/invisible displacement
 decomposition with a unit-free coherence $A$
@@ -242,16 +235,12 @@ commensurable with logit distance
 \smallskip
 \emph{Supported by experiment.}
 \begin{itemize}
-\item A1 (Sec.~\ref{sec:A1}): permutation noise is $0.1$--$0.2\%$ of the adversarial signal
-(penultimate $\approx 100\%$);
-\item A2 (Sec.~\ref{sec:A2}): teleportation drift is measured, visible part gate-bounded,
-invisible part reported as carrying no gate bound and left unestimated;
-\item A3 (Sec.~\ref{sec:A3}): the panel passes the random-network and shuffled-pair controls;
-\item A4 (Sec.~\ref{sec:A4}): median coherence $A\le 0.23$, attack-family ordering Kendall
+\item A1 (Sec.~\ref{sec:A1}): the panel passes the random-network and shuffled-pair controls;
+\item A2 (Sec.~\ref{sec:A2}): median coherence $A\le 0.23$, attack-family ordering Kendall
 $W=0.921$;
-\item A5 (Sec.~\ref{sec:A5}): the alignment-free distance is available on all three pairs
+\item A3 (Sec.~\ref{sec:A3}): the alignment-free distance is available on all three pairs
 where the dimension-matched measures are omitted;
-\item A6 (Sec.~\ref{sec:A6}): penultimate wins $5$ of $6$ detector configurations; the
+\item A4 (Sec.~\ref{sec:A4}): penultimate wins $5$ of $6$ detector configurations; the
 matrix-direction counterfactual fails $0/54$.
 \end{itemize}
 
@@ -266,9 +255,11 @@ Theorem~\ref{thm:weff});
 \item that the row-sum holds to numerical precision in finite arithmetic
 (float32 residual $0.15$--$0.30$ on ResNet-152, $\sim10^{-10}$ at
 float64);
-\item that teleportation drift is zero (it is \emph{measured};
-teleportation is function-approximate, with logit drift up to $\sim10^{-1}$
-on ResNet-152 and under $4\times10^{-2}$ on the other two);
+\item that our implementation realises the invariance exactly in finite
+arithmetic --- it does not, and we report the floor: a float32 permutation
+residual of $0.116$ mean and $5.78$ max in Frobenius norm, and a double-precision
+teleportation residual of $0.8$--$2.5\times10^{-15}$ relative
+(Appendix~\ref{app:teleport-exact});
 \item anything about populations of training runs --- whether, and how
 closely, independently trained networks learn the same knowledge matrix
 (HAaNE~II).

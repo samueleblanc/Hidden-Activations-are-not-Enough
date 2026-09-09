@@ -10,7 +10,7 @@
   \node[draw,rounded corners,minimum width=1.6cm,minimum height=1.2cm,fill=gray!8] (x) at (0,0) {$x$};
   \node[below=1mm of x,font=\scriptsize,text width=2.2cm,align=center] {input\\($d$ coordinates)};
   % network
-  \node[draw,rounded corners,minimum width=2.2cm,minimum height=1.2cm,fill=blue!6] (net) at (3.1,0) {$f_\theta$};
+  \node[draw,rounded corners,minimum width=2.2cm,minimum height=1.2cm,fill=blue!6] (net) at (3.1,0) {$\Net$};
   \node[below=1mm of net,font=\scriptsize,text width=2.6cm,align=center] {ReLU network\\(piecewise linear)};
   \draw[->] (x) -- (net);
   % matrix
@@ -18,7 +18,7 @@
     \draw (0,0) rectangle (4.2,2.1);
     \draw (3.5,0) -- (3.5,2.1);
     \foreach \yy in {0.42,0.84,1.26,1.68} \draw[gray!50] (0,\yy) -- (4.2,\yy);
-    \node[font=\scriptsize,align=center] at (1.75,2.45) {$d$ columns: $\partial f_c/\partial x_i \cdot x_i$\\[-1pt](gradient$\times$input, per class)};
+    \node[font=\scriptsize,align=center,text width=3.3cm] at (1.75,2.5) {$d$ columns: $\partial \Psi_c/\partial x_i \cdot x_i$\\[-1pt](gradient$\times$input, per class)};
     \node[font=\scriptsize,align=center,text width=1.6cm] at (3.85,2.55) {bias\\column};
     \node at (1.75,1.05) {$J(x)\,\mathrm{diag}(x)$};
     \node[font=\scriptsize] at (3.85,1.05) {$c(x)$};
@@ -27,13 +27,13 @@
   \end{scope}
   \draw[->] (net) -- node[above,font=\scriptsize]{one matrix} (6.3,0);
   % row sums -> logits
-  \begin{scope}[shift={(11.6,-1.05)}]
+  \begin{scope}[shift={(12.3,-1.05)}]
     \draw (0,0) rectangle (0.7,2.1);
     \foreach \yy in {0.42,0.84,1.26,1.68} \draw[gray!50] (0,\yy) -- (0.7,\yy);
-    \node[font=\scriptsize,align=center] at (0.35,2.45) {logits\\$f(x)$};
+    \node[font=\scriptsize,align=center,text width=2.4cm] at (0.35,2.5) {logits\\$\Netx$};
   \end{scope}
   \draw[->] (10.75,0) -- node[above,font=\scriptsize]{row sums}
-            node[below,font=\scriptsize]{(exact)} (11.55,0);
+            node[below,font=\scriptsize]{(exact)} (12.25,0);
 \end{tikzpicture}
 \caption{\textbf{The knowledge matrix encodes the germ of the network function.} At almost every
 input, the network computes an affine map $x' \mapsto J x' + c$ on the surrounding linear

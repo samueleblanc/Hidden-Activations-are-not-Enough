@@ -132,7 +132,7 @@ def generate_theorem45_table(experiments: list, output_dir: Path, metric: str = 
             r"\resizebox{\textwidth}{!}{%",
             r"\begin{tabular}{lccccc}",
             r"\toprule",
-            r"Attack & $\hat{\gamma}$ & $d_M/d_f$ & $d_h/d_f$ & $d_M/d_h$ & $\gamma$ 95\% CI \\",
+            r"Attack & $\hat{\gamma}$ & $d_M/d_\Psi$ & $d_h/d_\Psi$ & $d_M/d_h$ & $\gamma$ 95\% CI \\",
             r"\midrule",
         ]
 
@@ -235,7 +235,7 @@ def generate_theorem45_table(experiments: list, output_dir: Path, metric: str = 
             r"\label{tab:theorem45_summary}",
             r"\begin{tabular}{llcccc}",
             r"\toprule",
-            r"Arch & Dataset & $\hat{\gamma}$ & $d_M/d_f$ & $d_h/d_f$ & $d_M/d_h$ \\",
+            r"Arch & Dataset & $\hat{\gamma}$ & $d_M/d_\Psi$ & $d_h/d_\Psi$ & $d_M/d_h$ \\",
             r"\midrule",
         ]
 

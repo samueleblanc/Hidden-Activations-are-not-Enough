@@ -1,6 +1,6 @@
-\section{Study 3: alignment-free cross-architecture comparison (A5)}
+\section{Study 3: alignment-free cross-architecture comparison (A3)}
 \label{sec:study4}
-\label{sec:A5}
+\label{sec:A3}
 
 \paragraph{Why it matters.}
 Studies~1 and~2 establish knowledge-matrix invariance under
@@ -106,7 +106,7 @@ column. A genuine dimension-matched comparison would require a new reduce that
 actually populates \texttt{D2}. \textbf{(b)~The Cui (random-network) and Murphy
 (shuffled-pair) controls were not run in this reduce} (the aggregated
 \texttt{controls.json} is empty; populated control values exist only in the
-separate controls reduce used by Study~1C). Without them the cross-architecture
+separate controls reduce used by Study~1). Without them the cross-architecture
 separations are uncontrolled and the ``availability'' framing cannot be
 hardened: run a controls-enabled cross-architecture reduce, or state explicitly
 in the Limitations that this comparison is uncontrolled.}
@@ -185,7 +185,7 @@ displacement $M_{W_A}(x)-M_{W_B}(x)$ is moreover subject to the exact
 accounting of Theorem~\ref{thm:pyth}: it splits into the part visible to
 the two networks' logit gap and an orthogonal part that records how
 differently the two architectures linearise the input, with the
-coherence $A=(d_f/d_M)^2$ available per pair from the same two stored
+coherence $A=(d_\Psi/d_M)^2$ available per pair from the same two stored
 scalars used in Study~2. We read this decomposition as descriptive
 geometry, not as a quality ranking of the architectures.
 

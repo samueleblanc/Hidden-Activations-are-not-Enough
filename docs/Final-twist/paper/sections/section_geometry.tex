@@ -1,7 +1,7 @@
 \section{Distance geometry in matrix space}
 \label{sec:geometry}
 
-The row-sum identity $\M\mathbf 1=f$ gives knowledge-matrix perturbations an
+The row-sum identity $\M\mathbf 1=\Net$ gives knowledge-matrix perturbations an
 exact visible/invisible accounting. This accounting is shared with any
 representation carrying the same fixed row-sum constraint --- in particular
 per-class gradient$\times$input (Theorem~\ref{thm:weff}); what it excludes is
@@ -11,22 +11,57 @@ parameter-independent vector plays the role of $\mathbf 1$
 
 \begin{theorem}[Visible/invisible decomposition]\label{thm:pyth}
 For any $\Delta\M\in\R^{C\times(d+1)}$ with logit displacement
-$\Delta f=\Delta\M\,\mathbf 1$, let $P=\Delta f\,\mathbf 1^{\!\top}/(d{+}1)$
+$\Delta\Net=\Delta\M\,\mathbf 1$, let $P=\Delta\Net\,\mathbf 1^{\!\top}/(d{+}1)$
 and $Q=\Delta\M-P$. Then $P$ is the orthogonal projection of $\Delta\M$ onto
 constant-row matrices and the unique minimum-norm matrix with row sums
-$\Delta f$; $Q\mathbf 1=0$; and
+$\Delta\Net$; $Q\mathbf 1=0$; and
 \[
-\|\Delta\M\|_F^2=\frac{\|\Delta f\|_2^2}{d+1}+\|Q\|_F^2,
+\|\Delta\M\|_F^2=\frac{\|\Delta\Net\|_2^2}{d+1}+\|Q\|_F^2,
 \qquad\text{hence}\qquad
-\|\Delta\M\|_F\;\ge\;\frac{\|\Delta f\|_2}{\sqrt{d+1}},
+\|\Delta\M\|_F\;\ge\;\frac{\|\Delta\Net\|_2}{\sqrt{d+1}},
 \]
 with equality iff $\Delta\M$ has constant rows. We call
-$\rho_{\mathrm{vis}}=\|\Delta f\|^2/((d{+}1)\|\Delta\M\|_F^2)$ the visible
-fraction and $A:=(d{+}1)\,\rho_{\mathrm{vis}}=(d_f/d_M)^2$ the
+$\rho_{\mathrm{vis}}=\|\Delta\Net\|^2/((d{+}1)\|\Delta\M\|_F^2)$ the visible
+fraction and $A:=(d{+}1)\,\rho_{\mathrm{vis}}=(d_\Psi/d_M)^2$ the
 \textbf{coherence} of the perturbation; both are computable from the two
-stored scalars $(d_M,d_f)$, and rank statistics of $d_M/d_f$ are exactly
+stored scalars $(d_M,d_\Psi)$, and rank statistics of $d_M/d_\Psi$ are exactly
 reverse rank statistics of $A$.
 \end{theorem}
+
+\begin{clarifybox}
+\emph{``Rank statistics of $d_M/d_\Psi$ are exactly reverse rank statistics of
+$A$.''} Since $A=(d_\Psi/d_M)^2=1/r^2$ with $r=d_M/d_\Psi>0$, and $t\mapsto1/t^2$ is
+strictly decreasing on $(0,\infty)$, the map from one to the other is
+order-reversing pair by pair. Any statistic that sees the sample only through
+the ordering of its values --- order statistics, quantiles, medians, Spearman
+and Kendall coefficients, the concordance $W$ --- therefore transfers between
+$r$ and $A$ with its direction flipped and nothing else changed. In
+particular the attack-family ordering we report is one and the same finding
+whichever of the two we tabulate, which is exactly why that ordering does not
+borrow anything from $A$ having a validated meaning. (The single caveat is
+arithmetic rather than conceptual: an interpolated median of an even-count
+sample averages two order statistics, so it commutes with the transform only
+up to the gap between them --- below our quoted precision; see
+Appendix~\ref{app:proofs}.)
+\end{clarifybox}
+
+\begin{clarifybox}
+\emph{Why $A=(d_\Psi/d_M)^2$, and not the ratio $d_\Psi/d_M$ itself?} Four reasons,
+of which only the first is essential. \emph{(a)} Theorem~\ref{thm:pyth} is an
+\emph{energy} statement: $\|\Delta\M\|_F^2$ splits \emph{additively} into
+$\|\Delta\Net\|^2/(d{+}1)$ and $\|Q\|_F^2$ because the two components are
+orthogonal, and additivity across orthogonal components is a property of
+squared norms, not of norms. The dimensionless quantity the theorem actually
+hands us is therefore a share of squared norm, namely $\rho_{\mathrm{vis}}$;
+$d_\Psi/d_M$ is not a share of anything. \emph{(b)} $A$ \emph{is} that share,
+renormalised: $A=(d{+}1)\rho_{\mathrm{vis}}$, the factor $(d{+}1)$ chosen so
+that the single-pixel case reads $A=1$ instead of $1/(d{+}1)$. \emph{(c)} In
+the squared scale the two theorem-given reference lines are the clean numbers
+$A=1$ and $A\le d$; in the unsquared scale they would be $1$ and $\sqrt d$,
+and the additive split would not be legible at all. \emph{(d)} Nothing is
+lost: the two are strictly monotone functions of each other, so every
+rank-based conclusion is identical under either, as the previous note records.
+\end{clarifybox}
 
 $Q$ is invisible \emph{to the evaluated logit displacement}: it encodes real
 changes of the local linearisation that the endpoint logits cannot see. The
@@ -40,7 +75,7 @@ we make no claim of rotation invariance.
 This theorem retires our earlier amplification claims: raw Frobenius
 comparisons inflate with mass-spreading and per-coordinate (RMS) comparisons
 deflate with dimension, and both are monotone transforms of the same
-unit-free coherence $A=(d_f/d_M)^2$ (a monotone transform of the $d_M/d_f$
+unit-free coherence $A=(d_\Psi/d_M)^2$ (a monotone transform of the $d_M/d_\Psi$
 ratio). We use $A$ as a \emph{geometric descriptor} of a perturbation, read
 against the two theorem-given reference lines $A=1$ (the one-pixel law,
 Theorem~\ref{thm:within}(ii)) and $A\le d$ (the within-region cap,
@@ -55,11 +90,59 @@ $\M(y)-\M(x)=[\,J\,\mathrm{diag}(\delta)\mid 0\,]$ --- the bias column cancels
 exactly --- and $d_M^2=\sum_i\delta_i^2\|J_{:,i}\|_2^2$. Consequently:
 \emph{(i)} (coherence cap) $A\le d$, with the sharp maximum iff all weighted
 columns $\delta_iJ_{:,i}$ are equal and nonzero; \emph{(ii)} (one-pixel law)
-for $\delta=s\,e_{i_0}$ with $J_{:,i_0}\neq0$: $d_M=d_f$ exactly, i.e.\
+for $\delta=s\,e_{i_0}$ with $J_{:,i_0}\neq0$: $d_M=d_\Psi$ exactly, i.e.\
 $A=1$, independent of pixel and magnitude; \emph{(iii)} ($k$-sparse bound) a
 perturbation supported on $k$ pixels has at most $k$ nonzero columns,
 $A\le k$, and column-energy participation ratio at most $k$.
 \end{theorem}
+
+\begin{clarifybox}
+\emph{Column-energy participation ratio.} Write $e_i=\delta_i^2\|J_{:,i}\|_2^2$
+for the energy that column $i$ contributes to $d_M^2=\sum_ie_i$. The
+participation ratio of that energy profile is
+$\mathrm{PR}=\bigl(\sum_ie_i\bigr)^2\big/\sum_ie_i^2$ --- the standard
+inverse-participation-ratio measure of how many columns actually carry the
+energy. It equals $k$ exactly when $k$ columns share the energy equally and
+the rest are silent, and $1$ when a single column carries all of it, so it
+reads as an \emph{effective number of active columns}. Part (iii) then says a
+$k$-sparse perturbation cannot have more than $k$ of them, which is immediate:
+only the $k$ columns in the support have $e_i\neq0$.
+\end{clarifybox}
+
+\begin{clarifybox}
+\emph{The one-pixel law, and why $A=1$ does not mean ``nothing happened''.}
+The algebra is two lines. Within a region
+$\M(y)-\M(x)=[\,J\,\mathrm{diag}(\delta)\mid0\,]$, so
+$d_M^2=\sum_i\delta_i^2\|J_{:,i}\|^2$; for $\delta=s\,e_{i_0}$ this is
+$d_M=|s|\,\|J_{:,i_0}\|$, while $\Delta\Net=J\delta=s\,J_{:,i_0}$ gives
+$d_\Psi=|s|\,\|J_{:,i_0}\|$ as well. Hence $d_M=d_\Psi$ and $A=1$, for every pixel
+and every magnitude.
+
+What is pinned is the \emph{ratio}, not the effect. Both $d_M$ and $d_\Psi$ grow
+linearly in $|s|$, so a large single-pixel edit moves the matrix and the
+logits a great deal; it is their quotient that cannot move. $A$ measures
+interference among the weighted columns $\delta_iJ_{:,i}$, and a one-pixel
+displacement switches on exactly one of them --- there is nothing to reinforce
+and nothing to cancel, so all of the matrix motion is logit-visible by
+default. $A=1$ is the no-interference baseline, not a claim that the
+perturbation is inert.
+
+The pixel-by-pixel worry then dissolves in two steps. \emph{First}, $A$ is a
+functional of the displacement $\delta=y-x$, not of a path. Editing $k$ pixels
+one at a time produces $k$ single-pixel displacements each with $A=1$, but the
+object this theorem scores is the \emph{cumulative} $\delta$, which is
+$k$-sparse and not one-sparse; $A$ is not additive along a path and does not
+accumulate. For the cumulative $\delta$, part (iii) allows any value up to
+$k$: above $1$ when the $\delta_iJ_{:,i}$ reinforce, below $1$ when they
+cancel, and near $1$ when they are mutually incoherent. \emph{Second}, a long
+walk leaves the region. Once $x$ and $y$ no longer share a mask pattern the
+hypothesis here fails and Theorem~\ref{thm:anatomy} governs instead: the
+crossing dyads satisfy $K\mathbf 1=0$, so they add energy to $d_M$ while
+contributing exactly nothing to $d_\Psi$, and generically push $A$ down. This is
+the regime the experiments live in --- full-image adversarial displacements,
+crossing many walls, are measured at median $A\le0.23$
+(Section~\ref{sec:study2}).
+\end{clarifybox}
 
 \begin{theorem}[Smooth $+$ crossing anatomy]\label{thm:anatomy}
 For a generic pair $(x,y)$ whose segment crosses region walls transversally at
@@ -72,13 +155,97 @@ K=\sum_{j}\sigma_j\,u_{k_j}\bigl[\,v_{k_j}^{\top}\mathrm{diag}(z_j)\mid
 \]
 where each crossing contributes a rank-one dyad whose row sums vanish (the
 flipped unit's pre-activation is zero at the crossing), and
-$\Delta f=\bar J\,\delta$: \emph{the crossing part moves the germ and not the
+$\Delta\Net=\bar J\,\delta$: \emph{the crossing part moves the germ and not the
 function}. The bias column of $\M(y)-\M(x)$ equals $c(y)-c(x)
 =\sum_j\sigma_j\gamma_{k_j}u_{k_j}$ exactly; a nonzero bias column therefore
 certifies at least one crossing (no false positives; the converse fails ---
 bias-free networks are silent). The endpoint mask-Hamming $H$ lower-bounds the
 crossing count, with parity equality, at one forward pass per endpoint.
 \end{theorem}
+
+\begin{clarifybox}
+\emph{The symbols in $K$, and what a rank-one dyad is.} A \emph{dyad} is an
+outer product $uv^{\top}$ of two vectors: a matrix of rank one, every column a
+multiple of $u$ and every row a multiple of $v^{\top}$. Each wall crossing
+contributes exactly one such term because a single unit flipping changes the
+region's Jacobian by a rank-one update --- the unit has one way in from the
+input and one way out to the logits. Fix the $j$-th crossing, at which unit
+$k_j$ of some hidden layer $\ell^{*}$ flips (dyad lemma,
+Appendix~\ref{app:proofs}). Then $z_j=x+t_j\delta$ is the point on the segment
+at which that crossing occurs, so $\mathrm{diag}(z_j)$ is the input scaling
+that turns germ data into knowledge-matrix data \emph{there};
+$\sigma_j\in\{+1,-1\}$ records the direction of the flip ($0\to1$ gives $+1$,
+$1\to0$ gives $-1$), which for a ReLU unit is exactly the jump in its slope
+across the wall; $u_{k_j}\in\R^{C}$ is the output-side vector, the column
+through which unit $k_j$ reaches the $C$ logits along the downstream masked
+product; and $v_{k_j}\in\R^{d}$, $\gamma_{k_j}\in\R$ are the input-side data,
+defined by writing the unit's pre-activation as an affine function of the
+network input, $z^{(\ell^{*})}_{k_j}(x')=v_{k_j}^{\top}x'+\gamma_{k_j}$, so
+that $v_{k_j}^{\top}$ is a row of the upstream masked product and
+$\gamma_{k_j}$ the bias accumulated below layer $\ell^{*}$. The wall is the
+hyperplane $\{v_{k_j}^{\top}x'+\gamma_{k_j}=0\}$, which is precisely why the
+dyad's row sums vanish: $[\,v^{\top}\mathrm{diag}(z_j)\mid\gamma\,]\mathbf 1
+=v^{\top}z_j+\gamma=0$ at the crossing point.
+\end{clarifybox}
+
+\begin{clarifybox}
+\emph{The path-averaged Jacobian $\bar J$ is a familiar object.}
+$\bar J=\int_0^1J(x+t\delta)\,dt$ is the mean value of the Jacobian along the
+segment from $x$ to $y$, and the identity $\Delta\Net=\bar J\delta$ is the mean
+value theorem for vector-valued maps --- equivalently the fundamental theorem
+of calculus along the segment --- which is exact here because $\Net$ is Lipschitz
+and piecewise affine on it. It is also, exactly, the object behind
+\emph{integrated gradients} \citep{sundararajan2017axiomatic}: the
+integrated-gradients attribution of $y$ against baseline $x$ is
+$(y-x)\odot\int_0^1\nabla\Net\bigl(x+t(y-x)\bigr)\,dt$, whose value for class
+$c$ and coordinate $i$ is the $(c,i)$ entry of $\bar J\,\mathrm{diag}(\delta)$
+--- the smooth block above. Their completeness axiom
+$\sum_i\mathrm{IG}_i=\Nety-\Netx$ is the row-sum statement
+$\bar J\delta=\Delta\Net$, and the axiomatic basis they invoke is the Aumann--Shapley
+average-gradient cost-sharing rule. This sharpens rather than weakens the
+equivalence we claim in Theorem~\ref{thm:weff}: at a single input the
+knowledge matrix is per-class gradient$\times$input plus a bias column, and
+\emph{between} two inputs its smooth part is integrated gradients. What the
+decomposition adds is the remainder integrated gradients has no name for ---
+the crossing term $K$, invisible to the endpoint logits and therefore
+invisible to any completeness axiom phrased in terms of them.
+\end{clarifybox}
+
+\begin{clarifybox}
+\emph{``The crossing part moves the germ and not the function'' does not
+contradict Definition~\ref{def:germ}.} The germ is a \emph{local} object
+attached to a \emph{single} point, and it is determined there by the function
+(Theorem~\ref{thm:germ}); nothing in this theorem makes the germ at a fixed
+point ambiguous. The sentence is about the \emph{displacement between two
+different points}, and its ``function'' means the endpoint logit displacement
+$\Delta\Net=\Nety-\Netx$ --- not the function as a whole. The claim is that
+$\Delta\Net$ is accounted for in full by the smooth term, since
+$\Delta\Net=\bar J\delta$ while $K\mathbf 1=0$, so the crossings contribute
+nothing to it. They are nevertheless exactly what changes the local affine
+data between the endpoints: $J(y)-J(x)=\sum_j\sigma_ju_{k_j}v_{k_j}^{\top}$
+and $c(y)-c(x)=\sum_j\sigma_j\gamma_{k_j}u_{k_j}$, both carried by $K$ and
+neither legible in $\Delta\Net$. The long-hand reading is therefore: between $x$
+and $y$ the germ moves by more than the endpoint output values can reveal.
+Both germs remain determined by the same single function, at two different
+points --- which is Theorem~\ref{thm:germ}, not a violation of it.
+\end{clarifybox}
+
+\begin{clarifybox}
+\emph{The endpoint mask-Hamming distance $H$, and ``one forward pass per
+endpoint''.} $H$ counts the hidden units whose $0/1$ activation mask differs
+between the two endpoints,
+$H=\sum_{\ell,k}\bigl|D^{(\ell)}_k(x)-D^{(\ell)}_k(y)\bigr|$. It lower-bounds
+the number of wall crossings along the segment, with equality of parity: a
+unit that ends up flipped must have crossed an odd number of times, a unit
+that ends up unflipped an even number --- possibly zero, possibly two, and a
+unit that crosses and crosses back is invisible to the endpoints. Equality
+$H=N$ holds iff no unit flips twice. The reason it is worth stating is cost:
+$H$ needs only the two mask records that evaluating the network at $x$ and at
+$y$ already produces --- one forward pass per endpoint, two in total --- with
+no need to trace the segment, locate the crossing times $t_j$, or identify
+which units flipped. It is the cheapest available certificate that two inputs
+lie in different activation regions.
+\end{clarifybox}
 
 \begin{conjecture}[Mechanism of the attack-family ordering]\label{conj:mechanism}
 Iterative small-step attacks cross fewer walls and align with high-energy
@@ -90,33 +257,83 @@ tested (Table~\ref{tab:mechanism-pilot}); the exact-$\|\delta\|$-controlled
 replication on the full architecture set is future work.
 \end{conjecture}
 
+\begin{clarifybox}
+\emph{``High-energy Jacobian columns.''} The energy of column $i$ of the
+Jacobian is $\|J_{:,i}\|_2^2$: the weight with which a unit change in pixel
+$i$ reaches the logits. A perturbation \emph{aligns with high-energy columns}
+when its mass $|\delta_i|$ sits on the coordinates where $\|J_{:,i}\|$ is
+large. The link to $A$ runs through Theorem~\ref{thm:within}: writing
+$a_i=\delta_iJ_{:,i}$, we have $A=\|\sum_ia_i\|^2/\sum_i\|a_i\|^2$, so $A$
+records how far the weighted columns reinforce rather than cancel --- maximal
+($A=d$) when they are all equal, and $A=1$ whenever a single one stands alone,
+which is the one-pixel law. Concentrating $\delta$ on a few high-energy
+columns therefore suppresses the many small, mutually cancelling contributions
+that pull $A$ below $1$, while by Theorem~\ref{thm:anatomy} each wall crossing
+avoided removes a dyad that adds to $d_M$ and nothing to $d_\Psi$. The conjecture
+is that both halves point the same way for iterative small-step attacks; it
+remains a conjecture, and the pilot tests only its rank-correlation
+consequence, not the mechanism itself.
+\end{clarifybox}
+
 \begin{proposition}[Penultimate distances carry no germ-level accounting]
 \label{prop:dichotomy}
 The decomposition of Theorem~\ref{thm:pyth} exists because
-$\M\mathbf 1=f$ holds with a fixed, parameter-independent vector $\mathbf 1$
+$\M\mathbf 1=\Net$ holds with a fixed, parameter-independent vector $\mathbf 1$
 (it is shared by any representation with the same row-sum constraint, e.g.\
 gradient$\times$input, Theorem~\ref{thm:weff}). Penultimate
 features admit no analogue: on a gauge orbit the stored distance $d_h$ sweeps
-an unbounded range while $f$, $d_f$ and $d_M$ are fixed, so any gauge-invariant
+an unbounded range while $\Net$, $d_\Psi$ and $d_M$ are fixed, so any gauge-invariant
 statistic built from stored penultimate norms is independent of $d_h$ ---
 i.e.\ not a statistic of the penultimate representation at all.
 \end{proposition}
+
+\begin{clarifybox}
+\emph{Attribution: the fact underneath this proposition is not ours.} That a
+positive per-neuron rescaling leaves a ReLU network's function exactly
+unchanged while moving its hidden activations --- so that activation norms,
+and any distance built from them, can be rescaled essentially at will --- is
+the positive-homogeneity (rescaling) symmetry of ReLU networks. It is used as
+an optimisation-geometry tool by \citet{neyshabur2015path} in Path-SGD and,
+most familiarly, by \citet{dinh2017sharp} to show that the sharpness of a
+minimum is reparameterisation-dependent; it is the same symmetry that appears
+here as the gauge group, and as the rescaling half of
+Lemma~\ref{lem:quiver-inv}. What this proposition contributes is only the
+consequence for the accounting of Theorem~\ref{thm:pyth}: because no
+gauge-invariant statistic can be built from stored penultimate norms, the
+visible/invisible split has no penultimate analogue --- there is no fixed,
+parameter-independent vector playing the role of $\mathbf 1$ on the feature
+side. The symmetry is prior work; the corollary drawn from it for the
+decomposition is what we claim.
+\end{clarifybox}
 
 \subsection{Teleportation: what is bounded and what must be measured}
 \label{sec:teleport-claims}
 
 \begin{theorem}[No $C^0$ bound]\label{thm:nogo}
-For every $\varepsilon,B>0$ there exist same-architecture networks with
-$\sup_{x'}\|f(x')-g(x')\|\le\varepsilon$, identical masks at $x$, and
-$\|\M_g(x)-\M_f(x)\|_F\ge B$. Function-space closeness does not control germ
+For every $\varepsilon,B>0$ there exist same-architecture networks $\Net$ and
+$g$ with $\sup_{x'}\|\Netxp-g(x')\|\le\varepsilon$, identical masks at $x$, and
+$\|\M_g(x)-\M_\Psi(x)\|_F\ge B$. Function-space closeness does not control germ
 drift.
 \end{theorem}
+
+\clarify{$C^0$ closeness means closeness in \emph{value}, uniformly: two maps are
+$C^0$-close when $\sup_{x'}\|\Netxp-g(x')\|\le\varepsilon$, the metric of the
+space $C^0$ of continuous functions under the supremum norm. The superscript
+counts derivatives, so $C^1$ closeness would additionally require the
+derivatives to agree. The theorem says the first buys nothing about the second,
+and the reason is that the knowledge matrix records the germ --- first-order
+data. The standard witness is $g=\Net+\varepsilon\sin(\cdot/\varepsilon^{2})$,
+which stays uniformly within $\varepsilon$ of $\Net$ everywhere while its
+derivative differs by $1/\varepsilon$. This is why we report the drift in
+Section~\ref{sec:study1} as a measurement rather than inferring it from the
+logits: agreement of the logits to any tolerance is, by itself, no evidence at
+all about the matrices.}
 
 \begin{proposition}[Three-tier claim structure for teleportation]\label{prop:visdrift}
 \emph{(i)} Under an exact isomorphism, the knowledge-matrix drift is zero.
 \emph{(ii)} Under an approximate teleportation with logit gate $\varepsilon$,
 the \emph{visible} drift is bounded unconditionally:
-$\|(\M_\tau(x)-\M(x))\mathbf 1\|=\|f_\tau(x)-f(x)\|\le\varepsilon$.
+$\|(\M_\tau(x)-\M(x))\mathbf 1\|=\|\Psi_\tau(W\!,f)(x)-\Netx\|\le\varepsilon$.
 \emph{(iii)} The \emph{invisible} drift admits no a priori bound from the gate
 (Theorem~\ref{thm:nogo}). A conditional bound exists when
 both networks are affine on a common ball of radius $r$ around $x$:
@@ -124,9 +341,37 @@ $\|\M_\tau(x)-\M(x)\|_F\le(\varepsilon_r/r)\sqrt{\min(C,d)}\,\|x\|_\infty
 +\varepsilon_r(1+\|x\|_2/r)$.
 \end{proposition}
 
-Our teleportation study (Section~\ref{sec:study1b}) reports the \emph{visible}
-drift through identity~(ii)---an equality, not an estimate---with the gate
-$\varepsilon$ measured directly on the logits; no table entry is asserted from a
-theorem whose hypotheses the experiment does not satisfy. The empirical
+\begin{clarifybox}
+\emph{The logit gate; gate-bounded versus gate-pinned.} The \emph{logit gate}
+of a transform $\tau$ at $x$ is the measured discrepancy between the two
+networks' outputs at the same input,
+$\varepsilon=\|\Psi_\tau(W\!,f)(x)-\Netx\|$. It is an empirical quantity, not a
+theoretical one: an experiment measures it and then uses it as an acceptance
+threshold, treating $\tau$ as function-preserving when the gate falls below a
+stated tolerance. A quantity is \emph{gate-bounded} when the theory bounds it
+by $\varepsilon$, and \emph{gate-pinned} when the theory forces it to
+\emph{equal} $\varepsilon$ as an algebraic identity. Part (ii) is the
+gate-pinned case: the row-sum identity gives
+$\|(\M_\tau(x)-\M(x))\mathbf 1\|=\|\Psi_\tau(W\!,f)(x)-\Netx\|=\varepsilon$ exactly, with
+no inequality anywhere, so a table of visible drift is a table of the gate
+itself and says nothing about invariance beyond what the gate already says.
+Part (iii) is the genuinely unbounded case: by Theorem~\ref{thm:nogo} the gate
+constrains the invisible drift not at all, which is why the conditional bound
+there has to carry the extra hypothesis that both networks are affine on a
+common ball. Whether a given transform actually needs this three-tier
+treatment is settled empirically in Section~\ref{sec:study1b}.
+\end{clarifybox}
+
+Our teleportation study (Section~\ref{sec:study1b}) sits at tier~(i): the
+transform is an exact isomorphism, batch normalisation in evaluation mode
+included (Appendix~\ref{app:teleport-why}), so both components of the drift
+vanish in exact arithmetic and what the experiment reports is the resolution of
+its arithmetic. We measure both components rather than asserting either from a
+theorem: the visible one through identity~(ii), which is an equality, and the
+invisible one directly, at $0.8$--$2.5\times10^{-15}$ relative
+(Appendix~\ref{app:teleport-km}). Tiers~(ii) and~(iii) are stated because they
+are what one needs for a transform that genuinely is approximate; the no-go of
+Theorem~\ref{thm:nogo} stands regardless, being a statement about what $C^0$
+closeness cannot control rather than about any particular transform. The empirical
 visible/invisible split is exhibited separately, on adversarial pairs where the
 gate is exact, in Study~2 (Section~\ref{sec:study2}).

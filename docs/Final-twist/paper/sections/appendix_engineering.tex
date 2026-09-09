@@ -7,11 +7,11 @@ three equivalent ways to compute $\M(x)$ that Theorem~\ref{thm:weff}
 establishes, gives the cost accounting that motivates the autograd route,
 reports the numerical validation that the three routes agree, and lists the
 implementation requirements that make the row-sum identity
-$\M(x)\mathbf{1}=f(x)$ hold exactly. Throughout, $\M(x)\in\R^{C\times(d+1)}$ is
+$\M(x)\mathbf{1}=\Netx$ hold exactly. Throughout, $\M(x)\in\R^{C\times(d+1)}$ is
 the knowledge matrix of a feedforward, piecewise-linear (PL) network with $C$
 output classes on an input of dimension $d$; its slope block is
-$\Weff(x)=J=\partial f/\partial x\in\R^{C\times d}$ and its final column is the
-aggregate bias attribution $\beff(x)=f(x)-Jx$.
+$\Weff(x)=J=\partial\Net/\partial x\in\R^{C\times d}$ and its final column is
+the aggregate bias attribution $\beff(x)=\Netx-Jx$.
 
 \subsection{Three equivalent computations}
 \label{app:eng-three-routes}
@@ -37,15 +37,15 @@ forward passes of the (now affine) network. At ImageNet scale this is the
 expensive route, because $d{+}1 = 150{,}529$.
 
 \paragraph{(iii) Autograd ($C$ vector--Jacobian products plus one forward pass).}
-Because $\Weff(x)=J=\partial f/\partial x$ is exactly the Jacobian of the
+Because $\Weff(x)=J=\partial\Net/\partial x$ is exactly the Jacobian of the
 network output with respect to the input at $x$, the slope block can be read off
 by automatic differentiation: $C$ vector--Jacobian products (one per output
 class, each seeding a unit covector $e_c$) recover the $C$ rows of $J$, and one
-additional forward pass gives $f(x)$, from which the bias column is
-$\beff(x)=f(x)-Jx$. This is $C$ backward passes plus one forward pass.
+additional forward pass gives $\Netx$, from which the bias column is
+$\beff(x)=\Netx-Jx$. This is $C$ backward passes plus one forward pass.
 
 By Theorem~\ref{thm:weff} these three routes coincide at almost every input for
-PL networks: they agree at every regular point, i.e.\ off the measure-zero set
+networks satisfying (LCS): they agree at every regular point, i.e.\ off the measure-zero set
 of switching surfaces. On that null set the gradient is not single-valued and
 the probe inherits whichever one-sided pattern the forward pass selects; we
 compute at regular points throughout. The equality of (i)--(iii) is what lets us
@@ -54,7 +54,7 @@ use the cheapest route, (iii), in practice while retaining the library probe
 block is per-class gradient$\times$input and the bias column is an aggregate bias
 attribution in the FullGrad sense
 \citep{shrikumar2016not,ancona2018towards,srinivas2019full}; the function-level
-properties of $\M$ on PL nets are shared with that data, and what the matrix
+properties of $\M$ under (LCS) are shared with that data, and what the matrix
 contributes is the canonical \emph{arrangement} rather than a separate
 invariant.
 
@@ -77,14 +77,14 @@ This subsection reports the numerical demonstration anchoring
 Theorem~\ref{thm:weff}: that the three routes of
 Appendix~\ref{app:eng-three-routes} agree to machine precision, and that the
 autograd route is cheaper. We expose the bare slope
-$\Weff(x)=J=\partial f/\partial x \in \R^{C\times d}$ (the knowledge matrix
+$\Weff(x)=J=\partial\Net/\partial x \in \R^{C\times d}$ (the knowledge matrix
 $\M(x)$ before its bias column is appended) through the library probe's
 \verb|extract_weff=True| flag, and compare it against (a) the masked product
 $W^{(L)}D^{(L-1)}\cdots D^{(1)}W^{(1)}$ evaluated at $x$, and (b) autograd
 ($C$ vector--Jacobian products plus one forward pass). All computations are
 in \texttt{float64} with the network in evaluation mode, the conditions under
-which the row-sum identity $\M(x)\mathbf{1}=f(x)$ is exact. Per
-Theorem~\ref{thm:weff}, every function-level property of $\M$ on PL nets
+which the row-sum identity $\M(x)\mathbf{1}=\Netx$ is exact. Per
+Theorem~\ref{thm:weff}, every function-level property of $\M$ under (LCS)
 (invariance, completeness, the exact row sum) is already shared by
 gradient$\times$input with an aggregate bias attribution in the FullGrad
 sense \citep{shrikumar2016not,ancona2018towards,srinivas2019full}; what the
@@ -96,13 +96,13 @@ slope coincide, and that the autograd route is cheaper.
 On a tiny MLP at a regular point, the masked product, the probe, and autograd
 agree to the float64 floor: probe-vs-product max-abs error
 $7.1\times10^{-15}$, autograd-vs-product $3.6\times10^{-14}$, the row-sum
-residual $\|\M(x)\mathbf{1}-f(x)\|_\infty = 2.0\times10^{-14}$, and the
-$\Weff$ identity $\|[\,\Weff\mid c\,]\,\mathbf{1}-f(x)\|_\infty
+residual $\|\M(x)\mathbf{1}-\Netx\|_\infty = 2.0\times10^{-14}$, and the
+$\Weff$ identity $\|[\,\Weff\mid c\,]\,\mathbf{1}-\Netx\|_\infty
 = 2.1\times10^{-14}$.
 (JSON keys \texttt{mlp\_three\_route\_max\_abs\_err}.\{\texttt{prod\_vs\_probe},
 \texttt{prod\_vs\_auto}, \texttt{rowsum}, \texttt{weff\_identity}\}.) As a
 sanity check on the geometry of Theorem~\ref{thm:within}, a single-pixel
-perturbation on the same network gives $d_M = d_f$ to
+perturbation on the same network gives $d_M = d_\Psi$ to
 $|A-1| = 5.5\times10^{-10}$ with exactly one nonzero column, the one-pixel
 law $A=1$ (key \texttt{one\_pixel\_law}).
 
@@ -154,7 +154,7 @@ requires the following.
 The network must be in evaluation mode for every pass used to build $\M(x)$.
 Active Dropout desynchronises the saving, probe, and autograd passes --- each
 draws a different mask --- so the three routes no longer share an activation
-pattern, and the row-sum identity $\M(x)\mathbf{1}=f(x)$ then appears to fail at
+pattern, and the row-sum identity $\M(x)\mathbf{1}=\Netx$ then appears to fail at
 the $\sim10^{-2}$ level. This is not a violation of Theorem~\ref{thm:weff} but a
 mismatch of activation patterns across passes; \texttt{model.eval()} (freezing
 Dropout, and BatchNorm to running statistics) removes it.

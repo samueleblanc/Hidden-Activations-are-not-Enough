@@ -1,9 +1,9 @@
 % ---------------------------------------------------------------------------
 % STUDY 2 — replaces the gamma / amplification framing
 % ---------------------------------------------------------------------------
-\section{Study 2: the coherence of adversarial germ motion (A4)}
+\section{Study 2: the coherence of adversarial germ motion (A2)}
 \label{sec:study2}
-\label{sec:A4}
+\label{sec:A2}
 
 \paragraph{Why it matters.}
 Theorem~\ref{thm:pyth} splits any knowledge-matrix displacement into a
@@ -20,9 +20,9 @@ headline coherence, plus the three extra ordering-only raters (ResNet-18,
 AlexNet, VGG) for the cross-architecture concordance, six in total. Attacks:
 the six-attack suite of Section~\ref{sec:setup}. Inputs: for each
 (architecture, attack) cell we generate clean/adversarial \emph{pairs} and
-record the matrix and logit displacements $(d_M, d_f)$ per pair; we report
+record the matrix and logit displacements $(d_M, d_\Psi)$ per pair; we report
 the median over the pairs passing a division guard,
-$d_f > 10^{-6}\max_i d_{f,i}$ --- a \emph{per-cell relative} threshold that
+$d_\Psi > 10^{-6}\max_i d_{f,i}$ --- a \emph{per-cell relative} threshold that
 discards only pairs on which the attack left the logits numerically
 unmoved, not an attack-success criterion. Each cell holds $200$ nominal
 pairs, of which $110$--$200$ pass it: FGSM and PGD keep all $200$ on every
@@ -33,7 +33,7 @@ cells should be read as low-$n$. The appendix panel
 (Table~\ref{tab:s3_ordering_panel}) recomputes the trio's ordering on the
 full-scale Phase-1 pair set (a different image set), with the cells matched
 on a common image population because one cell was truncated. The coherence statistic is
-$A = (d_f/d_M)^2$, read against two theorem-given reference lines:
+$A = (d_\Psi/d_M)^2$, read against two theorem-given reference lines:
 $A = 1$, the exact coherence of any single-pixel within-region
 perturbation (Theorem~\ref{thm:within}(ii)), and $A \le d$, the
 within-region maximum.
@@ -43,16 +43,16 @@ within-region maximum.
 \item For each (architecture, attack) generate clean/adversarial pairs.
 \item For each pair compute $\M(x)$, $\M(x')$, the matrix displacement
 $d_M = \|\M(x')-\M(x)\|_F$, and the logit displacement
-$d_f = \|f(x')-f(x)\|$.
-\item Apply the division guard $d_f > 10^{-6}\max_i d_{f,i}$; compute the
-per-pair coherence $A = (d_f/d_M)^2$. (The stricter attack-success filter
-$d_f \ge 1$, $d_M > 0$ is a different, far more aggressive cut, and is used
+$d_\Psi = \|\Netxp-\Netx\|$.
+\item Apply the division guard $d_\Psi > 10^{-6}\max_i d_{f,i}$; compute the
+per-pair coherence $A = (d_\Psi/d_M)^2$. (The stricter attack-success filter
+$d_\Psi \ge 1$, $d_M > 0$ is a different, far more aggressive cut, and is used
 only in the two analyses that hold per-pair records: the mechanism pilot and
 the appendix panel. On VGG the guard drops $2$ of $200$ pairs, whereas
-$64/200$ DeepFool and $57/200$ APGD pairs sit in $0 < d_f < 1$ and would be
+$64/200$ DeepFool and $57/200$ APGD pairs sit in $0 < d_\Psi < 1$ and would be
 cut by the stricter filter.)
 \item Report the per-cell median $A$ (Table~\ref{tab:coherence}) and the
-per-architecture attack-family ordering by median $d_M/d_f$
+per-architecture attack-family ordering by median $d_M/d_\Psi$
 (Table~\ref{tab:ordering}; the trio cross-check is
 Table~\ref{tab:s3_ordering_panel}).
 \end{enumerate}
@@ -74,15 +74,29 @@ Three findings. \emph{First}, on the deep ImageNet trio every attack
 family moves the germ with less than a quarter of single-pixel coherence
 (median $A\le0.23$): read descriptively against the reference lines,
 adversarial perturbations are overwhelmingly function-invisible germ
-restructuring, in the precise sense of Theorem~\ref{thm:pyth}. These
+restructuring, in the precise sense of Theorem~\ref{thm:pyth}.
+\clarify{``Median $A\le0.23$'' is a maximum of medians, over two nested
+populations, and never a median of pooled data. The inner population is one
+(architecture, attack) \emph{cell}: within a cell we take the median, over that
+cell's $110$--$200$ guarded adversarial pairs, of the per-pair coherence
+$A=(d_\Psi/d_M)^2$. The outer population is the $18$ trio cells ($3$ architectures
+$\times$ $6$ attacks); $0.23$ is the largest of those $18$ cell medians,
+attained at GoogLeNet/APGD ($0.228$, Table~\ref{tab:coherence}). Pairs are
+never pooled across attacks, and cells are never pooled across architectures,
+so the statement is the stronger ``no trio cell has a median above $0.23$''
+rather than a statement about one pooled median. Each cell entry is computed as
+$1/\mathrm{median}(d_M/d_\Psi)^2$ from the stored median ratio; that equals the
+median of $A$ exactly when the cell's valid-pair count is odd, hence the
+interpolation caveat in the caption.}
+These
 medians are point estimates without bootstrap CIs: the reduce behind
 Table~\ref{tab:coherence} kept only per-cell aggregates, so putting CIs on
 them means re-running the pairs, not resampling a stored file (the appendix
 panel, whose per-pair ratios \emph{are} stored, does carry them). They are
 also sensitive to the filtering convention. On the three cells that retain
 per-pair records --- VGG/APGD, VGG/DeepFool, VGG/Square --- replacing the
-division guard by the stricter attack-success filter ($d_f\ge1$, $d_M>0$)
-moves the median $d_M/d_f$ by $-12\%$, $-39\%$ and $-12\%$ respectively,
+division guard by the stricter attack-success filter ($d_\Psi\ge1$, $d_M>0$)
+moves the median $d_M/d_\Psi$ by $-12\%$, $-39\%$ and $-12\%$ respectively,
 enough to swap VGG's top two (CW ahead of DeepFool) and to carry VGG/APGD
 across the $A=1$ line ($0.84 \to 1.09$); the family-level grouping is
 unchanged. We report the tables under one convention and disclose the
@@ -91,9 +105,90 @@ attack-family ordering is stable across architectures. Across all six
 raters it is concordant at Kendall $W=0.921$ (permutation $p<10^{-6}$;
 leave-one-out Spearman $0.77$--$0.99$, Table~\ref{tab:ordering}), with the
 family-level structure
-$\{$DeepFool, CW, Square$\}>$ FGSM $\gg\{$PGD, APGD$\}$ in $d_M/d_f$ ---
+$\{$DeepFool, CW, Square$\}>$ FGSM $\gg\{$PGD, APGD$\}$ in $d_M/d_\Psi$ ---
 the iterative-PGD family produces the most \emph{coherent} (least
-amplifying) germ motion. The two gaps differ in size: the top family leads
+amplifying) germ motion.
+\begin{clarifybox}
+\textbf{Kendall's coefficient of concordance $W$, worked through on this panel.}
+$W$ answers one question: \emph{do several judges, each ranking the same list of
+items, put them in the same order?} It is $1$ if every judge produces the
+identical ordering and $0$ if they agree no more than chance would predict.
+
+\emph{The judges and the items.} A \emph{cell} here is one
+(architecture, attack) pair --- one square of a $6\times6$ grid --- holding that
+architecture's $\approx200$ adversarial pairs for that attack, summarised by the
+median of $d_M/d_\Psi$ over them. The judges (``raters'') are the $m=6$
+architectures; the items are the $n=6$ attack families. So each architecture
+reads off its own row of six cell medians and ranks the six attacks by them.
+
+\emph{Ranking, and where ``descending'' happens.} Rank~$1$ is given to the
+\emph{largest} median $d_M/d_\Psi$, rank~$6$ to the smallest --- that is the
+descending convention, and it is why rank~$1$ means ``most amplifying, least
+coherent''. If two cells of one row had equal medians they would share the
+average of the ranks they would have occupied (a \emph{midrank}: two items tied
+for 2nd and 3rd both get $2.5$). No row of this panel has a tie, so every rank
+here is a whole number. Ranking each row gives the $m\times n$ matrix $R$:
+
+\smallskip
+\centerline{\begin{tabular}{@{}lcccccc@{}}\toprule
+ & FGSM & PGD & CW & DeepFool & APGD & Square \\ \midrule
+ResNet-152 & 4 & 5 & 3 & 2 & 6 & 1 \\
+DenseNet-121 & 4 & 6 & 2 & 1 & 5 & 3 \\
+GoogLeNet & 4 & 5 & 3 & 1 & 6 & 2 \\
+ResNet-18 & 4 & 6 & 3 & 1 & 5 & 2 \\
+AlexNet & 4 & 6 & 2 & 1 & 5 & 3 \\
+VGG & 4 & 6 & 2 & 1 & 5 & 3 \\ \midrule
+column sum $C_i$ & 24 & 34 & 15 & 7 & 32 & 14 \\ \bottomrule
+\end{tabular}}
+\smallskip
+
+\emph{Why column sums measure agreement.} $C_i$ is the sum down column~$i$ ---
+the six architectures' ranks for that one attack. If the judges agree, some
+attack collects rank~$1$ from all six ($C=6$) and another collects rank~$6$ from
+all six ($C=36$): the column sums are pulled far apart. If they disagree at
+random, every column sum sits near its mean $\bar C=m(n{+}1)/2=21$. So the
+spread of the column sums \emph{is} the agreement. Measuring that spread by
+$S=\sum_i(C_i-\bar C)^2$ gives, for the matrix above,
+$S=3^2+13^2+(-6)^2+(-14)^2+11^2+(-7)^2=580$, against a maximum of $630$ attained
+when all six judges agree perfectly. Hence
+\[
+W=\frac{S}{S_{\max}}=\frac{580}{630}=0.9206,
+\qquad\text{equivalently}\qquad
+W=\frac{12\,S}{m^{2}\bigl(n^{3}-n\bigr)-m\,T},
+\]
+the second form being the usual one, since $m^{2}(n^{3}-n)/12=630$ here. The
+tie correction is $T=\sum_{j}\sum_{g}(t_{jg}^{3}-t_{jg})$, summed over each
+judge $j$'s groups $g$ of tied items with $t_{jg}$ the size of the group; a
+group of size~$1$ contributes $1^3-1=0$, so with no ties anywhere $T=0$ and the
+denominator is just $6^2(6^3-6)=7560$.
+
+\emph{What the Monte-Carlo test samples.} The null hypothesis is that the judges
+are not agreeing at all --- that each architecture's ranking is an independent
+uniform random permutation of the six attacks. To see how often chance alone
+reaches $W\ge0.921$, we \emph{draw} $m=6$ such random permutations, stack them
+into a rank matrix, compute its $W$, and repeat $B=10^{6}$ times. That is what
+is being sampled: whole random rank matrices. None of the $10^{6}$ draws reached
+$0.921$, hence $p<10^{-6}$. For the three-architecture figures the null is small
+enough to enumerate instead of sample --- fix the first judge's ranking and run
+the other two over all $(6!)^2=518{,}400$ pairs of permutations --- so those
+$p$-values are exact rather than estimated. That enumeration attains only $77$
+distinct values of $W$, the closest pair $0.0127$ apart, so a third decimal
+place would report a precision the statistic cannot have; we quote those $W$ to
+two decimals for that reason.
+
+\emph{What $W$ deliberately ignores.} Only the ranks enter --- the ranks of the
+six cell medians within each architecture's row --- never the medians
+themselves. Two consequences. First, $W$ is blind to how far apart the families
+are: the ordering is $\{$DeepFool, CW, Square$\}>$ FGSM $\gg\{$PGD, APGD$\}$,
+whose two gaps are $1.13$--$1.51\times$ and $1.57$--$2.09\times$, and $W$ would
+be unchanged if both gaps were a hundred times larger or a hundred times
+smaller. Those magnitudes are reported separately, in the text above. Second,
+$W$ is unchanged by any strictly increasing transformation of $d_M/d_\Psi$, which
+is what makes it immune to this paper's raw-versus-RMS unit choice
+(Section~\ref{sec:setup}): passing to root-mean-square-per-coordinate divides
+$d_M/d_\Psi$ by $\sqrt{d{+}1}$, the same positive constant for all six attacks of a
+given architecture, so no row's ordering moves and $W$ is identical either way.
+\end{clarifybox} The two gaps differ in size: the top family leads
 FGSM by $1.13$--$1.51\times$, while FGSM leads $\max\{$PGD, APGD$\}$ by
 $1.57$--$2.09\times$. The appendix panel
 (Table~\ref{tab:s3_ordering_panel}), which recomputes the trio's ordering on
@@ -126,9 +221,9 @@ disciplines are applied: attack-failure pairs must be excluded ($29$--$33\%$
 of the $200$ stored pairs --- the source of our earlier $\widehat\gamma=0$ anomaly,
 which is exact same-region mathematics, not numerical underflow), and
 perturbation size must be controlled (the raw correlation is
-size-confounded; the partial rank correlation given $d_f$ is negative for
+size-confounded; the partial rank correlation given $d_\Psi$ is negative for
 all three attacks tested, $\rho_S\approx-0.30$ to $-0.34$). This is a
-\emph{VGG pilot, 3 attacks, $n\approx140$, $d_f$-proxy-controlled, with no
+\emph{VGG pilot, 3 attacks, $n\approx140$, $d_\Psi$-proxy-controlled, with no
 confidence interval}; VGG is not in the trio, and the
 exact-$\|\delta\|$-controlled replication on the full trio (with
 $\|\delta\|$ from the stored pairs, and bootstrap CIs on the partial
@@ -137,7 +232,7 @@ remains a conjecture (Conjecture~\ref{conj:mechanism}), supported but not
 established.\footnote{The VGG $\widehat\gamma=0$ diagnosis itself is the
 rank correlation between the endpoint ReLU-Hamming distance and $d_M$,
 reported over the $n=192$ pairs with nonzero $d_M$. It is sensitive to the
-attack-success filter: imposing $d_f\ge1$ collapses APGD's correlation to
+attack-success filter: imposing $d_\Psi\ge1$ collapses APGD's correlation to
 $\approx0.07$ while DeepFool and Square stay $\approx0.6$, confirming that
 the apparent APGD relationship was carried by the same-region
 attack-failure pairs.}

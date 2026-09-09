@@ -20,15 +20,13 @@ signal. Its teleportation arm measures, rather than asserts, the
 knowledge-matrix drift across all three architectures (ResNet-152,
 DenseNet-121, GoogLeNet): teleportation visibly perturbs the penultimate
 features on every architecture (the similarity panel of
-Section~\ref{sec:study1}), but function-equivalence holds only
-approximately --- the logit drift reaches $\sim10^{-1}$ on ResNet-152 and
-stays under $4\times10^{-2}$ on the other two --- so the
-knowledge matrix's visible drift is gated by the row-sum identity ---
-reported as \emph{equal} to that logit gate rather than asserted zero
-(Proposition~\ref{prop:visdrift}, Limitation L1).
+Section~\ref{sec:study1}), while the knowledge matrix does not: the transform is
+an exact isomorphism, batch normalisation included, and the matrix's drift under
+it is measured at $0.8$--$2.5\times10^{-15}$ relative --- the double-precision
+floor --- on all three architectures (Appendix~\ref{app:teleport-exact}).
 Study~2 (Section~\ref{sec:study2}) is descriptive geometry: it applies
 the visible/invisible decomposition of Theorem~\ref{thm:pyth} to
-adversarial pairs and reads the resulting coherence $A=(d_f/d_M)^2$
+adversarial pairs and reads the resulting coherence $A=(d_\Psi/d_M)^2$
 against the single-pixel line $A=1$. On the deep ImageNet trio every
 attack family moves the germ with median $A\le0.23$, well below that
 line, and the attack-family ordering of $A$ is stable across six
@@ -41,7 +39,7 @@ alignment step. The two honest negatives (Section~\ref{sec:study3}) are
 the detector bake-off, in which penultimate features win $5$ of $6$
 configurations and the original detection claim is withdrawn, and an
 LP-counterfactual that fails structurally on pretrained ImageNet networks
-(\texttt{region\_ok} = 0/54, Limitation L3).
+(\texttt{region\_ok} = 0/54, Limitation L4).
 
 \paragraph{The umbrella thesis, restated.}
 Hidden activations are gauge-covariant and germ-incomplete
@@ -80,17 +78,15 @@ Subsequent installments take up different questions about the same
 object. The next paper, HAaNE~II, asks whether independently trained
 networks learn the same knowledge matrix, and how the answer depends on
 width, learning rate and parameterisation. Several concrete follow-ups
-suggest themselves from the Limitations of this paper. A BatchNorm-aware
-extension of
-\texttt{neuralteleportation}'s change-of-basis transformation would
-tighten the function-equivalence gate in Study~1B from the current
-$2$--$10\%$ logit drift toward the floating-point floor, so that the
-measured knowledge-matrix gate shrinks to accumulation noise (closes L1).
-A concat-aware extension of the random-permutation correctness check
-would extend Study~1A from ResNet-152 to all three architectures (closes
-L4). A multi-region or continuation reformulation of the
+suggest themselves from the Limitations of this paper. Constructing two
+genuinely different architectures that realise the same function on a
+neighbourhood --- by dead-unit insertion, neuron splitting, or a width-changing
+re-encoding --- and checking that their knowledge matrices agree would supply the
+transform-based evidence for cross-architecture invariance that no
+same-architecture symmetry can give (closes L1).
+A multi-region or continuation reformulation of the
 $\M(x)$-counterfactual would convert the structural negative of
-Section~\ref{sec:study3} into a positive one (closes L3). Concrete
+Section~\ref{sec:study3} into a positive one (closes L4). Concrete
 experiments demonstrating the practical consequences of the
 canonical-arrangement claim --- federated-learning aggregation in matrix
 space, model comparison without CKA-style alignment, $k$-nearest-neighbour

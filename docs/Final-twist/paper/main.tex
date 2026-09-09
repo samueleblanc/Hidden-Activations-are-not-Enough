@@ -39,6 +39,13 @@
 \input{sections/appendix_engineering} % Appendix B  Computing the KM in software
 %   (anchors thm:weff and the main-text forward pointers \ref{app:engineering})
 
+% Appendix: teleportation exactness. Establishes that neural teleportation is an
+% EXACT isomorphism (BatchNorm in eval mode included) and that the drift Study 1B
+% measures is floating-point roundoff -- verified by the precision-scaling law
+% (fp32/fp64 ratio = eps32/eps64) in scripts/verify_teleportation_exactness.py.
+% This supersedes the earlier "function-approximate" reading of Step B.
+\input{sections/appendix_teleport_exact}
+
 % Appendix tables referenced from the studies.
 \input{tables/table_coherence_max}
 \input{tables/table_mechanism_pilot}

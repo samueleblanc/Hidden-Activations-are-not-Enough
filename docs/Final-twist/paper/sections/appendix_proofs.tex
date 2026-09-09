@@ -16,16 +16,75 @@ submission package.
 
 \subsection{Preliminaries}
 
+\begin{clarifybox}
+\textbf{The vocabulary of this lemma, spelled out.} Fix a network satisfying
+(LCS), so that by Proposition~\ref{prop:lcs}(ii) each activation has the form
+$f(z)=a_+\max(z,0)+a_-\min(z,0)$.
+
+\emph{Pattern, and $\sigma$.} The \emph{pattern} at $x$ is the assignment to
+each hidden unit $(\ell,q)$ of the side of the origin its pre-activation falls
+on, equivalently of which of the two slopes $a_\pm$ its entry of $D^{(\ell)}(x)$
+takes. It is a vector of bits, one per hidden unit --- for ReLU exactly the
+familiar $0/1$ mask. A \emph{candidate} pattern is written $\sigma$: any one of
+the $2^{\#\mathrm{units}}$ bit assignments, whether or not some input realises
+it. There are finitely many, which is what makes the union below finite.
+
+\emph{Where the activation ``breaks''.} A \emph{breakpoint} of $f$ is a point
+where its slope changes, i.e.\ where the two linear pieces meet. Under (LCS)
+the only breakpoint is $z=0$ (Proposition~\ref{prop:lcs}(ii)): away from $z=0$
+the function is linear and $D$ is locally constant, so the only way a unit's
+entry of $D$ can change is for its pre-activation to cross zero. ``The
+activation breaks at $z=0$'' means exactly this.
+
+\emph{Frozen pre-activations $z^{(\ell)}_{\sigma,q}$.} Fix $\sigma$ and pretend
+every unit below layer $\ell$ has the slope $\sigma$ prescribes, regardless of
+the input. Every layer below $\ell$ is then a fixed linear map followed by
+multiplication by a fixed diagonal, so the composite is affine and
+$z^{(\ell)}_{\sigma,q}(x)=\alpha^\top x+\beta$ for some $\alpha\in\R^d$,
+$\beta\in\R$. This is a polynomial of degree at most $1$, and it is
+\emph{affine}, not homogeneous: $\beta\neq0$ in general, because the biases
+contribute to it. It agrees with the network's realised pre-activation exactly
+on the inputs whose pattern below $\ell$ is $\sigma$.
+
+\emph{Zero set, and affine hyperplane.} The \emph{zero set} of
+$z^{(\ell)}_{\sigma,q}$ is $\{x\in\R^d: \alpha^\top x+\beta=0\}$ --- the zeros
+of that degree-$1$ polynomial, and nothing to do with higher-degree varieties.
+When $\alpha\neq0$ this set is an \emph{affine hyperplane}: a translate of a
+linear subspace of dimension $d-1$, i.e.\ $\{x:\alpha^\top x=-\beta\}$. It is
+closed and Lebesgue-null. When $\alpha=0$ the set is either empty ($\beta\neq0$)
+or all of $\R^d$ ($\beta=0$), which is the case the proof handles separately.
+
+\emph{Non-local-constancy set.} A function $g$ is \emph{locally constant at}
+$x$ if there is \emph{some} open $U\ni x$ on which $g$ is constant. Its
+non-local-constancy set is the set of $x$ where no such $U$ exists. Negating
+the quantifiers: $x$ lies in that set iff for \emph{every} open $U\ni x$ there
+\emph{exists} $y\in U$ with $g(y)\neq g(x)$ --- the inner quantifier over $y$
+is existential, not ``for all''. (Reading it as ``$g(y)\neq g(x)$ for all
+$y\in U$'' inverts that quantifier and makes the set look open; it is closed.) We write
+$\mathcal B_\ell$ for the non-local-constancy set of the pattern truncated to
+layers $1,\dots,\ell$, and $\mathcal B=\mathcal B_L$ for the whole pattern.
+\end{clarifybox}
+
 \begin{lemma}[Null switching set]\label{lem:null}
-Let $\mathcal B$ be the set of inputs at which the activation pattern of a PL
-network is not locally constant. Then $\mathcal B$ is closed and contained in
+Let $\mathcal B$ be the set of inputs at which the slope diagonal of a network
+satisfying (LCS) (Definition~\ref{def:lcs}) is not locally constant --- by
+Proposition~\ref{prop:lcs}(ii) the activation breaks only at $z=0$, which is why
+the walls below are the zero sets and nothing else. Then $\mathcal B$ is closed and contained in
 a finite union of affine hyperplanes; its complement $X_{\mathrm{reg}}$ is
 open, dense, and of full Lebesgue measure.
 \end{lemma}
 
 \begin{proof}
-The set of points with locally constant pattern is open by definition, so
-$\mathcal B$ is closed. Induct over layers. For each pattern $\sigma$ and unit
+\emph{$X_{\mathrm{reg}}$ is open, hence $\mathcal B$ is closed.} Let
+$x\in X_{\mathrm{reg}}$, so the pattern is constant on some open $U\ni x$. That
+same $U$ witnesses local constancy at every one of its points: for $y\in U$ the
+set $U$ is an open neighbourhood of $y$ on which the pattern is constant, so
+$y\in X_{\mathrm{reg}}$. Hence $U\subseteq X_{\mathrm{reg}}$, and
+$X_{\mathrm{reg}}$ is open; $\mathcal B$ is its complement and so is closed.
+(The point worth noticing is that one does not construct a new neighbourhood
+for each $y$ --- the witness $U$ is reused unchanged.)
+
+\emph{The hyperplane bound.} Induct over layers. For each pattern $\sigma$ and unit
 $(\ell,q)$ let $z^{(\ell)}_{\sigma,q}$ be the affine function of $x$ obtained
 by freezing the masks below layer $\ell$ to $\sigma$. Let $\mathcal B_{\ell}$
 be the non-local-constancy set of the pattern up to layer $\ell$;
@@ -39,21 +98,60 @@ off which the bit is locally constant. Hence
 $\mathcal B_\ell\subseteq\mathcal B_{\ell-1}\cup\bigcup_{\sigma,q}
 \{z^{(\ell)}_{\sigma,q}=0,\ z^{(\ell)}_{\sigma,q}\not\equiv0\}$, a finite
 union (patterns that are never realised only enlarge it). For max-pooling, add
-the finitely many score-tie hyperplanes. \qedhere
+the finitely many score-tie hyperplanes.
+
+\emph{Reading off the three conclusions.} Unwinding the induction to
+$\ell=L$ puts $\mathcal B=\mathcal B_L$ inside a finite union of sets of the
+form $\{z^{(\ell)}_{\sigma,q}=0\}$ with $z^{(\ell)}_{\sigma,q}\not\equiv0$;
+each is an affine hyperplane, and the union is finite because there are
+finitely many candidate patterns $\sigma$ and finitely many units $q$. That
+gives the containment. A hyperplane has Lebesgue measure zero and a finite
+union of null sets is null, so $\lambda(\mathcal B)=0$ and
+$X_{\mathrm{reg}}=\R^d\setminus\mathcal B$ has full measure. Density follows
+from the containment as well: a finite union of hyperplanes has empty interior,
+so every ball meets its complement, and $X_{\mathrm{reg}}$ is dense. Openness
+was the first paragraph. \qedhere
 \end{proof}
+
+\begin{clarifybox}
+\textbf{Why this lemma is piecewise-linear and the definition is not.} The
+knowledge matrix is defined for \emph{any} activation through the
+quotient diagonal \eqref{eq:D-def}, and its row-sum identity needs only that no
+pre-activation vanish ($x\in X_{\mathrm{nz}}$) --- nothing about $f(0)$, and
+nothing about differentiability. This lemma is a different matter: it is about the set
+where the \emph{pattern} is locally constant, and the proof uses that each
+$z^{(\ell)}_{\sigma,q}$ is affine, so its zero set is a hyperplane. Both fail
+for a strictly nonlinear smooth activation. There $D^{(\ell)}(x)$ takes a
+continuum of values and varies continuously with $x$, so the set of inputs with
+a locally constant pattern is not of full measure but generically \emph{empty},
+and there is no switching set for the lemma to bound. The lemma is therefore
+not a technical convenience one could remove by a better definition of
+$D^{(\ell)}$: it exists to support the germ identity
+(Theorem~\ref{thm:germ}), and it is the germ reading, not the matrix, that is
+piecewise-linear in nature. A direct check makes the boundary concrete. At
+$x_0=1$ a single $\tanh$ unit with unit weights and the affine map
+$x\mapsto f'(1)\,x+\bigl(f(1)-f'(1)\bigr)$ have the \emph{same} germ,
+$\bigl(0.419974,\,0.761594\bigr)$, and the same row sum, yet knowledge matrices
+$[\,0.761594\mid0\,]$ and $[\,0.419974\mid0.341620\,]$; repeating the
+construction with ReLU returns $[\,1\mid0\,]$ for both, as
+Theorem~\ref{thm:germ} requires. So for non-PL activations the matrix is not a
+function of the germ, and Theorems~\ref{thm:germ}, \ref{thm:maxinv}
+and~\ref{thm:complete} are statements about the PL case specifically. Whether
+some weaker function-determination survives there is open; we do not claim it.
+\end{clarifybox}
 
 \subsection{Proof of Theorem~\ref{thm:germ} (germ identity)}
 
 On a neighbourhood $U$ of $x\in X_{\mathrm{reg}}$ the pattern is constant, so
 for every unit $h^{(\ell)}=D^{(\ell)}(x)\,z^{(\ell)}$ on $U$ ($z_q>0$ gives
 $\mathrm{ReLU}(z_q)=z_q$; $z_q\le0$ gives $0$). Unrolling,
-$f(x')=J(\theta,x)\,x'+c(\theta,x)$ on $U$; differentiate at $x$ and solve for
+$\Netxp=\Jwf(x)\,x'+\cwf(x)$ on $U$; differentiate at $x$ and solve for
 $c$. For the boundary complement: the same pointwise computation shows
 $h^{(\ell)}(x')=D^{(\ell)}(x)\,z^{(\ell)}(x')$ for every $x'$ in the closed
 region $\overline{S(x)}$ of $x$'s realised pattern, so the affine map
-$A_x(x')=Jx'+c$ agrees with $f$ on $\overline{S(x)}$; since $x\in S(x)$
-always, $\M(x)\mathbf 1=Jx+c=f(x)$ at every $x$, and for $v$ in the tangent
-cone of $S(x)$ at $x$, $\partial^+_vf(x)=Jv$ (the one-sided germ from the
+$A_x(x')=Jx'+c$ agrees with $\Net$ on $\overline{S(x)}$; since $x\in S(x)$
+always, $\M(x)\mathbf 1=Jx+c=\Netx$ at every $x$, and for $v$ in the tangent
+cone of $S(x)$ at $x$, $\partial^+_v\Net(x)=Jv$ (the one-sided germ from the
 inactive side, which is what the convention $\mathbb 1[z>0]$ selects).
 \emph{Measured:} probe vs.\ masked product $\le 7\times10^{-15}$; vs.\
 finite-difference Jacobian $\le 4\times10^{-11}$; row-sum identity at an
@@ -62,7 +160,7 @@ engineered exact-boundary point: $0.0$. \qed
 \subsection{Proof of Theorem~\ref{thm:maxinv} (maximal invariance)}
 
 Immediate from Theorem~\ref{thm:germ}: both matrices equal
-$[\,Df(x)\,\mathrm{diag}(x)\mid f(x)-Df(x)x\,]$, a function of the shared germ
+$[\,D\Net(x)\,\mathrm{diag}(x)\mid \Netx-D\Net(x)x\,]$, a function of the shared germ
 alone. The group statement follows because any function-preserving
 transformation (any architecture change included) preserves the germ at every
 $x\in X_{\mathrm{reg}}$ of both realisations. Sharpness at boundaries: the
@@ -81,7 +179,7 @@ generators and compose.
 $W^{(1)}\!\to P_1W^{(1)}$, $b^{(\ell)}\!\to P_\ell b^{(\ell)}$,
 $W^{(\ell)}\!\to P_\ell W^{(\ell)}P_{\ell-1}^{\top}$,
 $W^{(L)}\!\to W^{(L)}P_{L-1}^{\top}$, and neuron-wise activations carried with
-the units. By induction $z^{(\ell)}(\theta^{\pi},x)=P_\ell z^{(\ell)}(\theta,x)$
+the units. By induction $z^{(\ell)}(W^{\pi},x)=P_\ell z^{(\ell)}(W,x)$
 for every $x$, so the diagonal secant matrices satisfy
 $A^{(\ell)}_{\pi}(x)=P_\ell A^{(\ell)}(x)P_\ell^{\top}$ (entrywise ratios
 permute; the $0/0\to0$ guard is applied entrywise, hence equivariantly ---
@@ -89,7 +187,7 @@ this is where non-equivariant \emph{vector} activations are excluded). The
 slope product and the bias accumulation then telescope:
 $W^{(L)}P_{L-1}^{\top}\cdot P_{L-1}A^{(L-1)}P_{L-1}^{\top}\cdot
 P_{L-1}W^{(L-1)}P_{L-2}^{\top}\cdots=W^{(L)}A^{(L-1)}W^{(L-1)}\cdots$, so
-$\M(\theta^\pi,x)=\M(\theta,x)$.
+$\KMarg{W^\pi}{x}=\KMwfx$.
 
 \emph{Positive rescalings.} For $T_\ell=\mathrm{diag}(\tau^{(\ell)})$ with
 $\tau^{(\ell)}_q>0$, conjugate $W^{(\ell)}\!\to T_\ell W^{(\ell)}T_{\ell-1}^{-1}$,
@@ -98,7 +196,7 @@ $\varphi_{\tau}(z)=\tau\,\varphi(z/\tau)$ (for ReLU, $\varphi_\tau=\varphi$).
 Then $z^{(\ell)}\!\to T_\ell z^{(\ell)}$ and
 $A^{(\ell)}_{\tau}(x)=T_\ell A^{(\ell)}(x)T_\ell^{-1}$, so the inserted factors
 $T_\ell^{-1}T_\ell=I$ telescope by the identical argument and
-$\M(\theta^\tau,x)=\M(\theta,x)$. Composing the two generators gives the lemma.
+$\KMarg{W^\tau}{x}=\KMwfx$. Composing the two generators gives the lemma.
 This recovers the ReLU case of Thms.~4.1--4.2 of the original version.
 
 \emph{Permutation scope (Proposition~\ref{prop:perm}).} The proposition is the
@@ -116,21 +214,21 @@ ReLU and GELU-secant. \qed
 \subsection{Proof of Theorem~\ref{thm:complete} (completeness)}
 
 \emph{(i)} $J_{:,i}=\M_{:,i}/x_i$ for $x_i\neq0$ and $c=\M_{:,d+1}$.
-\emph{(ii)} $f=\M\mathbf 1$ pointwise gives determination on any set; on a
-full-measure set, density plus continuity of $f$ extends it globally. The germ
-at $x$ extends $f$ to $\overline{S(x)}$ (proof of Theorem~\ref{thm:germ}),
-but no further: $f_1=\mathrm{ReLU}(x-1)$ and $f_3=\mathrm{ReLU}(x)$ have
+\emph{(ii)} $\Net=\M\mathbf 1$ pointwise gives determination on any set; on a
+full-measure set, density plus continuity of $\Net$ extends it globally. The germ
+at $x$ extends $\Net$ to $\overline{S(x)}$ (proof of Theorem~\ref{thm:germ}),
+but no further: $\Psi_1=\mathrm{ReLU}(x-1)$ and $\Psi_3=\mathrm{ReLU}(x)$ have
 identical fields ($\equiv[\,0\mid0\,]$) on $(-1,0)$ yet differ at $0.75$ ---
-so a field on an open set does not determine $f$ even on the region closures
+so a field on an open set does not determine $\Net$ even on the region closures
 of \emph{other} candidate networks.
 \emph{(iii)} For $\tau_q>0$ per hidden unit with weights conjugated,
 $z^{(\ell)}\mapsto T_\ell z^{(\ell)}$ and ReLU commutes with positive scalars,
-so $a_v\mapsto\tau_v a_v$ while $f$ is unchanged.
+so $a_v\mapsto\tau_v a_v$ while $\Net$ is unchanged.
 \emph{(iv)} Write $J=\sum_q D^{(1)}_{qq}\,U_{:,q}\,w_q^{\top}$ with
-$U=W^{(L)}D^{(L-1)}\cdots W^{(2)}$. Since $Df(x)=J\neq0$, some first-layer
+$U=W^{(L)}D^{(L-1)}\cdots W^{(2)}$. Since $D\Net(x)=J\neq0$, some first-layer
 unit $q$ is active with $u:=U_{:,q}\neq0$. Perturb $w_q'=w_q+t e_i$,
 $b_q'=b_q-t x_i$: then $z_q'(x)=z_q(x)$ \emph{algebraically}, every hidden
-activation at $x$ and $f(x)$ are unchanged, all masks at $x$ are unchanged and
+activation at $x$ and $\Netx$ are unchanged, all masks at $x$ are unchanged and
 strict (so $x$ stays regular), while the germ moves by the exact rank-one
 update $J'-J=u\,(te_i)^{\top}\neq0$ and $c'-c=-t x_i u$, preserving
 $J'x+c'=Jx+c$. Two affine maps with different linear parts differ off a
@@ -138,13 +236,13 @@ hyperplane, hence on every neighbourhood of $x$; and for any $x_i\neq0$,
 column $i$ of $\M$ moves by $t\,x_i\,u\neq0$. (One hidden layer is needed; in
 the affine case the same compensation changes nothing.)
 \emph{Measured:} activation record equal to $4.4\times10^{-16}$ (2\,ulp),
-$f(x)$ equal exactly, rank-one identity $4.7\times10^{-17}$, germ change
+$\Netx$ equal exactly, rank-one identity $4.7\times10^{-17}$, germ change
 $1.9\times10^{-4}\neq0$ at $t=10^{-3}$. \qed
 
 \subsection{Proof of Theorem~\ref{thm:weff} (gradient$\times$input $\oplus$ bias; route equivalence)}
 
-The first $d$ columns of $\M(x)$ are $J_{:,i}x_i=(\partial f/\partial x_i)\,x_i$
-by the germ identity ($J=Df$ at regular $x$, Theorem~\ref{thm:germ}), which is
+The first $d$ columns of $\M(x)$ are $J_{:,i}x_i=(\partial\Net/\partial x_i)\,x_i$
+by the germ identity ($J=D\Net$ at regular $x$, Theorem~\ref{thm:germ}), which is
 per-class gradient$\times$input; the bias identity below gives the last column.
 The three computation routes (masked product (a), probe (b), autograd (c))
 agree, as follows.
@@ -152,12 +250,12 @@ agree, as follows.
 affine map $x'\mapsto Jx'+c$; for ReLU the secant $h/z$ equals
 $\mathbb 1[z>0]$ ($0/z=0$ for $z<0$; $0/0\to0$ by convention), so probing
 $x_ie_i$ through its linear part returns column $J_{:,i}x_i$, and the
-zero-input pass through its affine part returns $c$. (c): at regular $x$, $f$
-is differentiable with $Df=J$, and the autograd conventions
+zero-input pass through its affine part returns $c$. (c): at regular $x$, $\Net$
+is differentiable with $D\Net=J$, and the autograd conventions
 ($\mathrm{ReLU}'(0)=0$, stored pooling argmax) match the frozen masks even on
-the null set. The bias identity: $\partial f/\partial b^{(\ell)}
+the null set. The bias identity: $\partial\Net/\partial b^{(\ell)}
 =W^{(L)}D^{(L-1)}\cdots D^{(\ell)}$, and unrolling the bias accumulator gives
-$c=\sum_\ell(\partial f/\partial b^{(\ell)})\,b^{(\ell)}$.
+$c=\sum_\ell(\partial\Net/\partial b^{(\ell)})\,b^{(\ell)}$.
 \emph{Measured} (AlexNet, float64, eval mode): library probe vs.\ autograd
 germ $3.3\times10^{-17}$ max-abs (relative $1.3\times10^{-15}$); row sums
 $3.5\times10^{-17}$; FullGrad bias identity $6.1\times10^{-16}$. The
@@ -168,17 +266,17 @@ $\sim10^{-2}$. \qed
 \subsection{Proof of Proposition~\ref{prop:contraction} (contraction gap)}
 
 Take the $1$--$2$--$1$ bias-free pair $A$: $w=(1,2)$, $a=(1,1)$ and $B$:
-$w=(1,2)$, $a=(1.5,0.75)$. Both realise $f(x)=3\,\mathrm{ReLU}(x)$, so
+$w=(1,2)$, $a=(1.5,0.75)$. Both realise $\Netx=3\,\mathrm{ReLU}(x)$, so
 $\M_A\equiv\M_B$ (measured: $0.0$ on a 401-point grid including the kink). The
 per-unit path values $a_qw_q$ are $\{1,2\}$ vs.\ $\{1.5,1.5\}$; any
 isomorphism rescales $(w_q,a_q)\mapsto(\tau_qw_q,a_q/\tau_q)$, preserving each
 $a_qw_q$, and permutations permute the multiset --- since the multisets
 differ, the networks are non-isomorphic and the path-resolved representations
 differ at every $x>0$. The identifiability statement on the
-\citet{phuong2020functional} class follows by chaining $f=\M\mathbf 1$
+\citet{phuong2020functional} class follows by chaining $\Net=\M\mathbf 1$
 (field determines the function on a full-measure subset of their domain $Z$,
 hence on $Z$ by continuity) with their Theorem~1, quantifiers intact: there
-exists $\theta^{*}$ such that any \emph{general} network of the \emph{same
+exists $W^{*}$ such that any \emph{general} network of the \emph{same
 architecture} agreeing with it on $Z$ is permutation$\times$positive-rescaling
 equivalent; the converse direction is Proposition~\ref{prop:perm} plus
 rescaling invariance. (Note the $1$--$2$--$1$ example has increasing widths,
@@ -190,10 +288,11 @@ For any $a\in\R^C$ and any $Q'$ with $Q'\mathbf 1=0$:
 $\langle a\mathbf 1^{\top},Q'\rangle_F=a^{\top}(Q'\mathbf 1)=0$, so
 $\mathcal V=\{a\mathbf 1^{\top}\}$ and $\mathcal N=\{Q:Q\mathbf 1=0\}$ are
 orthogonal complements; $A\mapsto(A\mathbf 1)\mathbf 1^{\top}/(d{+}1)$ is the
-orthogonal projector onto $\mathcal V$. With $P=\Delta f\,\mathbf 1^{\top}/(d{+}1)$:
-$P\mathbf 1=\Delta f$, $Q=\Delta\M-P\in\mathcal N$, and
-$\|P\|_F^2=\|\Delta f\|^2/(d{+}1)$, giving the Pythagorean identity. The
-constraint set $\{A:A\mathbf 1=\Delta f\}$ is $P+\mathcal N$, so $P$ is its
+orthogonal projector onto $\mathcal V$. With
+$P=\Delta\Net\,\mathbf 1^{\top}/(d{+}1)$:
+$P\mathbf 1=\Delta\Net$, $Q=\Delta\M-P\in\mathcal N$, and
+$\|P\|_F^2=\|\Delta\Net\|^2/(d{+}1)$, giving the Pythagorean identity. The
+constraint set $\{A:A\mathbf 1=\Delta\Net\}$ is $P+\mathcal N$, so $P$ is its
 unique minimum-norm element; equality in the floor iff $Q=0$, i.e.\ constant
 rows (per row, Cauchy--Schwarz against $\mathbf 1$). Monotonicity of
 $t\mapsto1/\sqrt{(d{+}1)t}$ gives the rank-statistic correspondence (for
@@ -217,7 +316,7 @@ follows. (i): with $a_i=\delta_iJ_{:,i}$,
 $\|\sum_ia_i\|^2\le(\sum_i\|a_i\|)^2\le d\sum_i\|a_i\|^2$ (triangle, then
 Cauchy--Schwarz), equality iff all $a_i$ equal and nonzero --- attained by
 $J=u\mathbf 1_d^{\top}$, $\delta=\mathbf 1_d$. (ii): a single nonzero column
-$a=s\,J_{:,i_0}$ gives $d_M=\|a\|=d_f$ and exactly one nonzero column with a
+$a=s\,J_{:,i_0}$ gives $d_M=\|a\|=d_\Psi$ and exactly one nonzero column with a
 zero bias column. (iii): at most $k$ nonzero columns; the same
 Cauchy--Schwarz over the support gives $A\le k$ and the participation bound.
 \emph{Measured:} closed form $\le5\times10^{-13}$; cap never violated
@@ -232,10 +331,18 @@ the region data jump by $J_{+}-J_{-}=\sigma\,u_kv_k^{\top}$ and
 $c_{+}-c_{-}=\sigma\,\gamma_ku_k$, where
 $u_k=U^{(\ell^{*}+1)}W^{(\ell^{*}+1)}e_k$,
 $v_k^{\top}=e_k^{\top}W^{(\ell^{*})}L^{(\ell^{*})}$, and
-$z^{(\ell^{*})}_k(x')=v_k^{\top}x'+\gamma_k$; continuity of $f$ across the
+$z^{(\ell^{*})}_k(x')=v_k^{\top}x'+\gamma_k$; continuity of $\Net$ across the
 wall forces the bias jump, and $v_k^{\top}z+\gamma_k=0$ at the crossing makes
 the full dyad's row sums vanish:
 $\sigma u_k(v_k^{\top}z+\gamma_k)=0$.
+\clarify{Here $U^{(\ell^{*}+1)}$ and $L^{(\ell^{*})}$ denote the downstream and
+upstream masked products of the region data shared by the two sides of the
+wall, i.e.\ $U^{(\ell^{*}+1)}=W^{(L)}D^{(L-1)}\cdots D^{(\ell^{*}+1)}$ and
+$L^{(\ell^{*})}=D^{(\ell^{*}-1)}W^{(\ell^{*}-1)}\cdots D^{(1)}W^{(1)}$ in the
+factorisation $J=W^{(L)}D^{(L-1)}\cdots D^{(1)}W^{(1)}$ of
+Section~\ref{sec:germ}; so $u_k\in\R^{C}$ is unit $k$'s output-side vector,
+$v_k\in\R^{d}$ its input-side vector, and $\gamma_k$ the bias accumulated in
+its pre-activation.}
 
 \emph{Telescope.} Write
 $\M(y)-\M(x)=\sum_{j=0}^{N}\bigl[\M^{(j)}(z_{j+1})-\M^{(j)}(z_j)\bigr]
@@ -245,7 +352,7 @@ matrix evaluated at $z$ (well defined on closures). Each smooth term is
 $[\,J_j\,\mathrm{diag}((t_{j+1}-t_j)\delta)\mid0\,]$ by
 Theorem~\ref{thm:within}; summing gives $\bar J$. Each jump term is a dyad of
 the lemma. Row sums: the smooth part gives $\bar J\delta$, the dyads give $0$,
-and $f(y)-f(x)=\int_0^1J(x+t\delta)\,\delta\,dt=\bar J\delta$ by the
+and $\Nety-\Netx=\int_0^1J(x+t\delta)\,\delta\,dt=\bar J\delta$ by the
 fundamental theorem of calculus for the PL map on the segment. The bias
 column of the smooth part is zero, so the bias column of $\M(y)-\M(x)$ is
 exactly $c(y)-c(x)=\sum_j\sigma_j\gamma_{k_j}u_{k_j}$ --- equivalently, it is
@@ -269,15 +376,15 @@ $\le8.2\times10^{-13}$. \qed
 
 \subsection{Proof of Proposition~\ref{prop:dichotomy}}
 
-On the gauge orbit of $\theta$ (positive rescalings), $f$, $d_f$, and $d_M$
-are fixed (invariance of $f$ and of $\M$), while the penultimate distance
+On the gauge orbit of $W$ (positive rescalings), $\Net$, $d_\Psi$, and $d_M$
+are fixed (invariance of $\Net$ and of $\M$), while the penultimate distance
 $d_h$ between a fixed pair's features sweeps an unbounded range (rescale one
-penultimate unit by $\lambda$: measured $d_h\in[0.44,\,15.3]$ with $f$
+penultimate unit by $\lambda$: measured $d_h\in[0.44,\,15.3]$ with $\Net$
 bitwise fixed). Hence any gauge-invariant function of the stored statistics
-$(d_h,d_f)$ is constant in $d_h$ on orbits, i.e.\ uses no penultimate
+$(d_h,d_\Psi)$ is constant in $d_h$ on orbits, i.e.\ uses no penultimate
 information. The KM accounting exists because the constraint
-$\M\mathbf 1=f$ pairs all matrices against the \emph{fixed} vector
-$\mathbf 1$; the last-layer relation $\Delta f=W^{(L)}\Delta h$ pairs features
+$\M\mathbf 1=\Net$ pairs all matrices against the \emph{fixed} vector
+$\mathbf 1$; the last-layer relation $\Delta\Net=W^{(L)}\Delta h$ pairs features
 against a parameter-dependent map, whose induced ``visible fraction''
 $1/(1+\lambda^2)$ in the worked example takes every value in $(0,1)$ across
 one orbit. \qed
@@ -286,19 +393,19 @@ one orbit. \qed
 
 \emph{No-go.} In $d=C=1$ take
 $g(t)=K\,\mathrm{ReLU}(t-x_0)-K\,\mathrm{ReLU}(t-x_0-\varepsilon/K)$ and
-$f\equiv0$ realised with the same first layer and zeroed second layer. Then
-$\sup_t|f-g|=\varepsilon$ exactly; at $x=x_0+\varepsilon/(2K)$ both networks
-have masks $(1,0)$; but $J_g(x)=K$, $J_f(x)=0$, so
-$\|\M_g(x)-\M_f(x)\|_F=K\sqrt{x^2+x_0^2}\to\infty$ as $K\to\infty$ at fixed
+$\Net\equiv0$ realised with the same first layer and zeroed second layer. Then
+$\sup_t|\Psi-g|=\varepsilon$ exactly; at $x=x_0+\varepsilon/(2K)$ both networks
+have masks $(1,0)$; but $J_g(x)=K$, $J_\Psi(x)=0$, so
+$\|\M_g(x)-\M_\Psi(x)\|_F=K\sqrt{x^2+x_0^2}\to\infty$ as $K\to\infty$ at fixed
 $\varepsilon$ (the construction needs the ramp away from the origin,
 $x_0\neq0$). \emph{Measured:} drift $1.4\times10^{2},10^{4},10^{6}$ at
 $K=10^{2},10^{4},10^{6}$, $\varepsilon=10^{-2}$ fixed.
-\emph{Visible bound.} $\|(\M_\tau(x)-\M(x))\mathbf 1\|=\|f_\tau(x)-f(x)\|$ is
+\emph{Visible bound.} $\|(\M_\tau(x)-\M(x))\mathbf 1\|=\|\Psi_\tau(W\!,f)(x)-\Netx\|$ is
 the row-sum identity; the projection onto constant-row matrices then has norm
 $\le\varepsilon/\sqrt{d+1}$. \emph{Conditional bound.} If both networks are
-affine on $B(x,r)$ with $\varepsilon_r=\sup_{B(x,r)}\|f_\tau-f\|$, then for
+affine on $B(x,r)$ with $\varepsilon_r=\sup_{B(x,r)}\|\Psi_\tau(W\!,f)-\Net\|$, then for
 any unit vector $u$, $2r\,\Delta J\,u$ is a difference of differences of
-$f_\tau-f$ at $x\pm ru$, so $\|\Delta J\|_{\mathrm{op}}\le\varepsilon_r/r$;
+$\Psi_\tau(W\!,f)-\Net$ at $x\pm ru$, so $\|\Delta J\|_{\mathrm{op}}\le\varepsilon_r/r$;
 combine $\|\Delta J\,\mathrm{diag}(x)\|_F\le\|x\|_\infty\sqrt{\min(C,d)}\,
 \|\Delta J\|_{\mathrm{op}}$ with
 $\|\Delta c\|\le\varepsilon_r+\|\Delta J\|_{\mathrm{op}}\|x\|_2$.

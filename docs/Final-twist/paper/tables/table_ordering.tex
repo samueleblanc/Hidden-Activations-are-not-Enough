@@ -3,7 +3,7 @@
 \centering\small
 \begin{tabular}{llc}
 \toprule
-architecture & ordering by median $d_M/d_f$ (desc.) & LOO Spearman \\
+architecture & ordering by median $d_M/d_\Psi$ (desc.) & LOO Spearman \\
 \midrule
 ResNet-152 & Square $>$ DeepFool $>$ CW $>$ FGSM $>$ PGD $>$ APGD & 0.771 \\
 DenseNet-121 & DeepFool $>$ CW $>$ Square $>$ FGSM $>$ APGD $>$ PGD & 0.943 \\
@@ -19,7 +19,7 @@ Spearman of each architecture's ranking against
 the mean consensus rank of the other five (midrank ties). The six raters are the paper's trio
 (ResNet-152, DenseNet-121, GoogLeNet) plus three \emph{ordering-only} cross-check raters (ResNet-18,
 AlexNet, VGG) that enter no coherence-magnitude statistic and no cross-architecture distance. The stable
-structure is family-level: $\{$DeepFool, CW, Square$\}>$ FGSM $\gg\{$PGD, APGD$\}$ in $d_M/d_f$ --- i.e.\
+structure is family-level: $\{$DeepFool, CW, Square$\}>$ FGSM $\gg\{$PGD, APGD$\}$ in $d_M/d_\Psi$ --- i.e.\
 the iterative-PGD family produces the most \emph{coherent} germ motion. The two gaps are of different
 sizes: the top family leads FGSM by $1.13$--$1.51\times$ across the six raters, while FGSM leads
 $\max\{$PGD, APGD$\}$ by $1.57$--$2.09\times$. Attack budgets are those of Section~\ref{sec:setup}: the

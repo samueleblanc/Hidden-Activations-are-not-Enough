@@ -12,22 +12,156 @@
 \section{The knowledge matrix is the germ of the network function}
 \label{sec:germ}
 
-Throughout, $f(\theta,\cdot):\R^d\to\R^C$ is a feedforward network with
-piecewise-linear (PL) components at inference time --- ReLU-family activations,
-affine layers (convolutions, batch normalisation in evaluation mode), and
-max/average pooling; this covers every architecture in our experiments. Write
-$D^{(\ell)}(x)$ for the $0/1$ activation masks at input $x$,
-$J(\theta,x)=W^{(L)}D^{(L-1)}(x)\cdots D^{(1)}(x)W^{(1)}$ for the masked-product
-Jacobian, and $c(\theta,x)$ for the accumulated bias; on the activation region
-of $x$ the network is the affine map $x'\mapsto Jx'+c$. The knowledge matrix is
+Throughout, $\Net:\R^d\to\R^C$ is a feedforward network. Write $z^{(\ell)}_q(x)$
+for the pre-activation of hidden unit $q$ in layer $\ell$ at input $x$, and
 \begin{equation}
-\M(\theta,x)\;=\;\bigl[\,J(\theta,x)\,\mathrm{diag}(x)\;\big|\;c(\theta,x)\,\bigr]
-\;\in\;\R^{C\times(d+1)},
-\qquad
-\M(\theta,x)\,\mathbf 1_{d+1}\;=\;f(\theta,x)
-\quad\text{(exact, at every $x$)} .
+D^{(\ell)}(x)\;=\;\mathrm{diag}\!\left(\frac{f\bigl(z^{(\ell)}_q(x)\bigr)}{z^{(\ell)}_q(x)}\right)_{\!q},
+\qquad\text{with the guard } 0/0\mapsto0,
+\label{eq:D-def}
+\end{equation}
+for the diagonal matrix of that layer's \emph{activation-to-pre-activation
+quotients}. This is the definition for an arbitrary activation $f$ with
+an arbitrary activation, not a device for a special case: $D^{(\ell)}(x)$ is the
+diagonal carried by the induced thin quiver representation of
+\citet{armenta2021representation}, whose Theorem~6.4 gives the identity below
+for any activation function. It happens to be a $0/1$ \emph{mask} exactly when
+$f$ is ReLU, since $\mathrm{ReLU}(z)/z=\mathbb 1[z>0]$ off $z=0$.
+Write $X_{\mathrm{nz}}$ for the set of inputs at which no hidden
+pre-activation vanishes, $\cwf(x)$ for the accumulated bias and
+$\Jwf(x)=W^{(L)}D^{(L-1)}(x)\cdots D^{(1)}(x)W^{(1)}$.
+The knowledge matrix is
+\begin{equation}
+\begin{gathered}
+\KMwfx\;=\;\bigl[\,\Jwf(x)\,\mathrm{diag}(x)\;\big|\;\cwf(x)\,\bigr]
+\;\in\;\R^{C\times(d+1)},\\[3pt]
+\KMwfx\,\mathbf 1_{d+1}\;=\;\Netx
+\quad\text{(exact on $X_{\mathrm{nz}}$, for \emph{every} activation $f$)} .
+\end{gathered}
 \label{eq:km-def}
 \end{equation}
+
+\clarify{No condition on $f$ is imposed, and in particular none on $f(0)$: for
+sigmoid, with $f(0)=\tfrac12$, the row sums reproduce the logits to $10^{-14}$
+at random inputs. The one hypothesis is $x\in X_{\mathrm{nz}}$, and it is not
+removable by a better guard. Where a pre-activation is exactly zero the
+post-activation is $f(0)$ while $D_{qq}z_q=0$ for \emph{any} finite $D_{qq}$, so
+the identity fails there by exactly $f(0)$ whatever value the guard assigns ---
+$0/0\mapsto0$ and $0/0\mapsto10^6$ leave the same shortfall. Activations with
+$f(0)=0$ are precisely those for which the exceptional set disappears and
+\eqref{eq:km-def} holds at every input, ReLU among them; that is the role of the
+condition, and it is a bonus rather than a prerequisite. $X_{\mathrm{nz}}$ is
+open, and dense of full measure whenever no unit's pre-activation vanishes
+identically --- automatic for a real-analytic $f$ (sigmoid, $\tanh$, GELU,
+SiLU), and for the ReLU family it is the complement of the finitely many
+hyperplanes of Lemma~\ref{lem:null}. One honest caveat: when $f(0)\neq0$ the
+quotient behaves like $f(0)/z$ near the excluded set, so $D$ is unbounded there
+($D=5.25$ at $z=10^{-1}$ rising to $5\times10^{5}$ at $z=10^{-6}$ for sigmoid).
+The identity stays exact; the entries do not stay small.}
+
+\clarify{Two things are worth separating at the outset, because the rest of this
+section turns on the distinction. Equation~\eqref{eq:km-def} is a
+\emph{definition} plus an algebraic identity: $h_q=D_{qq}z_q$ holds by
+construction, so the row sums reproduce the logits on $X_{\mathrm{nz}}$ for
+every activation, with no genericity hypothesis beyond that and no appeal to
+differentiability. What is special about the piecewise-linear case is not the
+definition but a \emph{theorem}: there, and only there, the product
+$\Jwf(x)$ coincides with the Jacobian $D\Net(x)$, so the matrix records the germ
+(Theorem~\ref{thm:germ}). For a smooth activation the quotient $f(z)/z$ is not
+$f'(z)$ --- at $z=0.105$ a $\tanh$ unit has quotient $0.9963$ against derivative
+$0.9890$ --- and the germ reading is unavailable, though the row-sum identity is
+untouched. Everything in Section~\ref{sec:geometry} that speaks of regions,
+walls and crossings therefore belongs to the PL case; the object itself does
+not.}
+
+\clarify{A word on the two roles of $f$. Throughout this paper $f$ denotes the
+\emph{activation} function and $W$ the collection of weights; $\Net$ is the
+\emph{network} function that the pair realises. This is why the knowledge
+matrix is written $\KMwf$, and its local data $\Jwf$ and $\cwf$: all three are
+built from the same $W$ and the same $f$, in the quiver-representation notation
+of \citet{armenta2021representation}. The parameter collection is $W$
+throughout; a transformed one is written $W'$, and $W^\pi$ or $W^\tau$ when the
+transform is a neuron permutation or a teleportation. Note that $f$ is
+\emph{not} the network: writing the row-sum identity as $M(W{,}f)(x)\mathbf
+1=f(x)$, as is sometimes done, uses $f$ in two incompatible senses.}
+
+\begin{definition}[Locally constant slope diagonal]\label{def:lcs}
+A network has a \emph{locally constant slope diagonal} at $x$ if every
+$D^{(\ell)}$ of \eqref{eq:D-def} is constant on a neighbourhood of $x$. We
+abbreviate the condition (LCS).
+\end{definition}
+
+\begin{proposition}[What (LCS) is, and what it is not; (ii) is classical]\label{prop:lcs}
+\emph{(i)} If (LCS) holds at $x$ then $\Net$ is affine on a neighbourhood of
+$x$, with $\Netxp=\Jwf(x)\,x'+\cwf(x)$ there.
+\emph{(ii)} For a continuous activation $f$ and pre-activations
+that are not locally constant, (LCS) holds off a null set if and only if
+\[
+f(z)\;=\;a_{+}\max(z,0)+a_{-}\min(z,0)
+\qquad\text{for constants }a_{\pm},
+\]
+the two-parameter leaky-ReLU family --- which contains
+$\mathrm{ReLU}$ $(a_-{=}0)$, $|\cdot|$ $(a_-{=}{-}1)$, and the identity
+$(a_+{=}a_-{=}1)$. Equivalently, $f$ is \emph{positively homogeneous of degree
+one}, $f(\lambda z)=\lambda f(z)$ for $\lambda>0$; part~(ii) is the classical
+classification of such functions on the line and we claim no novelty for it
+(see the remark below). \emph{(iii)} (LCS) is therefore \emph{strictly stronger}
+than piecewise linearity of $f$: hard-tanh $z\mapsto\mathrm{clip}(z,-1,1)$ and
+the shifted unit $z\mapsto\max(z-1,0)$ are piecewise linear, so the network they
+build is piecewise affine and has a germ everywhere on $X_{\mathrm{reg}}$, yet
+their slope diagonal ranges over a continuum and $\Jwf(x)\neq D\Net(x)$.
+\end{proposition}
+
+\begin{proof}
+\emph{(i)} With each $D^{(\ell)}$ constant on a neighbourhood $U$, the relation
+$h^{(\ell)}=D^{(\ell)}z^{(\ell)}$ is linear on $U$; composing the affine
+pre-activation maps layer by layer gives an affine map on $U$, and unrolling
+identifies it with $\Jwf(x)x'+\cwf(x)$. \emph{(ii)} If $D_{qq}=f(z)/z$ is
+constant on a neighbourhood and $z$ is non-constant there, then $f(z)=az$ on an
+interval: every linear piece passes through the origin. Two adjacent pieces
+$a_1z$ and $a_2z$ meeting at a breakpoint $z_0\neq0$ force $a_1z_0=a_2z_0$,
+hence $a_1=a_2$; so a \emph{continuous} such $f$ can break only at $z=0$, which
+is the displayed form. Note that $f(0)=0$ follows rather than being assumed:
+continuity forces $f(0)=\lim_{z\to0^{+}}a_{+}z=0$. Under (LCS), therefore,
+$X_{\mathrm{nz}}$ imposes no restriction and \eqref{eq:km-def} holds everywhere. The converse is immediate, $f(z)/z$ taking the value
+$a_+$ on $\{z>0\}$ and $a_-$ on $\{z<0\}$. \emph{(iii)} At $z=2$, hard-tanh has
+$f(z)/z=1/2$ against $f'(z)=0$; the shifted unit has $f(z)/z=1/2$ against
+$f'(z)=1$.
+\end{proof}
+
+\begin{clarifybox}
+\textbf{Attribution for part (ii).} It is a restatement of a standard fact and
+we record it only because we need the exact class. Local constancy of $f(z)/z$
+on $\{z>0\}$ and on $\{z<0\}$ is precisely positive homogeneity of degree one:
+$f(\lambda z)=\lambda f(z)$ for $\lambda>0$ gives $f(z)=f(1)z$ for $z>0$ and
+$f(z)=-f(-1)z$ for $z<0$, and conversely. That continuous positively
+homogeneous functions on $\R$ are exactly $a_+\max(z,0)+a_-\min(z,0)$ is
+elementary and long-standing; the general theory on $\R^n$, where the
+classification is genuinely substantial, is surveyed by
+\citet{gorokhovik2016positively}. In the learning-theory literature the
+consequence for activations --- that ReLU and leaky ReLU are the positively
+homogeneous ones, and that this is what makes networks built from them
+homogeneous in their parameters --- is used routinely, for instance by
+\citet{neyshabur2015path}, \citet{dinh2017sharp}, and most explicitly by
+\citet{lyu2020gradient}, whose analysis assumes exactly this class. What we
+have not found stated elsewhere is the reformulation as a condition on the
+slope diagonal $D$, and part~(iii): that this class is \emph{strictly smaller}
+than the piecewise-linear activations, so that a PL network can have a germ
+everywhere and still fail the germ identity. We flag that as an observation we
+did not find in the literature rather than as a result.
+\end{clarifybox}
+
+\clarify{This is the hypothesis that the germ results actually use, and stating
+it on $D$ rather than on $f$ is what makes them sharp. Piecewise linearity of
+the activation is neither the condition nor a synonym for it: it delivers a
+germ, since the network is still piecewise affine, but it does not deliver
+$\Jwf(x)=D\Net(x)$, which is what makes the knowledge matrix \emph{be} that
+germ. Part~(ii) explains why Lemma~\ref{lem:null}'s walls are the zero sets
+$\{z^{(\ell)}_{\sigma,q}=0\}$ and nothing else --- under (LCS) there is nowhere
+else for a break to be. Every architecture in our experiments satisfies (LCS):
+ReLU throughout, with affine layers, batch normalisation in evaluation mode and
+average pooling, and max-pooling handled by the tie hyperplanes of
+Lemma~\ref{lem:null}. We keep ``PL'' as the descriptive shorthand for that
+setting, but the load-bearing hypothesis below is (LCS).}
 
 We first fix the object that the knowledge matrix records. Call
 $X_{\mathrm{reg}}\subseteq\R^d$ the \emph{regular set} of inputs whose
@@ -36,30 +170,35 @@ Lebesgue measure (Lemma~\ref{lem:null}), and on it the network coincides with a
 single affine map on a neighbourhood of each point.
 
 \begin{definition}[Germ of a PL network]\label{def:germ}
-Let $f(\theta,\cdot):\R^d\to\R^C$ be piecewise linear and let $x\in
+Let $\Net:\R^d\to\R^C$ be piecewise linear and let $x\in
 X_{\mathrm{reg}}$. Two functions agreeing on \emph{some} neighbourhood of $x$
-define the same \emph{germ} at $x$; the germ of $f$ at $x$ is the equivalence
-class of $f$ under this relation. Because $f$ is affine on a neighbourhood of
-$x$, this class is represented by the local affine pair
-$\bigl(J(\theta,x),\,c(\theta,x)\bigr)$ with $f(x')=J(\theta,x)\,x'+c(\theta,x)$
+define the same \emph{germ} at $x$; the germ of $\Net$ at $x$ is the equivalence
+class of $\Net$ under this relation. Because $\Net$ is affine on a neighbourhood
+of $x$, this class is represented by the local affine pair
+$\bigl(\Jwf(x),\,\cwf(x)\bigr)$ with $\Netxp=\Jwf(x)\,x'+\cwf(x)$
 for all $x'$ near $x$; equivalently, by the first-order Taylor data
-$\bigl(Df(x),\,f(x)\bigr)$ since $J(\theta,x)=Df(x)$ and $c(\theta,x)=f(x)-Df(x)\,x$.
-The germ depends on $\theta$ only through the function $f(\theta,\cdot)$ realises
-locally, not through how $\theta$ encodes it. Throughout, ``germ'' means this
+$\bigl(D\Net(x),\,\Netx\bigr)$ since $\Jwf(x)=D\Net(x)$ and
+$\cwf(x)=\Netx-D\Net(x)\,x$.
+The germ depends on $W$ only through the function $\Net$ realises
+locally, not through how $W$ encodes it. Throughout, ``germ'' means this
 local affine pair.
 \end{definition}
 
-\begin{theorem}[Germ identity]\label{thm:germ}
-Let $X_{\mathrm{reg}}\subseteq\R^d$ be the (open, dense, full-measure) set of
-inputs whose activation pattern is locally constant. For every $x\in
-X_{\mathrm{reg}}$, $f(\theta,\cdot)$ is affine on a neighbourhood of $x$ and
+\begin{theorem}[Germ identity, under (LCS)]\label{thm:germ}
+Let the network satisfy (LCS) (Definition~\ref{def:lcs}) --- as every
+architecture in our experiments does --- and let
+$X_{\mathrm{reg}}\subseteq\R^d$ be the (open, dense, full-measure) set of
+inputs at which it holds. For every $x\in
+X_{\mathrm{reg}}$, $\Net$ is affine on a neighbourhood of $x$ and
 \[
-J(\theta,x)=Df(x),\qquad c(\theta,x)=f(x)-Df(x)\,x,\qquad
-\M(\theta,x)=\bigl[\,Df(x)\,\mathrm{diag}(x)\;\big|\;f(x)-Df(x)\,x\,\bigr].
+\Jwf(x)=D\Net(x),\qquad \cwf(x)=\Netx-D\Net(x)\,x,
 \]
-In particular $\M(\theta,x)$ depends on $\theta$ only through the germ of the
+\[
+\KMwfx=\bigl[\,D\Net(x)\,\mathrm{diag}(x)\;\big|\;\Netx-D\Net(x)\,x\,\bigr].
+\]
+In particular $\KMwfx$ depends on $W$ only through the germ of the
 realised function at $x$. At boundary points the identity
-$\M\mathbf 1=f(x)$ still holds exactly, and the mask convention
+$\M\mathbf 1=\Netx$ still holds exactly, and the mask convention
 $\mathbb 1[z>0]$ selects the one-sided germ from the inactive side.
 \end{theorem}
 
@@ -100,23 +239,50 @@ architecture} that realises the same function near $x$ --- lie in the full
 stabiliser of the germ but outside the quiver-isomorphism group. Invariance
 under these is exactly what is \emph{not} automatic, and it is the genuinely
 novel content of the germ identity (Theorem~\ref{thm:maxinv}): the matrix
-depends on $\theta$ only through the germ of Definition~\ref{def:germ}, so any
+depends on $W$ only through the germ of Definition~\ref{def:germ}, so any
 two encodings of the same local function --- however different their graphs ---
 produce the same matrix.
 
 \begin{lemma}[Quiver-isomorphism invariance]\label{lem:quiver-inv}
-Let $\theta'$ be obtained from $\theta$ by a quiver isomorphism: a hidden-layer
+Let $W'$ be obtained from $W$ by a quiver isomorphism: a hidden-layer
 neuron permutation, a nonzero per-neuron rescaling, or any composite thereof,
 with the per-neuron activations carried with their units. Then
-$\M(\theta',x)=\M(\theta,x)$ for every $x\in\R^d$ at which both networks have a
+$\KMarg{W'}{x}=\KMwfx$ for every $x\in\R^d$ at which both networks have a
 well-defined secant decomposition, by the conjugation/telescoping of the slope
 products and bias accumulators (proof of Proposition~\ref{prop:perm}; positive
 rescalings telescope by the same argument).
 \end{lemma}
 
+\begin{clarifybox}
+\emph{The secant decomposition.} Write $z_q$ for a hidden unit's pre-activation
+and $h_q=\varphi(z_q)$ for its post-activation. In place of the derivative
+$\varphi'(z_q)$, the construction uses the \emph{secant} (chord) slope
+$a_q=\varphi(z_q)/z_q$, with the guard $a_q=0$ when $z_q=0$, so that
+$h_q=a_qz_q$ holds \emph{exactly} --- an identity, not a first-order
+approximation. Collecting the $a_q$ of a layer into a diagonal matrix
+$A^{(\ell)}(x)$ recovers exactly the $D^{(\ell)}(x)$ of \eqref{eq:D-def}: the
+secant decomposition is not an extension of \eqref{eq:km-def} but its content,
+and the masked-product reading is the ReLU specialisation. For ReLU the two agree,
+since $\varphi(z)/z=\mathbb 1[z>0]$ off $z=0$ and the guard $0/0\mapsto0$
+selects the same value as the mask convention at $z=0$. Two consequences are
+used repeatedly. \emph{(1)} The row-sum identity $\M\mathbf 1=\Net$ is exact at
+\emph{every} input, including points on region boundaries, where the
+derivative is ambiguous but the chord is not --- this is what makes
+Proposition~\ref{prop:perm} hold for every $x$ rather than merely almost
+every $x$. \emph{(2)} The same recipe applies verbatim to smooth activations
+(GELU, sigmoid, $\tanh$), for which the derivative supports no exact
+accounting at all; that is the ``secant extension to non-PL activations'' of
+Section~\ref{sec:attribution}. The one requirement is $x\in X_{\mathrm{nz}}$,
+and nothing is asked of $\varphi(0)$: the chord reproduces $h_q=a_qz_q$ exactly
+wherever $z_q\neq0$. Only on the null set $\{z=0\}$ does $\varphi(0)\neq0$
+matter, and there no choice of $a_q$ repairs the identity, since $a_q\cdot0=0$
+for every finite $a_q$; activations with $\varphi(0)=0$ are exactly those for
+which that exceptional set is empty.
+\end{clarifybox}
+
 \begin{theorem}[Maximal invariance: across architectures]\label{thm:maxinv}
-Let $N_1,N_2$ be any two PL networks --- any architectures, widths, depths,
-parameters --- realising the same function on a neighbourhood of
+Let $N_1,N_2$ be any two networks satisfying (LCS) --- any architectures,
+widths, depths, parameters --- realising the same function on a neighbourhood of
 $x\in X_{\mathrm{reg}}(N_1)\cap X_{\mathrm{reg}}(N_2)$. Then
 $\M_1(x)=\M_2(x)$. Consequently $\M(\cdot)(x)$ is invariant under the
 \emph{entire stabiliser} of the realised germ (Definition~\ref{def:germ}) ---
@@ -133,12 +299,17 @@ immediate from Lemma~\ref{lem:quiver-inv}; the only non-automatic content is its
 activations, so that the permutation matrix $P$ commutes with the nonlinearity
 $\varphi$; non-equivariant vector activations are excluded. Within that scope,
 for hidden-layer permutations (weights conjugated, neuron-wise activations
-carried with the units), $\M(\theta^\pi,x)=\M(\theta,x)$ for \emph{every}
+carried with the units), $\KMarg{W^\pi}{x}=\KMwfx$ for \emph{every}
 $x\in\R^d$, including region boundaries, under the secant convention. The scope
 is sharp: for activations with $\varphi(0)\neq0$ the row-sum identity itself can
 fail on the measure-zero set $\{z=0\}$ (where $P$ no longer commutes with the
 constant offset $\varphi(0)$).
 \end{proposition}
+
+\clarify{``Under the secant convention'' refers to the construction described
+after Lemma~\ref{lem:quiver-inv}: each unit's slope is taken to be the chord
+$\varphi(z)/z$ (with $0/0\mapsto0$) rather than $\varphi'(z)$, which is what
+makes the statement hold at region boundaries as well as on the regular set.}
 
 So permutations and positive rescalings telescope identically; neither is the
 ``gap'' --- both are quiver isomorphisms. \emph{Function-preserving surgery}
@@ -147,7 +318,20 @@ genuinely needs the germ identity, and is covered at generic $x$ by
 Theorem~\ref{thm:maxinv}. Genericity is not removable: the
 identity map and $g(x)=\mathrm{ReLU}(x-1)-\mathrm{ReLU}(1-x)+1\equiv x$ have
 $\M_{\mathrm{id}}(1)=[\,1\mid 0\,]\neq[\,0\mid 1\,]=\M_g(1)$ at the kink (equal
-row sums). Conversely, the stabiliser is strictly larger than the isomorphism
+row sums). \clarify{``The kink'' is the point $x=1$: it is the common
+breakpoint of the two ReLU pieces out of which $g$ is built, since each of
+$\mathrm{ReLU}(x-1)$ and $\mathrm{ReLU}(1-x)$ is non-differentiable exactly
+there. So $x=1$ lies on a wall of $g$'s region decomposition,
+$1\notin X_{\mathrm{reg}}(g)$, even though the function $g$ realises --- the
+identity --- is perfectly smooth at $1$, and $1$ is an interior point of the
+identity network's single region. That is the entire content of the example:
+the germ of Definition~\ref{def:germ} is defined on the regular set, and at a
+wall the mask convention $\mathbb 1[z>0]$ picks a one-sided germ; two
+encodings of one function can sit on walls of \emph{different} decompositions
+and pick different sides. Hence the genericity hypothesis in
+Theorem~\ref{thm:maxinv}. The disagreement is confined to a Lebesgue-null set,
+and even there it does not touch the row-sum identity: $[\,1\mid0\,]$ and
+$[\,0\mid1\,]$ both sum to $g(1)=1$.} Conversely, the stabiliser is strictly larger than the isomorphism
 group (Proposition~\ref{prop:contraction}), so $\M$ cannot determine a network
 up to isomorphism --- a feature for robustness claims, a boundary for inverse
 problems.
@@ -157,19 +341,19 @@ problems.
 
 \begin{theorem}[Hidden activations are not enough]\label{thm:complete}
 \emph{(i)} For $x\in X_{\mathrm{reg}}$ with all $x_i\neq0$, $\M(x)$ determines
-the germ $(J,c)$ of $f$ at $x$. \emph{(ii)} The field $x\mapsto\M(x)$
-determines $f$ exactly on any set ($f=\M\mathbf 1$ pointwise), and globally
+the germ $(J,c)$ of $\Net$ at $x$. \emph{(ii)} The field $x\mapsto\M(x)$
+determines $\Net$ exactly on any set ($\Net=\M\mathbf 1$ pointwise), and globally
 when the set has full measure; on a mere open set it does \emph{not} determine
-$f$ beyond the closures of the regions it meets (sharp: $\mathrm{ReLU}(x{-}1)$
+$\Net$ beyond the closures of the regions it meets (sharp: $\mathrm{ReLU}(x{-}1)$
 and $\mathrm{ReLU}(x)$ have identical fields on $(-1,0)$).
 \emph{(iii)} Hidden activations are gauge-covariant: under a positive
 per-neuron rescaling, $a_v\mapsto\tau_v a_v$ while the function is unchanged
 --- any activation statistic that is not gauge-invariant is not a function of
-$(f,x)$. \emph{(iv)} Hidden activations are germ-incomplete: for any $x$ with
-strict masks, $Df(x)\neq0$, and at least one hidden layer, there are
+$(\Net,x)$. \emph{(iv)} Hidden activations are germ-incomplete: for any $x$ with
+strict masks, $D\Net(x)\neq0$, and at least one hidden layer, there are
 arbitrarily small parameter changes that leave \emph{every} hidden pre- and
-post-activation at $x$ and the output $f(x)$ unchanged while changing the germ
---- hence changing $f$ on every neighbourhood of $x$, and changing $\M(x)$.
+post-activation at $x$ and the output $\Netx$ unchanged while changing the germ
+--- hence changing $\Net$ on every neighbourhood of $x$, and changing $\M(x)$.
 \end{theorem}
 
 Parts (iii) and (iv) together are the precise form of the title: activations
@@ -183,17 +367,38 @@ hypothesis ($x_i\neq0$) stated by Remark~\ref{rem:zero-pixels}.
 \label{sec:attribution}
 
 \begin{theorem}[Knowledge matrix $=$ gradient$\times$input $\oplus$ bias attribution]\label{thm:weff}
-For PL networks at $x\in X_{\mathrm{reg}}$ (no pooling ties), the first $d$
+For networks satisfying (LCS) at $x\in X_{\mathrm{reg}}$ (no pooling ties), the first $d$
 columns of $\M(x)$ are exactly per-class gradient$\times$input,
-$\M_{:,i}(x)=(\partial f/\partial x_i)\,x_i$, and the last column is the raw,
+$\M_{:,i}(x)=(\partial\Net/\partial x_i)\,x_i$, and the last column is the raw,
 signed, class-resolved aggregate of the network's bias attributions,
-$c=\sum_\ell(\partial f/\partial b^{(\ell)})\,b^{(\ell)}$. Hence $\M(x)$ equals
+$c=\sum_\ell(\partial\Net/\partial b^{(\ell)})\,b^{(\ell)}$. Hence $\M(x)$ equals
 per-class gradient$\times$input augmented by an exact aggregate bias column. The
 same matrix is computed by several equivalent routes (masked product, the probe
 construction, and autograd), detailed in Appendix~\ref{app:engineering}.
 \end{theorem}
 
-\textbf{We own this equivalence as a strength.} For PL networks at almost every
+\begin{clarifybox}
+\emph{``No pooling ties.''} Max-pooling is piecewise linear but
+non-differentiable wherever two or more entries of a pooling window attain the
+maximum simultaneously --- a \emph{tie}. At a tie the subgradient is
+set-valued: the window's output may be routed to either winning entry, so the
+masked-product Jacobian, and with it $\M$ and per-class
+gradient$\times$input, depend on the tie-breaking rule rather than on the
+function. The tie hyperplanes are exactly the extra walls that the proof of
+Lemma~\ref{lem:null} adds for max-pooling, so this is not a new hypothesis: it
+is what $x\in X_{\mathrm{reg}}$ already asks of the pooling layers, spelled
+out because a reader may hear $X_{\mathrm{reg}}$ as a statement about ReLU
+signs alone. Ties are a Lebesgue-null event. Our convention is the one the
+implementation inherits from PyTorch: the forward pass stores the
+\texttt{return\_indices} argmax, which on a tie selects the lowest flat index
+in the window, and every route --- masked product, probe, autograd --- reuses
+that same stored index, so the three still agree with one another on the null
+set (Appendix~\ref{app:engineering}). What the hypothesis rules out is the
+stronger claim, that the shared value is determined by the realised function
+and not by the convention.
+\end{clarifybox}
+
+\textbf{We own this equivalence as a strength.} Under (LCS) at almost every
 input, the knowledge matrix coincides, column for column, with per-class
 gradient$\times$input \citep{shrikumar2016not,ancona2018towards} augmented by a
 per-class aggregate bias attribution in the sense of FullGrad
@@ -201,7 +406,7 @@ per-class aggregate bias attribution in the sense of FullGrad
 the spline view of deep networks \citep{balestriero2018spline} and of Jacobian
 analyses of bias-free denoisers \citep{mohan2020robust}. We therefore flag, as a
 load-bearing premise of everything below: \emph{every function-level property of
-$\M$ on PL nets --- invariance, completeness, fixed shape, exact row sums --- is
+$\M$ under (LCS) --- invariance, completeness, fixed shape, exact row sums --- is
 shared by that gradient$\times$input data, not specific to the knowledge
 matrix.} This is not a concession but a foothold: it grounds the construction in
 established attribution theory, supplies its exact completeness identity, and is
@@ -213,7 +418,10 @@ Section~\ref{sec:geometry}), comparable across architectures without neuron
 alignment, with a path-resolved quiver-representation lift above it
 \citep{armenta2021representation,armenta2022double} and a secant extension to
 non-PL activations where gradient attributions satisfy no exact completeness
-identity. Computation of $\M$ --- the probe construction, the $C$
+identity. \clarify{That extension is the secant construction described after
+Lemma~\ref{lem:quiver-inv}: replacing each unit's derivative by its chord
+$\varphi(z)/z$ keeps $\M\mathbf 1=\Net$ exact for smooth activations, for which
+$\varphi'$ supports no exact accounting.} Computation of $\M$ --- the probe construction, the $C$
 vector--Jacobian-product route, the measured speed-up, and numerical validation
 --- is deferred to Appendix~\ref{app:engineering}.
 

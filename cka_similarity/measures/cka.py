@@ -1,7 +1,16 @@
 """Debiased linear CKA via the unbiased HSIC₁ U-statistic
 (Song-Smola-Gretton 2012; Nguyen-Raghu-Kornblith 2021).
 
-Required for n < p regime per Murphy-Adolfi-Bowers ICLR 2024.
+Why the unbiased estimator: it removes the O(1/n) upward bias of the biased
+HSIC V-statistic at ANY n/p ratio (Murphy-Adolfi-Bowers ICLR 2024), and it is
+the estimator the minibatch-CKA framework specifies.
+
+NOT because we are in an n < p regime -- we are not. An earlier version of this
+comment (and of the paper's Study 1C setup) claimed "required for n < p": that
+is backwards. Penultimate widths here are 2048 (resnet152) and 1024
+(densenet121, googlenet), against N = 25,000 samples, so n >> p. The chunking
+below does not change that: finalize concatenates every chunk's row block and
+applies HSIC₁ to the full N×N Gram matrix, so the effective n really is N.
 
 The chunked formulation accumulates per-chunk Gram-block sums and
 combines them in finalize, since HSIC₁ depends on the full N×N Gram
