@@ -377,6 +377,48 @@ same matrix is computed by several equivalent routes (masked product, the probe
 construction, and autograd), detailed in Appendix~\ref{app:engineering}.
 \end{theorem}
 
+\begin{remark}[A knowledge-matrix penalty is input-gradient regularisation]
+\label{rem:doublebackprop}
+Theorem~\ref{thm:weff} has a consequence for \emph{training} that we did not set
+out to obtain and do not test here, but that seems worth recording because it
+lands on well-trodden ground. Penalising the size of the knowledge matrix is
+penalising an input gradient. Explicitly, dropping the bias column,
+\[
+\bigl\|\M(x)\bigr\|_F^2-\bigl\|c(x)\bigr\|_2^2
+\;=\;\sum_{c=1}^{C}\sum_{i=1}^{d}
+\Bigl(\frac{\partial \Psi_c(W\!,f)}{\partial x_i}\,x_i\Bigr)^{\!2}
+\;=\;\bigl\|\nabla_x\Net\odot x\bigr\|_F^2 ,
+\]
+an input-gradient$\times$input penalty. That is the input-scaled, per-class,
+logit-space member of a family that is already known to work: double
+backpropagation \citep{drucker1992improving}, revived as input-gradient
+regularisation for adversarial robustness and interpretability by
+\citet{ross2018improving} and scaled up by \citet{finlay2019scaleable}. Those
+penalise $\|\nabla_x\mathcal L\|^2$ or $\|\nabla_x\sum_c\log p_c\|^2$; the
+knowledge-matrix form differs in weighting each coordinate by $x_i$, in
+resolving the penalty by class rather than summing over classes first, and in
+acting on logits rather than log-probabilities.
+
+Two of this paper's results say what such a penalty would and would not buy.
+Theorem~\ref{thm:pyth} supplies the robustness direction as an inequality rather
+than an intuition: $\|\Delta\Net\|_2\le\sqrt{d{+}1}\,\|\Delta\M\|_F$, so
+controlling knowledge-matrix displacement controls logit displacement, which is
+the quantity an attack must move. Theorem~\ref{thm:within} says what is being
+controlled within a region, $d_M^2=\sum_i\delta_i^2\|J_{:,i}\|_2^2$: a
+perturbation-weighted Jacobian energy, so the penalty is anisotropic in a way a
+plain $\|\nabla_x\mathcal L\|^2$ is not. It also flags the obvious failure mode
+--- the $x_i$ weighting makes the penalty blind wherever $x_i=0$
+(Remark~\ref{rem:zero-pixels}), which for preprocessed images is a set of
+positive probability, so $W_{\mathrm{eff}}$ rather than $\M$ would be the
+sensible object to penalise.
+
+We state this as a connection, not a result. We run no training experiment in
+this paper, and nothing here should be read as evidence that the penalty helps;
+what Theorem~\ref{thm:weff} establishes is only that it is not a new idea in
+disguise --- it is double backprop with an input-scaled, class-resolved
+weighting, and it inherits whatever that literature has established.
+\end{remark}
+
 \begin{clarifybox}
 \emph{``No pooling ties.''} Max-pooling is piecewise linear but
 non-differentiable wherever two or more entries of a pooling window attain the
