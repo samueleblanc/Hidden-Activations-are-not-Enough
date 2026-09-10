@@ -467,6 +467,135 @@ $\varphi'$ supports no exact accounting.} Computation of $\M$ --- the probe cons
 vector--Jacobian-product route, the measured speed-up, and numerical validation
 --- is deferred to Appendix~\ref{app:engineering}.
 
+\subsection{Input symmetries: how the knowledge matrix transforms}
+\label{sec:equivariance}
+
+Sections~\ref{sec:invariance}--\ref{sec:attribution} moved $W$ and held $x$
+fixed. Geometric deep learning \citep{bronstein2021geometric} does the opposite:
+it fixes $W$ and asks how the network responds when a group acts on the
+\emph{input}. The two questions are independent, and the second has a clean
+answer for the knowledge matrix, with one sharp restriction.
+
+Let a group $G$ act on inputs through a linear representation $\pi$ and on
+outputs through $\rho$, and let the network be $G$-equivariant,
+$\Psi(W\!,f)(\pi(g)x)=\rho(g)\,\Psi(W\!,f)(x)$ for all $g,x$. Write
+$\pi(g)\oplus1$ for the $(d{+}1)\times(d{+}1)$ map acting as $\pi(g)$ on the
+input columns and trivially on the bias slot.
+
+\begin{proposition}[Equivariance of the knowledge matrix]\label{prop:equivar}
+At every $x\in X_{\mathrm{reg}}\cap X_{\mathrm{nz}}$:
+\emph{(i)} the germ intertwines the two representations,
+$J(W\!,f)(\pi(g)x)=\rho(g)\,J(W\!,f)(x)\,\pi(g)^{-1}$;
+\emph{(ii)} the bias column is equivariant for the \emph{output} action alone,
+$c(W\!,f)(\pi(g)x)=\rho(g)\,c(W\!,f)(x)$, with no occurrence of $\pi$;
+\emph{(iii)} if $\pi(g)$ is a permutation matrix then
+\[
+\KMarg{W}{\pi(g)x}\;=\;\rho(g)\;\KMwfx\;\bigl(\pi(g)\oplus1\bigr)^{-1},
+\]
+so $\M$ is a $C\times(d{+}1)$ equivariant tensor, carrying $\rho$ on its rows and
+$\pi$ on its columns;
+\emph{(iv)} conversely, \eqref{eq:km-def} transforms this way for \emph{all}
+inputs and all equivariant networks \emph{only if} $\pi(g)$ is a permutation
+matrix;
+\emph{(v)} the variant $W_{\mathrm{eff}}=[\,J\mid c\,]$ satisfies the same law
+$W_{\mathrm{eff}}(\pi(g)x)=\rho(g)W_{\mathrm{eff}}(x)(\pi(g)\oplus1)^{-1}$ for
+\emph{any} invertible linear $\pi(g)$.
+\end{proposition}
+
+\begin{proof}
+\emph{(i)} Differentiate the equivariance relation at $x$ and apply the chain
+rule. \emph{(ii)} $c(\pi(g)x)=\Psi(\pi(g)x)-J(\pi(g)x)\pi(g)x
+=\rho(g)\Psi(x)-\rho(g)J(x)\pi(g)^{-1}\pi(g)x=\rho(g)c(x)$ by (i).
+\emph{(iii)} For a permutation $P$ one has $\mathrm{diag}(Px)=P\,\mathrm{diag}(x)P^{-1}$,
+so $J(Px)\mathrm{diag}(Px)=\rho(g)J(x)P^{-1}P\,\mathrm{diag}(x)P^{-1}
+=\rho(g)\bigl(J(x)\mathrm{diag}(x)\bigr)P^{-1}$; combine with (ii).
+\emph{(iv)} The displayed law for the first block requires
+$\mathrm{diag}(\pi(g)x)=\pi(g)\,\mathrm{diag}(x)\,\pi(g)^{-1}$ for all $x$. The
+right side is diagonal for every $x$ only if $\pi(g)$ normalises the diagonal
+torus, i.e.\ is monomial, $\pi(g)=P\,\mathrm{diag}(a)$. For such a matrix the
+scalars cancel under conjugation, $\pi(g)\mathrm{diag}(x)\pi(g)^{-1}
+=\mathrm{diag}(x\circ\varsigma)$, while
+$\mathrm{diag}(\pi(g)x)=\mathrm{diag}(a_i x_{\varsigma(i)})$; equality for all
+$x$ forces $a\equiv1$. \emph{(v)} Immediate from (i) and (ii), no property of
+$\mathrm{diag}$ being used. \qedhere
+\end{proof}
+
+\begin{clarifybox}
+\textbf{What is ours here and what is not.} Part~(iii) is \emph{not} new and we
+do not claim it: \citet[Prop.~D.6]{crabbe2023evaluating} prove exactly this
+equivariance, under the same permutation hypothesis and by the same
+$\mathrm{diag}(Px)=P\,\mathrm{diag}(x)P^{\top}$ step, for a family of
+gradient-based explanations that includes gradient$\times$input
+(their Remark~D.7, at $\varphi=\delta(t{-}1)$) and integrated gradients
+(at $\varphi\equiv1$). Part~(i) is older still and essentially the chain rule.
+Their Remark~D.3 already notes that permutation representations are orthogonal
+but not conversely, and their Appendix~H places Spherical CNNs outside their
+scope as future work.
+
+What we add is (ii), (iv) and (v). Their model is assumed \emph{invariant}, a
+scalar or label output with $\rho$ trivial; the two-sided law of~(iii) with a
+non-trivial output action, and the bias-column identity~(ii) --- which has no
+counterpart in their setting, their explanation being a Hadamard product with no
+bias term --- do not appear there. Nor does the converse~(iv): sufficiency of
+the permutation hypothesis is proved, necessity is not, and we have not found it
+stated elsewhere. We verified~(iv) numerically as well as algebraically; signed
+permutations, monomial matrices, pure input rescalings, rotations and generic
+orthogonal maps all fail, by $\mathcal O(1)$ rather than marginally.
+\end{clarifybox}
+
+\begin{remark}[Which geometric models this covers, and which it does not]
+\label{rem:gdl-scope}
+Part~(iii) applies to every symmetry that acts on the input by permuting
+coordinates: node relabelling in graph networks and DeepSets,
+translations of a discrete grid, and the finite rotation--reflection groups of a
+square lattice. It does not apply to continuous rotations. On
+$\mathrm{SO}(2)$-, $\mathrm{SO}(3)$- or $E(n)$-equivariant architectures the
+first $d$ columns of $\M$ are not equivariant, because the $\mathrm{diag}(x)$
+weighting is tied to a distinguished basis; the discrepancy is of the same order
+as the matrix itself, not a small error. The remedy is~(v): use
+$W_{\mathrm{eff}}=[\,J\mid c\,]$, which is equivariant for any linear action and
+which Remark~\ref{rem:zero-pixels} already recommends for the unrelated reason
+that it is insensitive to vanishing input coordinates.
+
+This is also the reason for a caveat stated later on other grounds. The
+coherence $A$ of Section~\ref{sec:geometry} is invariant under a permutation
+action, since the row and column actions are orthogonal, but not under a
+rotation --- which is exactly the pixel-basis dependence
+Theorem~\ref{thm:pyth}'s discussion flags. The dependence is inherited from
+$\mathrm{diag}(x)$, and by~(iv) it is not removable within the definition.
+\end{remark}
+
+\begin{remark}[Two unrelated meanings of ``gauge'']\label{rem:gauge-collision}
+We use \emph{gauge} for the parameter-space redundancy of
+Section~\ref{sec:invariance}: transformations of $W$ that leave $\Psi(W\!,f)$
+fixed, following the reading of parametric redundancy as gauge symmetry of
+\citet{hashimoto2024unification}. In geometric deep learning the same word names
+something else entirely --- the choice of local frame on a manifold, with gauge
+equivariance meaning independence of that choice
+\citep{cohen2019gauge,bronstein2021geometric}. The two act on different objects,
+parameters in one case and tangent frames in the other, and nothing in this
+paper concerns the second. We flag the collision because both usages are
+established and a reader arriving from either literature will otherwise assume
+the wrong one.
+\end{remark}
+
+\begin{remark}[Why the correctness checks permute channels]\label{rem:channelperm}
+Proposition~\ref{prop:equivar} also explains a constraint that
+Appendix~\ref{app:teleport-checks} otherwise reports as an implementation limit.
+Requiring an architecture to remain $G$-equivariant restricts which quiver
+isomorphisms are available: a per-neuron rescaling that varies across the
+positions tied together by a convolution destroys the weight sharing, so the
+rescaled layer is no longer a convolution and has left the equivariant class,
+whereas a rescaling constant on each channel stays inside it. The
+architecture-preserving part of the gauge group of a convolutional network is
+therefore per-channel rather than per-neuron --- which is why the permutation
+check acts on the $2048$-channel post-pool face and why bottleneck interiors are
+not permutable in place. The knowledge matrix is invariant under the full quiver
+group in any case (Lemma~\ref{lem:quiver-inv}), so nothing about its invariance
+depends on this; what the restriction fixes is which transforms an experiment
+can realise.
+\end{remark}
+
 \begin{remark}[The quiver lift is scaffolding for future work, not machinery of this paper]
 \label{rem:series-positioning}
 Every result in this paper --- the germ identity (Theorem~\ref{thm:germ}), maximal
